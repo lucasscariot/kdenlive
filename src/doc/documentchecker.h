@@ -71,6 +71,7 @@ private:
     QString m_documentid;
     QString m_root;
     QPair<QString, QString> m_rootReplacement;
+    QString m_lastSavePath;
 
     QDomNodeList m_binEntries;
     std::vector<DocumentResource> m_items;

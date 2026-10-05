@@ -295,6 +295,12 @@ bool DocumentChecker::hasErrorInProject()
                 }
             }
 
+            // Get last save path for recovery
+            m_lastSavePath = QDir::cleanPath(Xml::getXmlProperty(mainBinPlaylist, QStringLiteral("kdenlive:docproperties.lastsavefolder"))) + QLatin1Char('/');
+            if (!m_lastSavePath.isEmpty() && !QFileInfo(m_lastSavePath).exists()) {
+                m_lastSavePath.clear();
+            }
+
             // get bin ids
             m_binEntries = mainBinPlaylist.elementsByTagName(QLatin1String("entry"));
             for (int i = 0; i < m_binEntries.count(); ++i) {
@@ -676,11 +682,11 @@ DocumentChecker::~DocumentChecker() {}
 
 const QString DocumentChecker::relocateResource(QString sourceResource)
 {
-    if (m_rootReplacement.first.isEmpty()) {
+    if (m_rootReplacement.first.isEmpty() && m_lastSavePath.isEmpty()) {
         return QString();
     }
 
-    if (sourceResource.startsWith(m_rootReplacement.first)) {
+    if (!m_rootReplacement.first.isEmpty() && sourceResource.startsWith(m_rootReplacement.first)) {
         sourceResource.replace(m_rootReplacement.first, m_rootReplacement.second);
         // Use QFileInfo to ensure we also handle directories (for slideshows)
         if (QFileInfo::exists(sourceResource)) {
@@ -688,6 +694,15 @@ const QString DocumentChecker::relocateResource(QString sourceResource)
         }
         return QString();
     }
+
+    if (!m_lastSavePath.isEmpty() && sourceResource.startsWith(m_root)) {
+        sourceResource.replace(m_root, m_lastSavePath);
+        if (QFileInfo::exists(sourceResource)) {
+            return sourceResource;
+        }
+        return QString();
+    }
+
     // Check if we have a common root, if file has a common ancestor in its path
     QStringList replacedRoot = m_rootReplacement.second.split(QLatin1Char('/'));
     QStringList cutRoot = m_rootReplacement.first.split(QLatin1Char('/'));

@@ -5289,7 +5289,7 @@ void Bin::showTitleWidget(const std::shared_ptr<ProjectClip> &clip, int timeline
     pCore->temporaryUnplug(clips, true);
     TitleWidget dia_ui(QUrl(), titleFolder.absolutePath(), pCore->monitorManager()->projectMonitor(), pCore->window());
     QDomDocument doc;
-    QString xmldata = clip->getProducerProperty(QStringLiteral("xmldata"));
+    const QString xmldata = clip->getProducerProperty(QStringLiteral("xmldata"));
     if (xmldata.isEmpty() && QFile::exists(path)) {
         if (!Xml::docContentFromFile(doc, path, false)) {
             return;

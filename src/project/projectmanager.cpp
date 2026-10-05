@@ -524,6 +524,7 @@ bool ProjectManager::saveFileAs(const QString &outputFileName, bool saveOverExis
     auto previousStorageInfo = m_project->projectTempFolder();
 
     // Sync document properties
+    QString lastDocumentSavePath = m_project->getDocumentProperty(QStringLiteral("lastsavefolder"));
     if (!saveACopy && outputFileName != m_project->url().toLocalFile()) {
         // Project filename changed
         pCore->window()->updateProjectPath(outputFileName);
@@ -533,10 +534,13 @@ bool ProjectManager::saveFileAs(const QString &outputFileName, bool saveOverExis
     if (m_project->sequenceThumbRequiresRefresh(activeUuid)) {
         pCore->bin()->updateSequenceClip(activeUuid, m_activeTimelineModel->durations(), -1);
     }
+    const QString saveFolder = QFileInfo(outputFileName).absolutePath();
+    m_project->setDocumentProperty(QStringLiteral("lastsavefolder"), saveFolder);
     prepareSave();
-    QString saveFolder = QFileInfo(outputFileName).absolutePath();
     m_project->updateWorkFilesBeforeSave(outputFileName);
     checkProjectIntegrity();
+    bool firstSave = m_project->url().isEmpty();
+    pCore->projectItemModel()->ensureRelativeTitlerPaths(saveFolder);
     QString scene = projectSceneList(saveFolder).first;
     if (!m_replacementPattern.isEmpty()) {
         QMapIterator<QString, QString> i(m_replacementPattern);
@@ -548,9 +552,13 @@ bool ProjectManager::saveFileAs(const QString &outputFileName, bool saveOverExis
     m_project->updateWorkFilesAfterSave();
     if (!m_project->saveSceneList(outputFileName, scene, saveOverExistingFile)) {
         KNotification::event(QStringLiteral("ErrorMessage"), i18n("Saving project file <br><b>%1</B> failed", outputFileName), QPixmap());
+        if (!firstSave) {
+            const QString projectFolder = m_project->url().adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash).toLocalFile() + QLatin1Char('/');
+            pCore->projectItemModel()->ensureRelativeTitlerPaths(projectFolder);
+        }
+        m_project->setDocumentProperty(QStringLiteral("lastsavefolder"), lastDocumentSavePath);
         return false;
     }
-    QUrl url = QUrl::fromLocalFile(outputFileName);
     // Save timeline thumbnails
     std::unordered_map<QString, std::vector<int>> thumbKeys = pCore->window()->getCurrentTimeline()->controller()->getThumbKeys();
     pCore->projectItemModel()->updateCacheThumbnail(thumbKeys);
@@ -562,7 +570,15 @@ bool ProjectManager::saveFileAs(const QString &outputFileName, bool saveOverExis
     }
     ThumbnailCache::get()->saveCachedThumbs(thumbKeys);
     pCore->bin()->saveSequenceAudioThumb();
-    if (!saveACopy) {
+    const QUrl url = QUrl::fromLocalFile(outputFileName);
+    if (saveACopy) {
+        // Restore initial paths
+        if (!firstSave) {
+            const QString projectFolder = m_project->url().adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash).toLocalFile() + QLatin1Char('/');
+            pCore->projectItemModel()->ensureRelativeTitlerPaths(projectFolder);
+        }
+        m_project->setDocumentProperty(QStringLiteral("lastsavefolder"), lastDocumentSavePath);
+    } else {
         m_project->setUrl(url);
         // setting up autosave file in ~/.kde/data/stalefiles/kdenlive/
         // saved under file name

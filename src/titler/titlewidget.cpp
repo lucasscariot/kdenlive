@@ -14,6 +14,7 @@
 #include "titlewidget.h"
 #include "bin/bin.h"
 #include "core.h"
+#include "doc/kdenlivedoc.h"
 #include "doc/kthumb.h"
 #include "gradientwidget.h"
 #include "kdenlivesettings.h"
@@ -48,6 +49,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QSpinBox>
+#include <QSvgRenderer>
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTimer>
@@ -705,7 +707,7 @@ QStringList TitleWidget::extractImageList(const QString &xml, const QString &roo
 // static
 QPair<QStringList, QStringList> TitleWidget::extractAndFixImageAndFontsList(QDomElement &e, const QString &root)
 {
-    QString xml = Xml::getXmlProperty(e, QStringLiteral("xmldata"));
+    const QString xml = Xml::getXmlProperty(e, QStringLiteral("xmldata"));
     if (xml.isEmpty()) {
         return {};
     }
@@ -2411,10 +2413,10 @@ void TitleWidget::setXml(const QString &path, const QDomDocument &doc, const QSt
         m_missingMessage->setWordWrap(true);
         m_missingMessage->setMessageType(KMessageWidget::Warning);
         m_missingMessage->setText(i18np("This title has 1 missing element", "This title has %1 missing elements", m_titledocument.invalidCount()));
-        QAction *action = new QAction(i18n("Details"));
+        QAction *action = new QAction(i18n("Search…"), m_missingMessage);
         m_missingMessage->addAction(action);
         connect(action, &QAction::triggered, this, &TitleWidget::showMissingItems);
-        action = new QAction(i18n("Delete missing elements"));
+        action = new QAction(i18n("Remove missing elements"), m_missingMessage);
         m_missingMessage->addAction(action);
         connect(action, &QAction::triggered, this, &TitleWidget::deleteMissingItems);
         messageLayout->addWidget(m_missingMessage);
@@ -2531,7 +2533,97 @@ void TitleWidget::showMissingItems()
         }
     }
     missingUrls.removeDuplicates();
-    KMessageBox::informationList(QApplication::activeWindow(), i18n("The following files are missing:"), missingUrls);
+    m_remplacementPatterns.clear();
+    QDialog d(this);
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto *l = new QVBoxLayout(&d);
+    QLabel *lab = new QLabel(i18n("The following files are missing:"), &d);
+    l->addWidget(lab);
+    QListWidget *lw = new QListWidget(&d);
+    l->addWidget(lw);
+    lw->addItems(missingUrls);
+    lw->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContentsOnFirstShow);
+    KMessageWidget *info = new KMessageWidget(&d);
+    info->setMessageType(KMessageWidget::Positive);
+    info->setText(i18n("All missing files recovered"));
+    info->setCloseButtonVisible(false);
+    info->setWordWrap(true);
+    info->hide();
+    l->addWidget(info);
+    QHBoxLayout *buttonsLayout = new QHBoxLayout;
+    QPushButton *searchButton = new QPushButton(i18n("Search"), this);
+    buttonsLayout->addWidget(searchButton);
+    buttonsLayout->addSpacing(10);
+    buttonsLayout->addWidget(buttonBox);
+    l->addLayout(buttonsLayout);
+    d.connect(buttonBox, &QDialogButtonBox::accepted, &d, &QDialog::accept);
+    d.connect(buttonBox, &QDialogButtonBox::rejected, &d, &QDialog::reject);
+    d.connect(searchButton, &QPushButton::clicked, &d, [&d, this, lw = lw, info = info, searchButton = searchButton]() {
+        QString startUrl;
+        if (!m_path.isEmpty()) {
+            startUrl = QDir::cleanPath(QFileInfo(m_path).absolutePath());
+        } else if (pCore->currentDoc()->url().isValid()) {
+            startUrl = pCore->currentDoc()->documentRoot();
+        }
+        if (!startUrl.isEmpty() && !startUrl.endsWith(QLatin1Char('/'))) {
+            startUrl.append(QLatin1Char('/'));
+        }
+        const QString searchFolder = QFileDialog::getExistingDirectory(&d, i18n("Enter folder for search"), startUrl);
+        if (!searchFolder.isEmpty()) {
+            // Start searching
+            QStringList stillMissingUrls;
+            QDir baseFolder(searchFolder);
+            QStringList missingUrls;
+            for (auto i = 0; i < lw->count(); i++) {
+                missingUrls << lw->item(i)->text();
+            }
+            for (auto &missing : missingUrls) {
+                if (baseFolder.exists(QFileInfo(missing).fileName())) {
+                    QString updatedUrl = baseFolder.absoluteFilePath(QFileInfo(missing).fileName());
+                    if (!startUrl.isEmpty() && updatedUrl.startsWith(startUrl)) {
+                        updatedUrl.remove(startUrl);
+                    }
+                    m_remplacementPatterns.insert(missing, updatedUrl);
+                } else {
+                    stillMissingUrls << missing;
+                }
+            }
+            lw->clear();
+            lw->addItems(stillMissingUrls);
+            if (stillMissingUrls.isEmpty()) {
+                info->animatedShow();
+                searchButton->setEnabled(false);
+            }
+        }
+    });
+    if (d.exec() == QDialog::Accepted) {
+        // Handle replacement
+        if (!m_remplacementPatterns.isEmpty()) {
+            for (int i = 0; i < items.count(); ++i) {
+                if (items.at(i)->data(Qt::UserRole + 2).toInt() == 1) {
+                    // We found a missing item
+                    const QString currentUrl = items.at(i)->data(Qt::UserRole).toString();
+                    if (m_remplacementPatterns.contains(currentUrl)) {
+                        if (items.at(i)->type() == QGraphicsSvgItem::Type) {
+                            auto *gi = static_cast<MySvgItem *>(items.at(i));
+                            QSvgRenderer *renderer = new QSvgRenderer(m_remplacementPatterns.value(currentUrl), this);
+                            gi->setSharedRenderer(renderer);
+
+                        } else if (items.at(i)->type() == IMAGEITEM) {
+                            auto *gi = static_cast<MyPixmapItem *>(items.at(i));
+                            QPixmap pix(m_remplacementPatterns.value(currentUrl));
+                            gi->setPixmap(pix);
+                        }
+                        items.at(i)->setData(Qt::UserRole, m_remplacementPatterns.value(currentUrl));
+                        items.at(i)->setData(Qt::UserRole + 2, QVariant());
+                        items.at(i)->update();
+                    }
+                }
+            }
+            m_remplacementPatterns.clear();
+            updateMissingInfo();
+        }
+    }
 }
 
 void TitleWidget::writeChoices()
@@ -3805,5 +3897,51 @@ void TitleWidget::slotPaste()
         for (auto item : items) {
             item->setSelected(true);
         }
+    }
+}
+
+// static
+QString TitleWidget::ensureRelativePaths(const QString xmlData, const QString &newRoot)
+{
+    if (xmlData.isEmpty()) {
+        qDebug() << ":::: NO XML DATA....";
+        return QString();
+    }
+    QDomDocument doc;
+    doc.setContent(xmlData);
+    bool updated = false;
+    QDomNodeList images = doc.documentElement().elementsByTagName(QStringLiteral("content"));
+    for (int i = 0; i < images.count(); ++i) {
+        QDomElement element = images.at(i).toElement();
+        if (element.hasAttribute(QStringLiteral("url"))) {
+            std::pair<const QString, bool> adjustedPath = pCore->currentDoc()->ensureRelativePath(element.attribute(QStringLiteral("url")), newRoot);
+            if (adjustedPath.second) {
+                // Path was modified
+                updated = true;
+                element.setAttribute(QStringLiteral("url"), adjustedPath.first);
+            }
+        }
+    }
+    if (updated) {
+        return doc.toString();
+    }
+    return QString();
+}
+
+void TitleWidget::updateMissingInfo()
+{
+    QList<QGraphicsItem *> items = graphicsView->scene()->items();
+    int missingItems = 0;
+    for (int i = 0; i < items.count(); ++i) {
+        if (items.at(i)->data(Qt::UserRole + 2).toInt() == 1) {
+            // We found a missing item
+            missingItems++;
+        }
+    }
+    if (missingItems == 0) {
+        m_missingMessage->animatedHide();
+    } else {
+        m_missingMessage->setText(i18np("This title has 1 missing element", "This title has %1 missing elements", missingItems));
+        m_missingMessage->show();
     }
 }

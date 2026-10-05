@@ -143,5 +143,45 @@ TEST_CASE("Project Paths", "[ProjectPaths]")
         REQUIRE(tmpPath.second == StoreWithProjectFile);
         REQUIRE(tmpPath.first == QDir(projectFolder).absoluteFilePath(QStringLiteral("cachefiles")));
     }
+    SECTION("Check relative paths for title resources")
+    {
+        // Test unsaved file first
+        document.setUrl(QUrl());
+        QString source = QDir::temp().absoluteFilePath(("custom/test.png"));
+        QString otherSource = QDir::temp().absoluteFilePath(("custom2/test.png"));
+        QString relativeSource = QStringLiteral("custom/test.png");
+        // A: When document is not saved, no change to source
+        REQUIRE(document.ensureRelativePath(source).first == source);
+        REQUIRE(document.ensureRelativePath(relativeSource).first == relativeSource);
+
+        // Check saving to new root folder outside source
+        REQUIRE(document.ensureRelativePath(source, "/home").first == source);
+        REQUIRE(document.ensureRelativePath(relativeSource, "/home").first == relativeSource);
+
+        // Check saving to new root folder parent of source
+        REQUIRE(document.ensureRelativePath(source, QDir::tempPath()).first == relativeSource);
+        REQUIRE(document.ensureRelativePath(relativeSource, QDir::tempPath()).first == relativeSource);
+
+        // B: With already saved document
+        document.setUrl(QUrl::fromLocalFile(QDir::temp().absoluteFilePath("myproject.kdenlive")));
+        REQUIRE(document.ensureRelativePath(source).first == relativeSource);
+        REQUIRE(document.ensureRelativePath(relativeSource).first == relativeSource);
+
+        // Check saving to new root folder outside source
+        REQUIRE(document.ensureRelativePath(source, "/home").first == source);
+        REQUIRE(document.ensureRelativePath(relativeSource, "/home").first == source);
+
+        // Check saving to new root folder parent of source
+        REQUIRE(document.ensureRelativePath(source, QDir::tempPath()).first == relativeSource);
+        REQUIRE(document.ensureRelativePath(relativeSource, QDir::tempPath()).first == source);
+
+        // C: Moving document to another folder
+        document.setUrl(QUrl::fromLocalFile(QDir::temp().absoluteFilePath("custom/myproject.kdenlive")));
+        // Check saving to new root folder parent of source
+        REQUIRE(document.ensureRelativePath(source).first == QLatin1String("test.png"));
+        REQUIRE(document.ensureRelativePath(otherSource).first == otherSource);
+        REQUIRE(document.ensureRelativePath(source, QDir::temp().absoluteFilePath("custom2")).first == source);
+        REQUIRE(document.ensureRelativePath(otherSource, QDir::temp().absoluteFilePath("custom2")).first == QLatin1String("test.png"));
+    }
     pCore->projectManager()->closeCurrentDocument(false, false);
 }

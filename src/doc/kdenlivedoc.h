@@ -313,6 +313,7 @@ public:
     /** @brief Returns a list of all external files used in effects (LUT, Masks, etc) */
     const QStringList extractExternalEffectFiles();
     enum RENDERLOCATION { SaveToVideoFolder = 0, SaveToProjectFolder, SaveToCustomFolder, SaveToProjectSubFolder };
+    std::pair<const QString, bool> ensureRelativePath(QString currentPath, const QString &updatedRoot = QString());
 
 protected:
     static int next_id; /// next valid id to assign

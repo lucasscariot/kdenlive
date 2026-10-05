@@ -732,6 +732,8 @@ bool KdenliveDoc::saveSceneList(const QString &path, const QString &scene, bool 
         KMessageBox::error(QApplication::activeWindow(), i18n("Cannot write to file %1, scene list is corrupted.", path));
         return false;
     }
+    const QByteArray sceneData = sceneList.toString().toUtf8();
+    sceneList.clear();
 
     // Backup current version
     backupLastSavedVersion(path);
@@ -771,8 +773,6 @@ bool KdenliveDoc::saveSceneList(const QString &path, const QString &scene, bool 
         KMessageBox::error(QApplication::activeWindow(), i18n("Cannot write to file %1", path));
         return false;
     }
-
-    const QByteArray sceneData = sceneList.toString().toUtf8();
 
     file.write(sceneData);
     if (!file.commit()) {
@@ -880,7 +880,7 @@ QString KdenliveDoc::projectDataFolder(const QString &newPath) const
         // Always render to project folder
         if (storageType == StoreInCustomFolder) {
             return KdenliveSettings::defaultprojectfolder();
-        } else if (StoreWithProjectFile) {
+        } else if (storageType == StoreWithProjectFile) {
             return QFileInfo(m_url.toLocalFile()).absolutePath();
         }
     }
@@ -3116,4 +3116,35 @@ const QStringList KdenliveDoc::extractExternalEffectFiles()
     }
     externalFiles.removeDuplicates();
     return externalFiles;
+}
+
+std::pair<const QString, bool> KdenliveDoc::ensureRelativePath(QString currentPath, const QString &updatedRoot)
+{
+    if ((m_url.isEmpty() || QFileInfo(currentPath).isRelative()) && updatedRoot.isEmpty()) {
+        // Nothing to do, return original
+        return {QDir::cleanPath(currentPath), false};
+    }
+    if (!updatedRoot.isEmpty()) {
+        // We are moving to a new path
+        if (!QFileInfo(currentPath).isRelative()) {
+            if (QDir::cleanPath(currentPath).startsWith(QDir::cleanPath(updatedRoot))) {
+                currentPath = QDir(QDir::cleanPath(updatedRoot)).relativeFilePath(currentPath);
+                return {currentPath, true};
+            }
+        } else if (!m_url.isEmpty()) {
+            // Return absolute path
+            QDir previousRoot(m_url.adjusted(QUrl::RemoveFilename).toLocalFile());
+            return {previousRoot.absoluteFilePath(currentPath), true};
+        }
+        return {QDir::cleanPath(currentPath), false};
+    }
+    // Check against our current path
+    if (!QFileInfo(currentPath).isRelative()) {
+        const QString currentDocPath = QDir::cleanPath(m_url.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash).toLocalFile()) + QLatin1Char('/');
+        if (QDir::cleanPath(currentPath).startsWith(currentDocPath)) {
+            currentPath = QDir(currentDocPath).relativeFilePath(currentPath);
+            return {currentPath, true};
+        }
+    }
+    return {QDir::cleanPath(currentPath), false};
 }

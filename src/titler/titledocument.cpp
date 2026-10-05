@@ -14,6 +14,8 @@
 #include "titledocument.h"
 #include "gradientwidget.h"
 
+#include "core.h"
+#include "doc/kdenlivedoc.h"
 #include "graphicsscenerectmove.h"
 #include "kdenlivesettings.h"
 #include "utils/timecode.h"
@@ -118,9 +120,9 @@ const QString TitleDocument::extractBase64Image(const QString &titlePath, const 
     return QString();
 }
 
-QDomDocument TitleDocument::xml(QGraphicsRectItem *startv, QGraphicsRectItem *endv, bool embed)
+QDomDocument TitleDocument::xml(QGraphicsRectItem *startv, QGraphicsRectItem *endv, bool embed, const QString &saveFolder)
 {
-    return xml(m_scene->items(), m_width, m_height, startv, endv, embed, m_projectPath);
+    return xml(m_scene->items(), m_width, m_height, startv, endv, embed, saveFolder.isEmpty() ? m_projectPath : saveFolder);
 }
 
 QDomDocument TitleDocument::xml(const QList<QGraphicsItem *> &items, int width, int height, QGraphicsRectItem *startv, QGraphicsRectItem *endv,
@@ -178,16 +180,28 @@ QDomDocument TitleDocument::xmlItem(QGraphicsItem *item, int width, int height, 
     double xPosition = item->pos().x();
 
     switch (item->type()) {
-    case QGraphicsPixmapItem::Type:
+    case QGraphicsPixmapItem::Type: {
         e.setAttribute(QStringLiteral("type"), QStringLiteral("QGraphicsPixmapItem"));
-        content.setAttribute(QStringLiteral("url"), item->data(Qt::UserRole).toString());
+        std::pair<const QString, bool> adjustedPath = pCore->currentDoc()->ensureRelativePath(item->data(Qt::UserRole).toString(), projectPath);
+        if (adjustedPath.second) {
+            content.setAttribute(QStringLiteral("url"), adjustedPath.first);
+        } else {
+            content.setAttribute(QStringLiteral("url"), item->data(Qt::UserRole).toString());
+        }
         base64ToUrl(item, content, embedImages, projectPath);
         break;
-    case QGraphicsSvgItem::Type:
+    }
+    case QGraphicsSvgItem::Type: {
         e.setAttribute(QStringLiteral("type"), QStringLiteral("QGraphicsSvgItem"));
-        content.setAttribute(QStringLiteral("url"), item->data(Qt::UserRole).toString());
+        std::pair<const QString, bool> adjustedPath = pCore->currentDoc()->ensureRelativePath(item->data(Qt::UserRole).toString(), projectPath);
+        if (adjustedPath.second) {
+            content.setAttribute(QStringLiteral("url"), adjustedPath.first);
+        } else {
+            content.setAttribute(QStringLiteral("url"), item->data(Qt::UserRole).toString());
+        }
         base64ToUrl(item, content, embedImages, projectPath);
         break;
+    }
     case QGraphicsRectItem::Type:
         e.setAttribute(QStringLiteral("type"), QStringLiteral("QGraphicsRectItem"));
         content.setAttribute(QStringLiteral("rect"), rectFToString(static_cast<QGraphicsRectItem *>(item)->rect().normalized()));
@@ -380,7 +394,7 @@ bool TitleDocument::saveDocument(const QUrl &url, QGraphicsRectItem *startv, QGr
         return false;
     }
 
-    QDomDocument doc = xml(startv, endv, embed);
+    QDomDocument doc = xml(startv, endv, embed, QDir::cleanPath(url.adjusted(QUrl::RemoveFilename).toLocalFile()) + QLatin1Char('/'));
     doc.documentElement().setAttribute(QStringLiteral("duration"), duration);
     // keep some time for backwards compatibility (opening projects with older versions) - 26/12/12
     doc.documentElement().setAttribute(QStringLiteral("out"), duration);
@@ -652,7 +666,7 @@ QGraphicsItem *TitleDocument::loadItemFromXml(const QDomNode &itemNode, const QS
                 }
                 pix.load(url);
                 if (pix.isNull()) {
-                    pix = createInvalidPixmap(url, height);
+                    pix = createInvalidPixmap(url, width / 4, height / 4);
                     missingElements++;
                     missing = true;
                 }
@@ -694,7 +708,7 @@ QGraphicsItem *TitleDocument::loadItemFromXml(const QDomNode &itemNode, const QS
                 }
                 gitem = rec;
             } else {
-                QPixmap pix = createInvalidPixmap(url, height);
+                QPixmap pix = createInvalidPixmap(url, width / 4, height / 4);
                 missingElements++;
                 auto *rec2 = new MyPixmapItem(pix);
                 rec2->setData(Qt::UserRole + 2, 1);
@@ -749,19 +763,19 @@ int TitleDocument::invalidCount() const
     return m_missingElements;
 }
 
-QPixmap TitleDocument::createInvalidPixmap(const QString &url, int height)
+QPixmap TitleDocument::createInvalidPixmap(const QString &url, int width, int height)
 {
-    int missingHeight = height / 10;
-    QPixmap pix(missingHeight, missingHeight);
-    QIcon icon = QIcon::fromTheme(QStringLiteral("messagebox_warning"));
+    QPixmap pix(width, height);
+    QIcon icon = QIcon::fromTheme(QStringLiteral("emblem-warning"));
     pix.fill(QColor(255, 0, 0, 50));
     QPainter ptr(&pix);
-    icon.paint(&ptr, 0, 0, missingHeight / 2, missingHeight / 2);
+    int iconSize = qApp->style()->pixelMetric(QStyle::PM_LargeIconSize);
+    icon.paint(&ptr, 4, 4, iconSize, iconSize);
     QPen pen(Qt::red);
     pen.setWidth(3);
     ptr.setPen(pen);
-    ptr.drawText(QRectF(2, 2, missingHeight - 4, missingHeight - 4), Qt::AlignHCenter | Qt::AlignBottom, QFileInfo(url).fileName());
-    ptr.drawRect(2, 1, missingHeight - 4, missingHeight - 4);
+    ptr.drawText(QRectF(2, 2, width - 4, height - 4), Qt::AlignHCenter | Qt::AlignVCenter, QFileInfo(url).fileName());
+    ptr.drawRect(2, 1, width - 4, height - 4);
     ptr.end();
     return pix;
 }

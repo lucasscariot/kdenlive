@@ -27,6 +27,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "projectfolder.h"
 #include "projectsubclip.h"
 #include "sequenceclip.h"
+#include "titler/titlewidget.h"
 #include "utils/thumbnailcache.hpp"
 #include "xml/xml.hpp"
 
@@ -2101,4 +2102,19 @@ std::pair<PlaylistState::ClipState, ClipType::ProducerType> ProjectItemModel::ge
     bool audio = clip->hasAudio();
     bool video = clip->hasVideo();
     return {audio ? (video ? PlaylistState::Disabled : PlaylistState::AudioOnly) : PlaylistState::VideoOnly, clip->clipType()};
+}
+
+void ProjectItemModel::ensureRelativeTitlerPaths(const QString updatedRoot)
+{
+    QList<std::shared_ptr<ProjectClip>> clips = getRootFolder()->childClips();
+    for (auto &clip : clips) {
+        auto type = clip->clipType();
+        if (type != ClipType::Text && type != ClipType::TextTemplate) {
+            continue;
+        }
+        const QString updatedXml = TitleWidget::ensureRelativePaths(clip->getProducerProperty(QStringLiteral("xmldata")), updatedRoot);
+        if (!updatedXml.isEmpty()) {
+            clip->setProducerProperty(QStringLiteral("xmldata"), updatedXml);
+        }
+    }
 }

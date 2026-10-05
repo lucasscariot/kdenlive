@@ -311,7 +311,7 @@ QDomDocument ClipCreator::getXmlFromUrl(const QString &path, ClipType::ProducerT
             }
         }
         prod = createProducer(xml, ClipType::Text, path, QString(), -1, QString());
-        QString titleData = txtdoc.toString();
+        const QString titleData = txtdoc.toString();
         prod.setAttribute(QStringLiteral("xmldata"), titleData);
     } else {
         // it is a "normal" file, just use a producer
