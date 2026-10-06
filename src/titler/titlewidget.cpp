@@ -21,6 +21,7 @@
 #include "monitor/monitor.h"
 #include "profiles/profilemodel.hpp"
 #include "titler/patternsmodel.h"
+#include "utils/uiutils.h"
 #include "widgets/dragvalue.h"
 #include "widgets/timecodedisplay.h"
 #include "xml/xml.hpp"
@@ -107,7 +108,7 @@ TitleWidget::TitleWidget(const QUrl &url, QString projectTitlePath, Monitor *mon
         TITLERVERSION = KdenliveSettings::titlerVersion();
     }
     setMinimumSize(200, 200);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     frame_properties->setEnabled(false);
     frame_properties->setFixedHeight(frame_toolbar->height());
     int size = style()->pixelMetric(QStyle::PM_SmallIconSize);

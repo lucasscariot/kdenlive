@@ -19,6 +19,8 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "mainwindow.h"
 #include "mltcontroller/clipcontroller.h"
 #include "project/dialogs/guideslist.h"
+#include "utils/designtokens.h"
+#include "utils/uiutils.h"
 #include "videowidget.h"
 #if defined(Q_OS_WIN)
 #include "d3dvideowidget.h"
@@ -282,7 +284,7 @@ Monitor::Monitor(Kdenlive::MonitorId id, MonitorManager *manager, QWidget *paren
         }
     });
     scalingAction->setFrame(false);
-    scalingAction->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    scalingAction->setFont(UiUtils::smallFont());
     m_toolbar->addWidget(scalingAction);
     m_toolbar->addSeparator();
 
@@ -3454,10 +3456,9 @@ void Monitor::updatePreviewMask()
 void Monitor::applyTimecodeDisplayStyling()
 {
     bool isActive = m_monitorManager->isActive(m_id);
+    // The active monitor's timecode reads brighter and heavier, like the active viewer in Final Cut
     QPalette pal = m_timePos->palette();
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    QColor bg = isActive ? scheme.decoration(KColorScheme::FocusColor).color() : scheme.foreground(KColorScheme::NormalText).color();
-    pal.setColor(QPalette::Text, bg);
+    pal.setColor(QPalette::Text, DesignTokens::color(isActive ? QStringLiteral("ink") : QStringLiteral("ink-secondary")));
     m_timePos->setPalette(pal);
     m_timePos->setBold(isActive);
     Q_EMIT getControllerProxy() -> activeMonitorChanged();

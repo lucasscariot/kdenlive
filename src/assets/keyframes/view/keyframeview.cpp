@@ -8,6 +8,8 @@
 #include "assets/keyframes/model/keyframemodellist.hpp"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/designtokens.h"
+#include "utils/uiutils.h"
 
 #include <QApplication>
 #include <QMouseEvent>
@@ -41,7 +43,7 @@ KeyframeView::KeyframeView(std::shared_ptr<KeyframeModelList> model, int duratio
 {
     setMouseTracking(true);
     setMinimumSize(QSize(150, 20));
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     QPalette p = palette();
     KColorScheme scheme(p.currentColorGroup(), KColorScheme::Window);
     m_colSelected = palette().highlight().color();
@@ -663,9 +665,9 @@ void KeyframeView::paintEvent(QPaintEvent *event)
             continue;
         }
         if (kfrIx == m_model->activeKeyframe()) {
-            p.setBrush(Qt::red);
+            p.setBrush(DesignTokens::color(QStringLiteral("accent")));
         } else if (selecteds.contains(kfrIx)) {
-            p.setBrush(Qt::darkRed);
+            p.setBrush(DesignTokens::color(QStringLiteral("accent-fill")));
         } else if (pos == m_hoverKeyframe) {
             p.setBrush(m_colSelected);
         } else {

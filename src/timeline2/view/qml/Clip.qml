@@ -25,6 +25,10 @@ Rectangle {
         id: fontMetrics
         font: K.UiUtils.fixedFont
     }
+    FontMetrics {
+        id: labelMetrics
+        font: K.UiUtils.smallestReadableFont
+    }
 
     required property K.TimelineController timeline
     required property K.TimelineItemModel controller
@@ -103,7 +107,7 @@ Rectangle {
     property int draggedX: x
     property double xIntegerOffset: 0
     readonly property bool isLocked: parentTrack && parentTrack.isLocked === true
-    property color borderColor: Qt.rgba(0, 0, 0, 0.55)
+    property color borderColor: K.Design.alpha("surface-viewer", 0.55)
     property bool isComposition: false
     readonly property int slipOffset: boundValue(outPoint - maxDuration + 1, trimmingOffset, inPoint)
     readonly property bool trimInProgress: trimInMixArea.pressed || trimInMouseArea.pressed || trimOutMouseArea.pressed
@@ -114,7 +118,9 @@ Rectangle {
     opacity: clipDragInProgress ? 0.8 : 1.0
     radius: 4
     // Colored name strip across the top, like a lane header for the clip
-    readonly property bool showNameStrip: !hideDecorations && height > 2.4 * labelRect.height
+    // Fixed from the label font so the strip and the label padding do not depend on each other
+    readonly property int nameStripHeight: Math.ceil(labelMetrics.height) + 2
+    readonly property bool showNameStrip: !hideDecorations && height > 2.4 * nameStripHeight
     readonly property color stripColor: selected ? Qt.tint(getColor(), Qt.rgba(timeline.selectionColor.r, timeline.selectionColor.g, timeline.selectionColor.b, 0.55))
                                                  : getColor()
 
@@ -294,7 +300,7 @@ Rectangle {
 
     function getColor() {
         if (clipRoot.clipState === K.PlaylistState.Disabled) {
-            return '#888'
+            return K.Design.colors["ink-tertiary"]
         }
         if (clipRoot.tagColor) {
             return clipRoot.tagColor
@@ -489,7 +495,7 @@ Rectangle {
             anchors.fill: parent
             anchors.leftMargin: clipRoot.parentTrack.isAudio ? clipRoot.xIntegerOffset : itemBorder.border.width + mixContainer.width
             anchors.rightMargin: clipRoot.parentTrack.isAudio ? clipRoot.width - Math.floor(clipRoot.width) : itemBorder.border.width + clipRoot.mixEndDuration * clipRoot.timeScale
-            anchors.topMargin: itemBorder.border.width + (clipRoot.showNameStrip ? labelRect.height : 0)
+            anchors.topMargin: itemBorder.border.width + (clipRoot.showNameStrip ? clipRoot.nameStripHeight : 0)
             anchors.bottomMargin: itemBorder.border.width
 
             //clip: true
@@ -521,7 +527,7 @@ Rectangle {
                                    || clipRoot.clipStatus === K.FileStatus.StatusWaiting
                                    || clipRoot.clipStatus === K.FileStatus.StatusDeleting)
                 if (placeholder) {
-                    return "#ff0000"
+                    return K.Design.colors["danger"]
                 }
 
                 if (clipRoot.selected) {
@@ -541,7 +547,7 @@ Rectangle {
                 anchors.right: itemBorder.right
                 width: itemBorder.handleWidth
                 height: itemBorder.height
-                color: 'red'
+                color: K.Design.colors["danger"]
                 opacity: 0
                 Drag.active: trimOutMouseArea.drag.active
                 Drag.proposedAction: Qt.MoveAction
@@ -555,7 +561,7 @@ Rectangle {
                 anchors.left: itemBorder.left
                 width: itemBorder.handleWidth
                 height: parent.height
-                color: 'lawngreen'
+                color: K.Design.colors["success"]
                 opacity: 0
                 Drag.active: trimInMouseArea.drag.active
                 Drag.proposedAction: Qt.MoveAction
@@ -605,7 +611,7 @@ Rectangle {
                     }
 
                     opacity: mixArea.containsMouse || trimInMixArea.pressed || trimInMixArea.containsMouse || clipRoot.isMixSelected ? 1 : 0.7
-                    border.color: clipRoot.isMixSelected ? clipRoot.timeline.selectionColor : "white"
+                    border.color: clipRoot.isMixSelected ? clipRoot.timeline.selectionColor : K.Design.colors["on-accent"]
                     border.width: clipRoot.mixDuration > 0 ? 2 : 0
                     radius: 3
                     Rectangle {
@@ -806,7 +812,7 @@ Rectangle {
                             leftPadding: 2
                             rightPadding: 2
                             font: K.UiUtils.smallestReadableFont
-                            color: '#ffffff'
+                            color: K.Design.colors["on-accent"]
                         }
                         MouseArea {
                             id: markerArea
@@ -1356,7 +1362,7 @@ Rectangle {
             K.TimelineTriangle {
                 // Green fade in triangle
                 id: fadeInTriangle
-                color: 'green'
+                color: K.Design.colors["success"]
                 curveType: clipRoot.fadeInMethod
                 width: Math.min(clipRoot.fadeIn * clipRoot.timeScale, container.width)
                 height: parent.height
@@ -1369,7 +1375,7 @@ Rectangle {
             K.TimelineTriangle {
                 // Red fade out triangle
                 id: fadeOutCanvas
-                color: 'red'
+                color: K.Design.colors["danger"]
                 curveType: clipRoot.fadeOutMethod
                 width: Math.min(clipRoot.fadeOut * clipRoot.timeScale, container.width)
                 height: parent.height
@@ -1388,7 +1394,7 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: labelRect.height
+                height: clipRoot.nameStripHeight
                 color: clipRoot.stripColor
                 topLeftRadius: clipRoot.radius - 1
                 topRightRadius: clipRoot.radius - 1
@@ -1429,14 +1435,14 @@ Rectangle {
                             left: debugCidRect.left
                             leftMargin: itemBorder.border.width
                         }
-                        color: 'white'
+                        color: K.Design.colors["on-accent"]
                     }
                 }
                 Rectangle {
                     // Clip name background
                     id: labelRect
                     // Over the name strip the label needs no background of its own
-                    color: clipRoot.showNameStrip ? 'transparent' : clipRoot.selected ? (clipRoot.isMainItem ? '#FFCC0000' : '#FF800000') : '#66000000'
+                    color: clipRoot.showNameStrip ? 'transparent' : clipRoot.selected ? (clipRoot.isMainItem ? K.Design.colors["accent-fill"] : K.Design.alpha("accent-fill", 0.7)) : K.Design.alpha("surface-viewer", 0.45)
                     width: label.x + label.width + itemBorder.border.width + 2
                     height: label.height
                     visible: clipRoot.width > K.UiUtils.baseSizeMedium
@@ -1446,7 +1452,7 @@ Rectangle {
                         // Speed badge, only for clips not playing at normal speed
                         id: speedBadge
                         visible: clipRoot.speed != 1.0
-                        color: Qt.rgba(1, 1, 1, 0.22)
+                        color: K.Design.alpha("on-accent", 0.22)
                         radius: 2
                         width: visible ? speedLabel.width + 6 : 0
                         height: labelRect.height - 4
@@ -1460,7 +1466,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: Math.round(clipRoot.speed * 100) + '%'
                             font: K.UiUtils.smallestReadableFont
-                            color: "#FFFFFF"
+                            color: K.Design.colors["on-accent"]
                         }
                     }
                     Text {
@@ -1475,16 +1481,16 @@ Rectangle {
                             left: speedBadge.right
                             leftMargin: itemBorder.border.width + 2
                         }
-                        color: "#FFFFFF"
+                        color: K.Design.colors["on-accent"]
                         //style: Text.Outline
-                        //styleColor: 'black'
+                        //styleColor: K.Design.colors["surface-viewer"]
                     }
                 }
 
                 Rectangle {
                     // Offset info
                     id: offsetRect
-                    color: 'darkgreen'
+                    color: K.Design.colors["success-fill"]
                     width: offsetLabel.width + radius
                     height: labelRect.height
                     radius: height/3
@@ -1516,9 +1522,9 @@ Rectangle {
                                 topMargin: 1
                                 leftMargin: 1
                             }
-                            color: 'white'
+                            color: K.Design.colors["on-accent"]
                             style: Text.Outline
-                            styleColor: 'black'
+                            styleColor: K.Design.colors["surface-viewer"]
                         }
                     }
                 }
@@ -1526,7 +1532,7 @@ Rectangle {
                 Rectangle {
                     // effect names background
                     id: effectsRect
-                    color: '#555555'
+                    color: K.Design.colors["surface-control"]
                     width: effectLabel.width + effectsToggle.width + 4
                     height: effectLabel.height
                     anchors.top: labelRect.bottom
@@ -1535,7 +1541,7 @@ Rectangle {
                     Rectangle {
                         // effects toggle button background
                         id: effectsToggle
-                        color: clipRoot.isStackEnabled ? '#fdbc4b' : 'black'
+                        color: clipRoot.isStackEnabled ? K.Design.colors["warning"] : K.Design.colors["surface-viewer"]
                         visible: clipRoot.width > 2.5 * effectLabel.height
                         width: visible ? effectsRect.height : 0
                         height: effectsRect.height
@@ -1576,14 +1582,14 @@ Rectangle {
                             leftMargin: 2
                             rightMargin: 2
                         }
-                        color: 'white'
-                        styleColor: 'black'
+                        color: K.Design.colors["on-accent"]
+                        styleColor: K.Design.colors["surface-viewer"]
                     }
                }
                Rectangle{
                     //proxy 
                     id: proxyRect
-                    color: '#fdbc4b'
+                    color: K.Design.colors["warning"]
                     width: labelRect.height
                     height: labelRect.height
                     anchors.top: labelRect.top
@@ -1601,14 +1607,14 @@ Rectangle {
                             leftMargin: (labelRect.height-proxyLabel.width)/2
                             topMargin: (labelRect.height-proxyLabel.height)/2
                         }
-                        color: 'black'
-                        styleColor: 'black'
+                        color: K.Design.colors["surface-viewer"]
+                        styleColor: K.Design.colors["surface-viewer"]
                     }
                 }
                 Rectangle{
                     //remap
                     id:remapRect
-                    color: '#cc0033'
+                    color: K.Design.colors["danger-fill"]
                     width: labelRect.height
                     height: labelRect.height
                     anchors.top: labelRect.top
@@ -1626,8 +1632,8 @@ Rectangle {
                             leftMargin: (labelRect.height-proxyLabel.width)/2
                             topMargin: (labelRect.height-proxyLabel.height)/2
                         }
-                        color: 'white'
-                        styleColor: 'white'
+                        color: K.Design.colors["on-accent"]
+                        styleColor: K.Design.colors["on-accent"]
                     }
                 }
             }
@@ -1796,9 +1802,9 @@ Rectangle {
                 height: width
                 radius: width / 2
                 visible: clipRoot.width > 4 * parent.width && mouseArea.containsMouse && !clipRoot.clipDragInProgress
-                color: Qt.darker('mediumpurple')
+                color: Qt.darker(K.Design.colors["role-composition"])
                 border.width: 3
-                border.color: 'mediumpurple'
+                border.color: K.Design.colors["role-composition"]
                 Behavior on width { NumberAnimation { duration: 100 } }
             }
         }
@@ -1837,9 +1843,9 @@ Rectangle {
                 height: width
                 radius: width / 2
                 visible: clipRoot.width > 4 * parent.width && mouseArea.containsMouse && !clipRoot.clipDragInProgress
-                color: Qt.darker('mediumpurple')
+                color: Qt.darker(K.Design.colors["role-composition"])
                 border.width: 3
-                border.color: 'mediumpurple'
+                border.color: K.Design.colors["role-composition"]
                 Behavior on width { NumberAnimation { duration: 100 } }
             }
         }
@@ -1934,9 +1940,9 @@ Rectangle {
                 width: fadeOutMouseArea.containsMouse || Drag.active ? parent.width : parent.width / 3
                 height: width
                 radius: width / 2
-                color: 'darkred'
+                color: K.Design.colors["danger-fill"]
                 border.width: 3
-                border.color: 'red'
+                border.color: K.Design.colors["danger"]
                 enabled: !clipRoot.isLocked && !clipRoot.dragProxyMovesComposition
                 Drag.active: fadeOutMouseArea.drag.active
                 Behavior on width { NumberAnimation { duration: 100 } }
@@ -1944,7 +1950,7 @@ Rectangle {
                     id: fadeOutMarker
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
-                    color: 'red'
+                    color: K.Design.colors["danger"]
                     height: container.height
                     width: 1
                     visible : clipRoot.fadeOut > 0 && (fadeOutMouseArea.containsMouse || fadeOutMouseArea.drag.active)
@@ -2043,9 +2049,9 @@ Rectangle {
                 width: fadeInMouseArea.containsMouse || Drag.active ? parent.width : parent.width / 3
                 height: width
                 radius: width / 2
-                color: 'green'
+                color: K.Design.colors["success"]
                 border.width: 3
-                border.color: '#FF66FFFF'
+                border.color: K.Design.colors["accent"]
                 enabled: !clipRoot.isLocked && !clipRoot.dragProxyMovesComposition
                 Drag.active: fadeInMouseArea.drag.active
                 Behavior on width { NumberAnimation { duration: 100 } }
@@ -2053,7 +2059,7 @@ Rectangle {
                     id: fadeInMarker
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
-                    color: '#FF66FFFF'
+                    color: K.Design.colors["accent"]
                     height: container.height
                     width: 1
                     visible : clipRoot.fadeIn > 0 && (fadeInMouseArea.containsMouse || fadeInMouseArea.drag.active)
@@ -2078,7 +2084,7 @@ Rectangle {
         }
         Item {
             id: slipControler
-            property color color: clipRoot.timeline.trimmingMainClip === clipRoot.clipId ? clipRoot.timeline.selectionColor : activePalette.highlight
+            property color color: clipRoot.timeline.trimmingMainClip === clipRoot.clipId ? clipRoot.timeline.selectionColor : K.Design.colors["accent-fill"]
             anchors.bottom: container.bottom
             height: container.height
             width: clipRoot.maxDuration * clipRoot.timeScale
@@ -2091,7 +2097,7 @@ Rectangle {
                 anchors.fill: parent
                 color: parent.color
                 border.width: 2
-                border.color: activePalette.highlightedText
+                border.color: K.Design.colors["on-accent"]
                 opacity: 0.3
             }
             Rectangle {
@@ -2111,7 +2117,7 @@ Rectangle {
             anchors.fill: parent
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
-            color: activePalette.highlightedText
+            color: K.Design.colors["on-accent"]
             visible: slipControler.visible
             opacity: 1
         }

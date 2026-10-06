@@ -152,10 +152,10 @@ Item {
                 font.family: fontMetrics.font.family
                 font.pointSize: 1.5 * fontMetrics.font.pointSize
                 objectName: "timecode"
-                color: "#ffffff"
+                color: K.Design.colors["on-accent"]
                 padding: 2
                 background: Rectangle {
-                    color: root.controller.monitorIsActive ? "#DD006600": "#66000000"
+                    color: root.controller.monitorIsActive ? K.Design.alpha("success-fill", 0.87) : K.Design.alpha("surface-viewer", 0.4)
                 }
                 text: root.controller.timecode
                 visible: root.showTimecode
@@ -169,10 +169,10 @@ Item {
                 font.family: fontMetrics.font.family
                 font.pointSize: 1.5 * fontMetrics.font.pointSize
                 objectName: "fpsdropped"
-                color: "#ffffff"
+                color: K.Design.colors["on-accent"]
                 padding: 2
                 background: Rectangle {
-                    color: root.dropped ? "#99ff0000" : "#66004400"
+                    color: root.dropped ? K.Design.alpha("danger", 0.6) : K.Design.alpha("success-fill", 0.4)
                 }
                 text: KI18n.i18n("%1fps", root.fps)
                 visible: root.showFps
@@ -190,9 +190,9 @@ Item {
                 }
                 visible: Math.abs(root.controller.speed) > 1
                 text: "x" + root.controller.speed
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "darkgreen"
+                    color: K.Design.colors["success-fill"]
                 }
                 padding: 5
                 horizontalAlignment: TextInput.AlignHCenter
@@ -206,9 +206,9 @@ Item {
                 }
                 visible: root.showMarkers && root.controller.position == root.controller.zoneIn
                 text: KI18n.i18n("In Point")
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "#228b22"
+                    color: K.Design.colors["success"]
                 }
                 padding: 5
                 horizontalAlignment: TextInput.AlignHCenter
@@ -222,9 +222,9 @@ Item {
                 }
                 visible: root.showMarkers && root.controller.position == root.controller.zoneOut
                 text: KI18n.i18n("Out Point")
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "#770000"
+                    color: K.Design.colors["danger-fill"]
                 }
                 padding: 5
                 horizontalAlignment: TextInput.AlignHCenter
@@ -251,7 +251,7 @@ Item {
                 background: Rectangle {
                     color: root.controller.markerColor
                 }
-                color: "#000000"
+                color: K.Design.colors["surface-viewer"]
                 padding: 0
                 maximumLength: 25
             }
@@ -264,10 +264,10 @@ Item {
             anchors.left: monitorArea.left
             anchors.topMargin: 10
             anchors.leftMargin: 10
-            color: Qt.rgba(activePalette.window.r, activePalette.window.g, activePalette.window.b, 0.5)
+            color: Qt.rgba(K.Design.colors["surface-panel"].r, K.Design.colors["surface-panel"].g, K.Design.colors["surface-panel"].b, 0.5)
             visible: K.KdenliveSettings.enableBuiltInEffects && root.controller.speed == 0 && (barOverArea.containsMouse || transformbutton.hovered)
             radius: 4
-            border.color : Qt.rgba(0, 0, 0, 0.3)
+            border.color : K.Design.alpha("surface-viewer", 0.3)
             border.width: 1
             K.MonitorToolButton {
                 id: transformbutton

@@ -7,6 +7,7 @@
 #include "timecodedisplay.h"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/uiutils.h"
 
 #include <QApplication>
 #include <QFontDatabase>
@@ -123,7 +124,7 @@ TimecodeDisplay::TimecodeDisplay(QWidget *parent, const Timecode &t)
 {
     installEventFilter(this);
     lineEdit()->installEventFilter(this);
-    const QFont ft = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    const QFont ft = UiUtils::fixedFont();
     lineEdit()->setFont(ft);
     setFont(ft);
     lineEdit()->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -360,7 +361,7 @@ void TimecodeDisplay::setFrameOffset(int offset, bool update)
 void TimecodeDisplay::setBold(bool enable)
 {
     QFont font = lineEdit()->font();
-    font.setBold(enable);
+    font.setWeight(enable ? QFont::DemiBold : QFont::Medium);
     lineEdit()->setFont(font);
 }
 

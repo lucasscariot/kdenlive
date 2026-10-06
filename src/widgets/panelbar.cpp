@@ -4,7 +4,7 @@
 */
 
 #include "panelbar.h"
-#include "utils/kdenlivestyle.h"
+#include "utils/designtokens.h"
 
 #include <KLocalizedString>
 #include <QEvent>
@@ -22,12 +22,12 @@ PanelBar::PanelBar(QWidget *window, QWidget *parent)
 {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(4, 2, 6, 2);
-    layout->setSpacing(2);
+    layout->setContentsMargins(DesignTokens::space(2), DesignTokens::space(1), DesignTokens::space(3), DesignTokens::space(1));
+    layout->setSpacing(DesignTokens::space(1));
     m_left = new QHBoxLayout;
-    m_left->setSpacing(2);
+    m_left->setSpacing(DesignTokens::space(1));
     m_right = new QHBoxLayout;
-    m_right->setSpacing(2);
+    m_right->setSpacing(DesignTokens::space(1));
     layout->addLayout(m_left);
     layout->addStretch(1);
     layout->addLayout(m_right);
@@ -36,16 +36,18 @@ PanelBar::PanelBar(QWidget *window, QWidget *parent)
     m_titleBox = new QWidget(this);
     auto *titleLayout = new QHBoxLayout(m_titleBox);
     titleLayout->setContentsMargins(0, 0, 0, 0);
-    titleLayout->setSpacing(10);
+    titleLayout->setSpacing(DesignTokens::space(3));
     m_title = new QLabel(m_titleBox);
-    QFont titleFont = font();
-    titleFont.setWeight(QFont::DemiBold);
-    m_title->setFont(titleFont);
+    m_title->setFont(DesignTokens::font(QStringLiteral("text-body-strong")));
     m_state = new QLabel(m_titleBox);
-    m_state->setFont(KdenliveStyle::chromeFont(font()));
-    QPalette dim = m_state->palette();
-    dim.setColor(QPalette::WindowText, KdenliveStyle::overlay(palette(), 0.5));
-    m_state->setPalette(dim);
+    m_state->setFont(DesignTokens::font(QStringLiteral("text-caption")));
+    auto applyColors = [this]() {
+        QPalette dim = m_state->palette();
+        dim.setColor(QPalette::WindowText, DesignTokens::color(QStringLiteral("ink-secondary")));
+        m_state->setPalette(dim);
+    };
+    applyColors();
+    connect(DesignTokens::instance(), &DesignTokens::themeChanged, this, applyColors);
     titleLayout->addWidget(m_title);
     titleLayout->addWidget(m_state);
     m_titleBox->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -69,7 +71,7 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
     button->setAutoRaise(true);
     button->setCheckable(true);
     button->setFocusPolicy(Qt::NoFocus);
-    button->setFont(KdenliveStyle::chromeFont(font()));
+    button->setFont(DesignTokens::font(QStringLiteral("text-caption")));
     // Drawn as a quiet toggle by the Kdenlive style: brighter label when on, no accent fill
     button->setProperty("_kdenlive_panel_toggle", true);
     auto refresh = [button, dock]() {
@@ -97,7 +99,7 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
 
 void PanelBar::addTrailingWidget(QWidget *widget)
 {
-    m_right->addSpacing(8);
+    m_right->addSpacing(DesignTokens::space(3));
     m_right->addWidget(widget);
     widget->show();
 }
@@ -135,8 +137,8 @@ void PanelBar::placeTitle()
     QRect box(QPoint(0, 0), m_titleBox->sizeHint());
     box.moveCenter(rect().center());
     // Hide rather than overlap the toggles when the window is narrow
-    const int leftEdge = m_left->geometry().right() + 12;
-    const int rightEdge = m_right->geometry().left() - 12;
+    const int leftEdge = m_left->geometry().right() + DesignTokens::space(4);
+    const int rightEdge = m_right->geometry().left() - DesignTokens::space(4);
     m_titleBox->setVisible(box.left() > leftEdge && box.right() < rightEdge);
     m_titleBox->setGeometry(box);
 }

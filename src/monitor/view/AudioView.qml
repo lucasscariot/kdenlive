@@ -110,10 +110,10 @@ Item {
             bottom: audioThumb.isAudioClip ? parent.bottom : parent.top
             horizontalCenter: parent.horizontalCenter
         }
-        color: "white"
+        color: K.Design.colors["on-accent"]
         text: audioThumb.monitorController.clipStream
         background: Rectangle {
-            color: "#222277"
+            color: K.Design.colors["role-music-strip"]
         }
         visible: text != ""
         padding: 4
@@ -166,7 +166,7 @@ Item {
         Rectangle {
             // Audio monitor background
             id: audioBg
-            color: Utils.mixColors(activePalette.base, K.KdenliveSettings.thumbColor1, 0.3)
+            color: Utils.mixColors(K.Design.colors["surface-timeline"], K.KdenliveSettings.thumbColor1, 0.3)
             opacity: audioThumb.isAudioClip || K.KdenliveSettings.alwaysShowMonitorAudio ? 1 : 0.6
             anchors.fill: parent
         }
@@ -201,7 +201,7 @@ Item {
                     x: audioThumb.monitorController.zoneIn * audioThumb.timeScale - (audioThumb.width / audioThumb.monitorController.timeZoomFactor * audioThumb.monitorController.timeZoomOffset)
                     width: (audioThumb.monitorController.zoneOut - audioThumb.monitorController.zoneIn) * audioThumb.timeScale
                     height: streamThumb.streamHeight - 2
-                    color:  Utils.mixColors(K.KdenliveSettings.thumbColor1, activePalette.highlight, 0.6)
+                    color:  Utils.mixColors(K.KdenliveSettings.thumbColor1, K.Design.colors["accent-fill"], 0.6)
                     visible: audioThumb.monitorController.zoneOut > audioThumb.monitorController.zoneIn
                 }
                 K.TimelineWaveform {
@@ -219,8 +219,8 @@ Item {
                     scaleFactor: audioThumb.width / aClipDuration / audioThumb.monitorController.timeZoomFactor
                     waveInPoint: waveform.aClipDuration * audioThumb.monitorController.timeZoomOffset
                     waveOutPoint: waveform.aClipDuration * (audioThumb.monitorController.timeZoomOffset + audioThumb.monitorController.timeZoomFactor)
-                    fgColorEven: "#00000000" //K.KdenliveSettings.thumbColor1
-                    fgColorOdd: "#00000000" //K.KdenliveSettings.thumbColor2
+                    fgColorEven: 'transparent' //K.KdenliveSettings.thumbColor1
+                    fgColorOdd: 'transparent' //K.KdenliveSettings.thumbColor2
                     bgColorEven: audioBg.color //"#00000000"
                     bgColorOdd: audioBg.color //"#00000000"
                     Repeater {
@@ -244,7 +244,7 @@ Item {
                                 height: 1
                                 y: channelCenterLines.index * streamContainer.channelHeight - 0.5
                                 visible: channelCenterLines.index > 0 && K.KdenliveSettings.displayallchannels
-                                color: activePalette.base
+                                color: K.Design.colors["surface-timeline"]
                             }
                         }
                     }
@@ -255,13 +255,13 @@ Item {
                     y: waveform.y - 1
                     height: 2
                     visible: streamContainer.index > 0 || !audioThumb.isAudioClip
-                    color: activePalette.base
+                    color: K.Design.colors["surface-timeline"]
                 }
             }
         }
         // Playhead position
         Rectangle {
-            color: "red"
+            color: K.Design.colors["danger"]
             width: 2
             height: streamThumb.streamHeight * streamThumb.count
             x: audioThumb.monitorController.position * audioThumb.timeScale - (audioThumb.width / audioThumb.monitorController.timeZoomFactor * audioThumb.monitorController.timeZoomOffset)
@@ -333,7 +333,7 @@ Item {
         anchors.bottomMargin: 6
         height: width
         radius: 4
-        color: audioRefresh.hovered ? activePalette.highlight : Qt.rgba(activePalette.base.r, activePalette.base.g, activePalette.base.b, 0.5)
+        color: audioRefresh.hovered ? K.Design.colors["accent-fill"] : Qt.rgba(K.Design.colors["surface-timeline"].r, K.Design.colors["surface-timeline"].g, K.Design.colors["surface-timeline"].b, 0.5)
         K.MonitorToolButton {
             id: audioRefresh
             hoverEnabled: true

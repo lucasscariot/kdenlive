@@ -156,7 +156,7 @@ Item {
       id: canvas
       property double handleSize: K.UiUtils.baseSizeMedium * 0.5
       property double darOffset : 0
-      property color fillColor: Qt.rgba(1, 1, 1, 0.5)
+      property color fillColor: K.Design.alpha("on-accent", 0.5)
       anchors.fill: parent
       contextType: "2d";
       renderTarget: Canvas.FramebufferObject
@@ -168,7 +168,7 @@ Item {
         //if (context) {
             ctx.clearRect(0,0, width, height);
             ctx.beginPath()
-            ctx.strokeStyle = Qt.rgba(1, 0, 0, 0.5)
+            ctx.strokeStyle = K.Design.alpha("danger", 0.5)
             ctx.fillStyle = canvas.fillColor
             ctx.lineWidth = 2
             if (root.centerPoints.length == 0) {
@@ -181,7 +181,7 @@ Item {
             if (!root.isDefined) {
                 // We are still building the shape, only draw points connected with lines
                 if (root.requestedKeyFrame == 0) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                 }
                 ctx.fillRect(p1.x - handleSize, p1.y - handleSize, 2 * handleSize, 2 * handleSize);
                 ctx.fillStyle = canvas.fillColor
@@ -189,7 +189,7 @@ Item {
                     p1 = convertPoint(root.centerPoints[i])
                     ctx.lineTo(p1.x, p1.y);
                     if (i == root.requestedKeyFrame) {
-                        ctx.fillStyle = activePalette.highlight
+                        ctx.fillStyle = K.Design.colors["accent-fill"]
                         ctx.fillRect(p1.x - handleSize, p1.y - handleSize, 2 * handleSize, 2 * handleSize);
                         ctx.fillStyle = canvas.fillColor
                     } else {
@@ -199,7 +199,7 @@ Item {
                 }
             } else {
                 var c1; var c2
-                var alphaColor = Qt.hsla(activePalette.highlight.hslHue, activePalette.highlight.hslSaturation, activePalette.highlight.hslLightness, 0.5)
+                var alphaColor = Qt.hsla(K.Design.colors["accent-fill"].hslHue, K.Design.colors["accent-fill"].hslSaturation, K.Design.colors["accent-fill"].hslLightness, 0.5)
                 if (root.controller.cursorOutsideEffect) {
                     ctx.setLineDash([4]);
                 } else {
@@ -234,21 +234,21 @@ Item {
                     if ((root.controller.isKeyframe || root.autoKeyframe) && !root.displayResize && !root.controller.cursorOutsideEffect) {
                         // Draw control points and segments
                         if (subkf) {
-                            ctx.fillStyle = activePalette.highlight
+                            ctx.fillStyle = K.Design.colors["accent-fill"]
                             ctx.fillRect(c1.x - handleSize/2, c1.y - handleSize/2, handleSize, handleSize);
                             ctx.fillStyle = canvas.fillColor
                         } else {
                             ctx.fillRect(c1.x - handleSize/2, c1.y - handleSize/2, handleSize, handleSize);
                         }
                         if (root.requestedSubKeyFrame == 2 * i) {
-                            ctx.fillStyle = activePalette.highlight
+                            ctx.fillStyle = K.Design.colors["accent-fill"]
                             ctx.fillRect(c2.x - handleSize/2, c2.y - handleSize/2, handleSize, handleSize);
                             ctx.fillStyle = canvas.fillColor
                         } else {
                             ctx.fillRect(c2.x - handleSize/2, c2.y - handleSize/2, handleSize, handleSize);
                         }
                         if (i == root.requestedKeyFrame) {
-                            ctx.fillStyle = activePalette.highlight
+                            ctx.fillStyle = K.Design.colors["accent-fill"]
                             ctx.fillRect(p1.x - handleSize, p1.y - handleSize, 2 * handleSize, 2 * handleSize);
                             ctx.fillStyle = canvas.fillColor
                         } else {
@@ -280,8 +280,8 @@ Item {
             if (root.addedPointIndex > -1 && !root.displayResize) {
                 // Ghost point where a new one could be inserted
                 ctx.beginPath()
-                ctx.fillStyle = activePalette.highlight
-                ctx.strokeStyle = activePalette.highlight
+                ctx.fillStyle = K.Design.colors["accent-fill"]
+                ctx.strokeStyle = K.Design.colors["accent-fill"]
                 ctx.lineWidth = 1
                 ctx.roundedRect(root.addPointPossible.x - canvas.handleSize, root.addPointPossible.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize, canvas.handleSize, canvas.handleSize);
                 if (root.addedPointIndex === 0) {
@@ -299,60 +299,60 @@ Item {
                 // Draw resize rectangle / handles
                 ctx.beginPath()
                 ctx.fillStyle = alphaColor
-                ctx.strokeStyle = activePalette.highlight
+                ctx.strokeStyle = K.Design.colors["accent-fill"]
                 ctx.lineWidth = 1
                 ctx.rect(root.bottomLeft.x, root.topRight.y, root.topRight.x - root.bottomLeft.x, root.bottomLeft.y - root.topRight.y)
                 if (root.resizeContainsMouse == 4) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.bottomLeft.x - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.bottomLeft.x - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 3) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 2) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 1) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.bottomLeft.x - canvas.handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.bottomLeft.x - canvas.handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 5) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.bottomLeft.x + (root.topRight.x - root.bottomLeft.x) / 2 - handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.bottomLeft.x + (root.topRight.x - root.bottomLeft.x) / 2 - handleSize, root.topRight.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 7) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.bottomLeft.x + (root.topRight.x - root.bottomLeft.x) / 2 - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.bottomLeft.x + (root.topRight.x - root.bottomLeft.x) / 2 - canvas.handleSize, root.bottomLeft.y - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 6) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.topRight.y + (root.bottomLeft.y - root.topRight.y) / 2 - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
                     ctx.fillRect(root.topRight.x - canvas.handleSize, root.topRight.y + (root.bottomLeft.y - root.topRight.y) / 2 - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                 }
                 if (root.resizeContainsMouse == 8) {
-                    ctx.fillStyle = activePalette.highlight
+                    ctx.fillStyle = K.Design.colors["accent-fill"]
                     ctx.fillRect(root.bottomLeft.x - canvas.handleSize, root.topRight.y + (root.bottomLeft.y - root.topRight.y) / 2 - canvas.handleSize, 2 * canvas.handleSize, 2 * canvas.handleSize);
                     ctx.fillStyle = alphaColor
                 } else {
@@ -378,7 +378,7 @@ Item {
         x: root.center.x - width / 2 - root.offsetx;
         y: root.center.y - height / 2 - root.offsety;
         color: "transparent"
-        border.color: "#ffffff00"
+        border.color: 'transparent'
 
         K.MonitorOverlay {
             anchors.fill: frame
@@ -409,9 +409,9 @@ Item {
             anchors {
                 fill: parent
             }
-            color: 'black'
+            color: K.Design.colors["surface-viewer"]
          }
-        color: "yellow"
+        color: K.Design.colors["warning"]
     }
 
     MouseArea {

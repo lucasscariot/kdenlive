@@ -17,6 +17,7 @@
 #include "monitor/monitor.h"
 #include "timeline2/model/timelinemodel.hpp"
 #include "utils/qstringutils.h"
+#include "utils/uiutils.h"
 
 #include <QDir>
 #include <QDrag>
@@ -78,7 +79,7 @@ EffectStackView::EffectStackView(AssetPanel *parent)
     m_lay = new QVBoxLayout(this);
     m_lay->setContentsMargins(0, 0, 0, 0);
     m_lay->setSpacing(0);
-    // setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    // setFont(UiUtils::smallFont());
     setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);

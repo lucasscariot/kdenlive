@@ -22,6 +22,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "project/projectmanager.h"
 #include "timeline2/view/timelinecontroller.h"
 #include "timeline2/view/timelinewidget.h"
+#include "utils/uiutils.h"
 
 #include "KLocalizedString"
 #include "kdenlive_debug.h"
@@ -1255,13 +1256,13 @@ void KdenliveSettingsDialog::updateSettings()
     }
 
     if (m_configTimeline.kcfg_trackheight->value() == 0) {
-        QFont ft = QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
+        QFont ft = UiUtils::smallFont();
         // Default unit for timeline.qml objects size
         int baseUnit = qMax(28, qRound(QFontInfo(ft).pixelSize() * 1.8));
         int trackHeight = qMax(50, int(2.2 * baseUnit + 6));
         m_configTimeline.kcfg_trackheight->setValue(trackHeight);
     } else if (m_configTimeline.kcfg_trackheight->value() != KdenliveSettings::trackheight()) {
-        QFont ft = QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
+        QFont ft = UiUtils::smallFont();
         // Default unit for timeline.qml objects size
         int baseUnit = qMax(28, qRound(QFontInfo(ft).pixelSize() * 1.8));
         if (m_configTimeline.kcfg_trackheight->value() < baseUnit) {

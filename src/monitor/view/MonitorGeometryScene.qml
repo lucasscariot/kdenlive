@@ -148,7 +148,7 @@ Item {
       {
         if (context && root.centerPoints.length > 0) {
             context.beginPath()
-            context.strokeStyle = Qt.rgba(1, 0, 0, 0.5)
+            context.strokeStyle = K.Design.alpha("danger", 0.5)
             context.fillStyle = Qt.rgba(1, 0, 0, 1)
             context.lineWidth = 1
             context.setLineDash([3,3])
@@ -234,7 +234,7 @@ Item {
         x: root.center.x - width / 2 - root.offsetx;
         y: root.center.y - height / 2 - root.offsety;
         color: "transparent"
-        border.color: "#ffffff00"
+        border.color: 'transparent'
 
         K.MonitorOverlay {
             anchors.fill: frame
@@ -352,7 +352,7 @@ Item {
         width: root.pendingFramesize.width * root.scalex
         height: root.pendingFramesize.height * root.scaley
         color: "transparent"
-        border.color: root.disableHandles ? 'transparent' : "#ff0000"
+        border.color: root.disableHandles ? 'transparent' : K.Design.colors["accent"]
         x: frame.x + root.pendingFramesize.x * root.scalex
         y: frame.y + root.pendingFramesize.y * root.scaley
         transform: Rotation {
@@ -424,7 +424,7 @@ Item {
         height: root._framesize.height * root.scaley
         enabled: root.controller.isKeyframe || K.KdenliveSettings.autoKeyframe
         color: "transparent"
-        border.color: root.disableHandles ? 'transparent' : "#ff0000"
+        border.color: root.disableHandles ? 'transparent' : K.Design.colors["accent"]
         opacity: (isMoving || isResizing || isRotating) ? 0 : 1
         onWidthChanged: root.updateRotationAnchor()
         onHeightChanged: root.updateRotationAnchor()
@@ -440,7 +440,7 @@ Item {
             anchors.fill: parent
             visible: root.disableHandles
             ShapePath {
-                strokeColor: 'red'
+                strokeColor: K.Design.colors["danger"]
                 strokeWidth: 1
                 fillColor: 'transparent'
                 strokeStyle: ShapePath.DashLine
@@ -472,7 +472,7 @@ Item {
             anchors.fill: parent
             //visible: transformedFrame.isRotating
             ShapePath {
-                strokeColor: "red"
+                strokeColor: K.Design.colors["danger"]
                 strokeWidth: 2
                 fillColor: "transparent"
                 // Circle using PathAngleArc

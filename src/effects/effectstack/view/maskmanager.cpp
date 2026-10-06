@@ -18,6 +18,7 @@
 #include "monitor/monitor.h"
 #include "monitor/monitorproxy.h"
 #include "timeline2/model/timelinemodel.hpp"
+#include "utils/uiutils.h"
 #include "xml/xml.hpp"
 
 #include <QDir>
@@ -45,7 +46,7 @@ MaskManager::MaskManager(QWidget *parent)
     : QWidget(parent)
 {
     setupUi(this);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     maskColor->setColor(KdenliveSettings::maskColor());
     borderColor->setColor(KdenliveSettings::maskBorderColor());
     borderWidth->setValue(KdenliveSettings::maskBorderWidth());

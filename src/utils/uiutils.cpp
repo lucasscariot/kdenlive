@@ -4,7 +4,9 @@
 */
 
 #include "uiutils.h"
+#include "designtokens.h"
 #include "kdenlivesettings.h"
+#include "kdenlivestyle.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -62,14 +64,24 @@ UiUtils *UiUtils::create(QQmlEngine *, QJSEngine *)
     return instance();
 }
 
+QFont UiUtils::smallFont()
+{
+    return KdenliveStyle::isActive() ? DesignTokens::font(QStringLiteral("text-caption")) : QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
+}
+
+QFont UiUtils::fixedFont()
+{
+    return KdenliveStyle::isActive() ? DesignTokens::font(QStringLiteral("text-timecode")) : QFontDatabase::systemFont(QFontDatabase::FixedFont);
+}
+
 QFont UiUtils::getFixedFont()
 {
-    return QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    return fixedFont();
 }
 
 QFont UiUtils::getSmallestReadableFont()
 {
-    return QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
+    return smallFont();
 }
 
 qreal UiUtils::getBaseSizeMedium()

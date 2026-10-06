@@ -97,11 +97,11 @@ Rectangle {
                 delay: 1500
                 timeout: 5000
                 background: Rectangle {
-                    color: activePalette.alternateBase
-                    border.color: activePalette.light
+                    color: K.Design.colors["surface-panel"]
+                    border.color: K.Design.colors["border-control"]
                 }
                 contentItem: Label {
-                    color: activePalette.text
+                    color: K.Design.colors["ink"]
                     text: KI18n.i18n("Click to see details")
                 }
             }
@@ -178,7 +178,7 @@ Rectangle {
                     id: name
                     font: K.UiUtils.smallestReadableFont
                     text: "S" + layerLabel.index
-                    color: activePalette.text
+                    color: K.Design.colors["ink"]
                     anchors.centerIn: layerLabel
                 }
             }

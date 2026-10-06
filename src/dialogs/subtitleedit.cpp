@@ -6,6 +6,7 @@
 #include "subtitleedit.h"
 #include "bin/model/subtitlemodel.hpp"
 #include "monitor/monitor.h"
+#include "utils/uiutils.h"
 
 #include "core.h"
 #include "dialogs/managesubtitles.h"
@@ -74,7 +75,7 @@ SubtitleEdit::SubtitleEdit(QWidget *parent)
     , m_model(nullptr)
 {
     setupUi(this);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     auto *filter = new SimpleEditorEventFilter(this);
     simpleSubText->installEventFilter(filter);
     connect(filter, &SimpleEditorEventFilter::singleKeyPress, this, [this](QKeyEvent *event) {
@@ -449,7 +450,7 @@ void SubtitleEdit::zoom(qreal factor)
 {
     KTextEdit *editor = m_isSimpleEdit ? simpleSubText : subText;
     qreal currentSize = editor->fontPointSize() > 0 ? editor->fontPointSize() : QFontInfo(editor->currentFont()).pointSizeF();
-    qreal fontSize = qMax(currentSize * factor, QFontInfo(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont)).pointSizeF());
+    qreal fontSize = qMax(currentSize * factor, QFontInfo(UiUtils::smallFont()).pointSizeF());
     KdenliveSettings::setSubtitleEditFontSize(fontSize);
     applyFontSize();
 }

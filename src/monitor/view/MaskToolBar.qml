@@ -30,9 +30,9 @@ MouseArea {
         width: barZone.width
         anchors.verticalCenter: parent.verticalCenter
         height: childrenRect.height
-        color: Qt.rgba(activePalette.window.r, activePalette.window.g, activePalette.window.b, 0.7)
+        color: Qt.rgba(K.Design.colors["surface-panel"].r, K.Design.colors["surface-panel"].g, K.Design.colors["surface-panel"].b, 0.7)
         radius: 4
-        border.color : Qt.rgba(0, 0, 0, 0.3)
+        border.color : K.Design.alpha("surface-viewer", 0.3)
         border.width: 1
 
         OpacityAnimator {

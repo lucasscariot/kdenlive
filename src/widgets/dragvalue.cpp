@@ -5,6 +5,7 @@
 */
 
 #include "dragvalue.h"
+#include "utils/uiutils.h"
 
 #include "kdenlivesettings.h"
 
@@ -1069,7 +1070,7 @@ CustomLabel::CustomLabel(const QString &label, bool showSlider, int range, QWidg
     , m_value(0.)
 // m_precision(pow(10, precision)),
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     // setFormat(QLatin1Char(' ') + label);
     setFocusPolicy(Qt::StrongFocus);
     setCursor(Qt::PointingHandCursor);

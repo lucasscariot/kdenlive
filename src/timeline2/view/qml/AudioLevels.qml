@@ -15,6 +15,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 
 import org.kde.ki18n
+import org.kde.kdenlive as K
 
 Rectangle {
     id: levelsContainer
@@ -30,7 +31,7 @@ Rectangle {
     ToolTip.delay: 1000
     ToolTip.timeout: 5000
     // Use background color matching C++ getChannelBackgroundColor()
-    color: Qt.darker(activePalette.window, 1.04)
+    color: Qt.darker(K.Design.colors["surface-panel"], 1.04)
     
     // Public properties
     property var audioLevels: []
@@ -76,7 +77,7 @@ Rectangle {
             x: 1
             y: (height + 1) * index
             // Solid background color matching C++ getChannelBackgroundColor()
-            color: Qt.darker(activePalette.window, 1.04)
+            color: Qt.darker(K.Design.colors["surface-panel"], 1.04)
         }
     }
     
@@ -108,7 +109,7 @@ Rectangle {
             // Green segment (0 to greenThreshold or currentLevel, whichever is smaller)
             Rectangle {
                 visible: channelLevel.currentLevel > 0
-                color: "#14be14"  // green: QColor(20, 190, 20)
+                color: K.Design.colors["success"]  // green: QColor(20, 190, 20)
                 width: Math.min(parent.width * channelLevel.greenThresholdPos, channelLevel.levelWidth)
                 height: channelLevel.channelHeight
                 x: 0
@@ -118,7 +119,7 @@ Rectangle {
             // Yellow segment (greenThreshold to yellowThreshold)
             Rectangle {
                 visible: channelLevel.currentLevel > channelLevel.greenThresholdPos
-                color: "#f8cc1b"  // yellow: QColor(248, 204, 27)
+                color: K.Design.colors["warning"]  // yellow: QColor(248, 204, 27)
                 width: Math.min(parent.width * (channelLevel.yellowThresholdPos - channelLevel.greenThresholdPos),
                                Math.max(0, channelLevel.levelWidth - parent.width * channelLevel.greenThresholdPos))
                 height: channelLevel.channelHeight
@@ -129,7 +130,7 @@ Rectangle {
             // Red segment (yellowThreshold to currentLevel)
             Rectangle {
                 visible: channelLevel.currentLevel > channelLevel.yellowThresholdPos
-                color: "#e12729"  // red: QColor(225, 39, 41)
+                color: K.Design.colors["danger"]  // red: QColor(225, 39, 41)
                 width: Math.max(0, channelLevel.levelWidth - parent.width * channelLevel.yellowThresholdPos)
                 height: channelLevel.channelHeight
                 x: parent.width * channelLevel.yellowThresholdPos
@@ -148,7 +149,7 @@ Rectangle {
             // Peak indicator (Monochrome style)
             Rectangle {
                 visible: channelLevel.peak > 0
-                color: activePalette.text
+                color: K.Design.colors["ink"]
                 width: 2
                 height: channelLevel.channelHeight
                 x: parent.width * channelLevel.peak
@@ -166,15 +167,15 @@ Rectangle {
             height: 1
             x: 1
             y: (levelsContainer.height / bgRepeater.count) * (index + 1) - 1
-            color: "#000000"  // Border color matching C++ getBorderColor
+            color: K.Design.colors["surface-viewer"]  // Border color matching C++ getBorderColor
         }
     }
     
     // Main frame
     Rectangle {
         anchors.fill: parent
-        color: "#00000000"
-        border.color: "#000000"
+        color: 'transparent'
+        border.color: K.Design.colors["surface-viewer"]
         border.width: 1
     }
     
@@ -205,7 +206,7 @@ Rectangle {
             height: 2  // TICK_MARK_LENGTH = 2px from C++ implementation
             x: (levelsContainer.width - 2) * modelData.pos  // Position relative to levels area, accounting for border
             y: levelsContainer.height  // Just below the levels container
-            color: activePalette.text
+            color: K.Design.colors["ink"]
             opacity: 0.8  // Matching C++ opacity
         }
     }*/

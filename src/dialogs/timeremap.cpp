@@ -5,6 +5,8 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "timeremap.h"
+#include "utils/designtokens.h"
+#include "utils/uiutils.h"
 
 #include "assets/keyframes/model/keyframemodel.hpp"
 #include "bin/projectclip.h"
@@ -47,7 +49,7 @@ RemapView::RemapView(QWidget *parent)
 {
     setMouseTracking(true);
     setMinimumSize(QSize(150, 80));
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     int size = QFontInfo(font()).pixelSize() * 3;
     setFixedHeight(size * 4);
     // Reference height of the rulers
@@ -1603,8 +1605,8 @@ void RemapView::paintEvent(QPaintEvent *event)
             continue;
         }
         if (m_currentKeyframe.first == i.key()) {
-            p.setPen(Qt::red);
-            p.setBrush(Qt::darkRed);
+            p.setPen(DesignTokens::color(QStringLiteral("accent")));
+            p.setBrush(DesignTokens::color(QStringLiteral("accent-fill")));
         } else if (m_selectedKeyframes.contains(i.key())) {
             p.setPen(m_colSelected);
             p.setBrush(m_colSelected);
@@ -1686,7 +1688,7 @@ TimeRemap::TimeRemap(QWidget *parent)
     : QWidget(parent)
     , m_cid(-1)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     warningMessage->hide();
     QAction *ac = new QAction(i18n("Transcode"), this);

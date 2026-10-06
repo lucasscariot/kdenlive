@@ -4,6 +4,7 @@
 */
 
 #include "mixerwidget.hpp"
+#include "utils/designtokens.h"
 
 #include "audiomixer/audiolevels/audiolevelwidget.hpp"
 #include "audioslider.hpp"
@@ -544,33 +545,25 @@ void MixerWidget::setMute(bool mute)
 
 void MixerWidget::updateTrackLabelStyle()
 {
-    QString style;
-    bool isDarkTheme = palette().color(QPalette::Window).lightness() < palette().color(QPalette::WindowText).lightness();
-    QColor borderColor = isDarkTheme ? palette().color(QPalette::Light).lighter(120) : palette().color(QPalette::Dark).darker(120);
-
-    // Default: neutral background, normal text, underline in text color
-    QString bg = QString("background-color: %1;").arg(palette().color(QPalette::Window).name(QColor::HexArgb));
-    QString text = QString("color: %1;").arg(palette().color(QPalette::WindowText).name(QColor::HexArgb));
-    QString underline = QString("border-bottom: 3px solid %1;").arg(palette().color(QPalette::WindowText).name(QColor::HexArgb));
-
-    QString colorCode;
+    // Track state reads from the label's underline and text: recording, monitoring, muted or solo
+    QString stateToken;
     if (m_recording) {
-        colorCode = isDarkTheme ? "#c62828" : "#b71c1c"; // Darker red for light theme
+        stateToken = QStringLiteral("danger");
     } else if (m_monitor && m_monitor->isChecked()) {
-        colorCode = isDarkTheme ? "#1976d2" : "#0d47a1"; // Darker blue for light theme
+        stateToken = QStringLiteral("accent");
     } else if (m_muteAction->isActive()) {
-        colorCode = isDarkTheme ? "#ef6c00" : "#e65100"; // Darker orange for light theme
+        stateToken = QStringLiteral("warning");
     } else if (m_solo && m_solo->isChecked()) {
-        colorCode = isDarkTheme ? "#388e3c" : "#1b5e20"; // Darker green for light theme
+        stateToken = QStringLiteral("success");
     }
-
-    if (!colorCode.isEmpty()) {
-        text = QString("color: %1;").arg(colorCode);
-        underline = QString("border-bottom: 3px solid %1;").arg(colorCode);
-    }
-
-    style = QString("%1 %2 padding: 2px; margin: 0; border: 1px solid %3; %4").arg(bg).arg(text).arg(borderColor.name(QColor::HexArgb)).arg(underline);
-    m_trackLabel->setStyleSheet(style);
+    const QString text = DesignTokens::color(stateToken.isEmpty() ? QStringLiteral("ink") : stateToken).name(QColor::HexArgb);
+    const QString underline = stateToken.isEmpty() ? DesignTokens::color(QStringLiteral("separator")).name(QColor::HexArgb) : text;
+    m_trackLabel->setStyleSheet(QStringLiteral("background-color: %1; color: %2; padding: %3px; margin: 0; border: 1px solid %4; border-bottom: 2px solid %5; "
+                                               "border-radius: %6px;")
+                                    .arg(DesignTokens::color(QStringLiteral("surface-raised")).name(QColor::HexArgb), text)
+                                    .arg(DesignTokens::space(1))
+                                    .arg(DesignTokens::color(QStringLiteral("border-control")).name(QColor::HexArgb), underline)
+                                    .arg(DesignTokens::radius(QStringLiteral("radius-xs"))));
 }
 
 void MixerWidget::updateAudioLevel(int pos)
@@ -748,9 +741,11 @@ void MixerWidget::updateSpinBoxStyle(QAbstractSpinBox *spin, double neutral)
 
 QColor MixerWidget::getMixerBackgroundColor()
 {
-    QPalette palette = qApp->palette();
-    if (m_tid == -1) return palette.color(QPalette::AlternateBase);
-    return palette.color(m_backgroundColorRole);
+    // Track strips are raised cards; the master strip sits on the sidebar surface to stand apart
+    if (m_tid == -1) {
+        return DesignTokens::color(QStringLiteral("surface-sidebar"));
+    }
+    return DesignTokens::color(m_backgroundColorRole == QPalette::AlternateBase ? QStringLiteral("surface-panel") : QStringLiteral("surface-raised"));
 }
 
 void MixerWidget::setBackgroundColor(QPalette::ColorRole role)

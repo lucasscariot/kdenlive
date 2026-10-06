@@ -220,6 +220,8 @@ public:
     Q_INVOKABLE QColor selectionColor() const;
     Q_INVOKABLE QColor groupColor() const;
     QColor getDefaultClipColor(ClipType::ProducerType type) const;
+    /** @brief The design token role of a clip type: video, music, titles or stills */
+    Q_INVOKABLE QString clipRole(ClipType::ProducerType type) const;
     QColor getTimelineClipColor(ClipType::ProducerType type) const;
     Q_INVOKABLE int doubleClickInterval() const { return QApplication::doubleClickInterval(); }
     Q_INVOKABLE void showToolTip(const QString &info = QString()) const;

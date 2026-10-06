@@ -15,7 +15,7 @@ import org.kde.kdenlive as K
 // Monitor ruler
 Rectangle {
     id: ruler
-    color: activePalette.base
+    color: K.Design.colors["surface-timeline"]
     required property K.MonitorProxy monitorController
     required property int duration
 
@@ -68,7 +68,7 @@ Rectangle {
     SystemPalette { id: activePalette }
 
     Rectangle {
-        color: activePalette.light
+        color: K.Design.colors["border-control"]
         width: parent.width
         height: 1
     }
@@ -154,18 +154,18 @@ Rectangle {
     }
     function forceRepaint()
     {
-        ruler.color = activePalette.base
+        ruler.color = K.Design.colors["surface-timeline"]
         // Enforce repaint
         rulerTicks.model = 0
         rulerTicks.model = ruler.rulerZoomWidth / ruler.tickDistance + 2
-        playhead.color = activePalette.windowText
+        playhead.color = K.Design.colors["ink"]
     }
 
     // Ruler zone
     Rectangle {
         id: zone
         visible: ruler.monitorController.zoneOut >= ruler.monitorController.zoneIn
-        color: activePalette.highlight
+        color: K.Design.colors["accent-fill"]
         x: ruler.monitorController.zoneIn * ruler.timeScale - ruler.rulerZoomOffset
         width: (ruler.monitorController.zoneOut - ruler.monitorController.zoneIn) * ruler.timeScale
         property bool zoneHovered: rulerMouseArea.pressed == false && ruler.monitorController.zoneOut >= ruler.monitorController.zoneIn && ((rulerMouseArea.containsMouse && rulerMouseArea.mouseX >= zone.x && rulerMouseArea.mouseX < zone.x + zone.width) || trimOutMouseArea.containsMouse || trimOutMouseArea.pressed || trimInMouseArea.containsMouse)
@@ -194,7 +194,7 @@ Rectangle {
             anchors.bottom: ruler.bottom
             height: (index % 5) ? ruler.height / 4 : ruler.height / 2
             width: 1
-            color: activePalette.windowText
+            color: K.Design.colors["ink"]
             opacity: 0.5
         }
     }
@@ -251,7 +251,7 @@ Rectangle {
         height: inLabel.contentHeight + 2
         property int centerPos: zone.x + zone.width / 2 - inLabel.contentWidth / 2
         x: centerPos < 0 ? 0 : centerPos > ruler.width - inLabel.contentWidth ? ruler.width - inLabel.contentWidth - 2 : centerPos
-        color: activePalette.alternateBase
+        color: K.Design.colors["surface-panel"]
         anchors.bottom: ruler.top
         Label {
             id: inLabel
@@ -260,7 +260,7 @@ Rectangle {
             verticalAlignment: Text.AlignBottom
             text: trimInMouseArea.containsMouse || trimInMouseArea.pressed ? ruler.monitorController.toTimecode(ruler.monitorController.zoneIn) + '>' + ruler.monitorController.toTimecode(ruler.monitorController.zoneOut - ruler.monitorController.zoneIn) : trimOutMouseArea.containsMouse || trimOutMouseArea.pressed ? ruler.monitorController.toTimecode(ruler.monitorController.zoneOut - ruler.monitorController.zoneIn) + '<' + ruler.monitorController.toTimecode(ruler.monitorController.zoneOut - 1) : ruler.monitorController.toTimecode(ruler.monitorController.zoneOut - ruler.monitorController.zoneIn)
             font: K.UiUtils.fixedFont
-            color: activePalette.text
+            color: K.Design.colors["ink"]
         }
     }
     K.TimelinePlayhead {
@@ -271,7 +271,7 @@ Rectangle {
         opacity: 1
         anchors.top: ruler.top
         z: 2
-        color: activePalette.windowText
+        color: K.Design.colors["ink"]
         x: ruler.monitorController.position * ruler.timeScale - ruler.rulerZoomOffset - (playhead.width / 2)
     }
     MouseArea {
@@ -317,7 +317,7 @@ Rectangle {
             id: trimIn
             anchors.fill: parent
             anchors.leftMargin: K.UiUtils.baseSizeMedium * .4
-            color: 'white'
+            color: K.Design.colors["on-accent"]
             opacity: zone.zoneHovered || trimInMouseArea.containsMouse || trimInMouseArea.drag.active ? 0.6 : 0
         }
     }
@@ -364,7 +364,7 @@ Rectangle {
             id: trimOut
             anchors.fill: parent
             anchors.rightMargin: K.UiUtils.baseSizeMedium * .4
-            color: 'white'
+            color: K.Design.colors["on-accent"]
             opacity: zone.zoneHovered || trimOutMouseArea.containsMouse || trimOutMouseArea.drag.active ? 0.6 : 0
         }
     }
@@ -442,7 +442,7 @@ Rectangle {
                         left: parent.left
                         right: parent.right
                     }
-                    color: '#000000'
+                    color: K.Design.colors["surface-viewer"]
                 }
                 MouseArea {
                     z: 10

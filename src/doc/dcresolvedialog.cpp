@@ -4,6 +4,7 @@
 */
 
 #include "dcresolvedialog.h"
+#include "utils/uiutils.h"
 
 #include <KUrlRequester>
 #include <KUrlRequesterDialog>
@@ -17,7 +18,7 @@ DCResolveDialog::DCResolveDialog(std::vector<DocumentChecker::DocumentResource> 
     , m_url(projectUrl)
 {
     setupUi(this);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
 
     m_model = DocumentCheckerTreeModel::construct(items, this);
     removeSelected->setEnabled(false);

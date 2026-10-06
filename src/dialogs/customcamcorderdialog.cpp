@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "customcamcorderdialog.h"
+#include "utils/uiutils.h"
 
 #include <QDir>
 #include <QFontDatabase>
@@ -22,7 +23,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 CustomCamcorderDialog::CustomCamcorderDialog(QWidget *parent)
     : QDialog(parent)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     setWindowTitle(i18n("Edit Custom Camcorder Proxy Profiles"));
     loadEntries();

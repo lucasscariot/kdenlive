@@ -69,14 +69,14 @@ Item {
                 x: width * (index % trackSeparators.rows)
                 y: height * (Math.floor(index / trackSeparators.rows))
                 color: "transparent"
-                border.color: index == root.activeTrack ? "#ff0000" : "#00000000"
+                border.color: index == root.activeTrack ? K.Design.colors["accent"] : 'transparent'
                 border.width: 2
                 Label {
                     text: trackSeperatorFrame.modelData
-                    color: "#ffffff"
+                    color: K.Design.colors["on-accent"]
                     padding :4
                     background: Rectangle {
-                        color: trackSeperatorFrame.index == root.activeTrack ? "#990000" : "#000066"
+                        color: trackSeperatorFrame.index == root.activeTrack ? K.Design.colors["accent-fill"] : K.Design.colors["surface-viewer"]
                     }
                 }
                 MouseArea {

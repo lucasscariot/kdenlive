@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "core.h"
 #include "kdenlivesettings.h"
 #include "mainwindow.h"
+#include "utils/uiutils.h"
 
 #include <KFileItem>
 #include <KLocalizedString>
@@ -25,7 +26,7 @@ SlideshowClip::SlideshowClip(const Timecode &tc, QString clipFolder, ProjectClip
     , m_timecode(tc)
     , m_thumbJob(nullptr)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     m_view.setupUi(this);
     setWindowTitle(i18nc("@title:window", "Add Image Sequence"));
     if (clip) {

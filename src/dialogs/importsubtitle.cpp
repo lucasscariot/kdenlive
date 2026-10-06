@@ -7,6 +7,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "importsubtitle.h"
 #include "bin/model/subtitlemodel.hpp"
 #include "core.h"
+#include "utils/uiutils.h"
 
 #include <QFontDatabase>
 
@@ -16,7 +17,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 ImportSubtitle::ImportSubtitle(const QString &path, QWidget *parent)
     : QDialog(parent)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     m_parseTimer.setSingleShot(true);
     m_parseTimer.setInterval(200);

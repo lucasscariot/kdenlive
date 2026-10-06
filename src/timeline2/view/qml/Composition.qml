@@ -58,7 +58,7 @@ Item {
     property bool selected: false
     property double speed: 1.0
     property color color: displayRect.color
-    property color borderColor: 'black'
+    property color borderColor: K.Design.alpha("surface-viewer", 0.55)
     readonly property bool trimInProgress: trimInMouseArea.pressed || trimOutMouseArea.pressed
     readonly property bool isUserInteracting: mouseArea.pressed || trimInProgress
     readonly property bool hideCompoViews: !visible || width < minClipWidthForViews
@@ -191,8 +191,8 @@ Item {
         anchors.topMargin: compositionRoot.displayHeight - compositionRoot.trackOffset
         height: compositionRoot.parentTrack.height - compositionRoot.displayHeight
         property int handleWidth: Math.max(2, Math.ceil(K.UiUtils.baseSizeMedium / 4))
-        color: Qt.darker('mediumpurple')
-        border.color: compositionRoot.grouped ? compositionRoot.timeline.groupColor : mouseArea.containsMouse ? activePalette.highlight : compositionRoot.borderColor
+        color: Qt.darker(K.Design.colors["role-composition"])
+        border.color: compositionRoot.grouped ? compositionRoot.timeline.groupColor : mouseArea.containsMouse ? K.Design.colors["accent-fill"] : compositionRoot.borderColor
         border.width: compositionRoot.isGrabbed ? 8 : 2
         opacity: compositionRoot.clipDragInProgress ? 0.5 : 1.0
 
@@ -212,7 +212,7 @@ Item {
                 }
                 PropertyChanges {
                     displayRect.height: parentTrack.height - displayHeight + Math.min(Logic.getTrackHeightByPos(Logic.getTrackIndexFromId(parentTrack.trackInternalId) + 1) / 3, K.UiUtils.baseSizeMedium)
-                    displayRect.color: 'mediumpurple'
+                    displayRect.color: K.Design.colors["role-composition"]
                     displayRect.border.color: compositionRoot.timeline.selectionColor
                 }
             }
@@ -353,7 +353,7 @@ Item {
                     anchors.left: trimInMouseArea.left
                     width: displayRect.handleWidth
                     height: mouseArea.height
-                    color: 'lawngreen'
+                    color: K.Design.colors["success"]
                     opacity: 0
                     Drag.active: trimInMouseArea.drag.active
                     Drag.proposedAction: Qt.MoveAction
@@ -417,7 +417,7 @@ Item {
                     anchors.right: trimOutMouseArea.right
                     width: displayRect.handleWidth
                     height: parent.height
-                    color: 'red'
+                    color: K.Design.colors["danger"]
                     opacity: 0
                     Drag.active: trimOutMouseArea.drag.active
                     Drag.proposedAction: Qt.MoveAction
@@ -449,7 +449,7 @@ Item {
                         topMargin: 1
                         leftMargin: 1
                     }
-                    color: 'white'
+                    color: K.Design.colors["on-accent"]
                 }
             }
             Rectangle {
@@ -472,7 +472,7 @@ Item {
                         topMargin: 1
                         leftMargin: 1
                     }
-                    color: 'black'
+                    color: K.Design.colors["surface-viewer"]
                 }
                 states: [
                     State { when: !compositionRoot.hideDecorations

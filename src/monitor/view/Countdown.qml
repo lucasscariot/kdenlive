@@ -7,6 +7,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick.Controls 2.15
 import QtQuick 2.15
+import org.kde.kdenlive as K
 
 Rectangle {
     id: counter
@@ -15,7 +16,7 @@ Rectangle {
     anchors.fill: parent
     property int size: Math.min(width, height)
     signal stopCountdown()
-    color: Qt.rgba(0, 0, 0, 0.5)
+    color: K.Design.colors["scrim"]
     Timer {
         id: countdownTimer
         interval: 100
@@ -35,8 +36,8 @@ Rectangle {
     Rectangle {
         width: counter.size * 0.6
         height: width
-        color: "black"
-        border.color: "white"
+        color: K.Design.colors["surface-viewer"]
+        border.color: K.Design.colors["on-accent"]
         border.width: 4
         radius: width*0.5
         opacity: 0.5
@@ -60,7 +61,7 @@ Rectangle {
         }
     }
     Rectangle {
-        color: 'white'
+        color: K.Design.colors["on-accent"]
         height: 5
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 10

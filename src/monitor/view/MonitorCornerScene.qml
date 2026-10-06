@@ -72,8 +72,8 @@ Item {
       id: canvas
       property double handleSize: K.UiUtils.baseSizeMedium * 0.5
       property double darOffset : 0
-      property color fillColor: Qt.rgba(1, 1, 1, 0.5)
-      property color selectedColor: activePalette.highlight
+      property color fillColor: K.Design.alpha("on-accent", 0.5)
+      property color selectedColor: K.Design.colors["accent-fill"]
       width: root.width
       height: root.height
       anchors.centerIn: root
@@ -86,7 +86,7 @@ Item {
         //if (context) {
             ctx.clearRect(0,0, width, height);
             ctx.beginPath()
-            ctx.strokeStyle = Qt.rgba(1, 0, 0, 0.5)
+            ctx.strokeStyle = K.Design.alpha("danger", 0.5)
             ctx.fillStyle = canvas.fillColor
             ctx.lineWidth = 2
             var p1 = convertPoint(root.centerPoints[0])
@@ -174,13 +174,13 @@ Item {
     Rectangle {
         id: frame
         objectName: "referenceframe"
-        property color hoverColor: "#ff0000"
+        property color hoverColor: K.Design.colors["accent"]
         width: root.profile.x * root.scalex
         height: root.profile.y * root.scaley
         x: root.center.x - width / 2 - root.offsetx
         y: root.center.y - height / 2 - root.offsety
         color: "transparent"
-        border.color: "#ffffff00"
+        border.color: 'transparent'
 
         Repeater {
             model: K.KdenliveSettings.showMonitorGrid ? Math.floor(root.profile.x / K.KdenliveSettings.monitorGridH) : 0

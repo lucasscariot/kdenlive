@@ -90,10 +90,10 @@ Item {
                 //border.width: 2
                 Label {
                     text: KI18n.i18n("In")
-                    color: "#ffffff"
+                    color: K.Design.colors["on-accent"]
                     padding: 4
                     background: Rectangle {
-                        color: "#990000"
+                        color: K.Design.colors["danger-fill"]
                     }
                 }
                 Label {
@@ -101,10 +101,10 @@ Item {
                     font.family: fontMetrics.font.family
                     objectName: "trimmingTC1"
                     text: root.controller.trimmingTC1
-                    color: "#ffffff"
+                    color: K.Design.colors["on-accent"]
                     padding: 4
                     background: Rectangle {
-                        color: "black"
+                        color: K.Design.colors["surface-viewer"]
                         opacity: 0.5
                     }
                     anchors {
@@ -124,10 +124,10 @@ Item {
                 //border.width: 2
                 Label {
                     text: KI18n.i18n("Out")
-                    color: "#ffffff"
+                    color: K.Design.colors["on-accent"]
                     padding: 4
                     background: Rectangle {
-                        color: "#990000"
+                        color: K.Design.colors["danger-fill"]
                     }
                 }
                 Label {
@@ -135,10 +135,10 @@ Item {
                     font.family: fontMetrics.font.family
                     objectName: "trimmingTC2"
                     text: root.controller.trimmingTC2
-                    color: "#ffffff"
+                    color: K.Design.colors["on-accent"]
                     padding: 4
                     background: Rectangle {
-                        color: "black"
+                        color: K.Design.colors["surface-viewer"]
                         opacity: 0.5
                     }
                     anchors {

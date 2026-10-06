@@ -59,7 +59,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "ui_newtimeline_ui.h"
 #include "ui_qtextclip_ui.h"
 #include "undohelper.hpp"
+#include "utils/designpaint.h"
+#include "utils/designtokens.h"
 #include "utils/thumbnailcache.hpp"
+#include "utils/uiutils.h"
 #include "xml/xml.hpp"
 
 #include <KActionMenu>
@@ -435,7 +438,8 @@ public:
                     // Draw frame in case of missing source
                     if (clipStatus == FileStatus::StatusMissing || clipStatus == FileStatus::StatusProxyOnly) {
                         painter->save();
-                        painter->setPen(QPen(clipStatus == FileStatus::StatusProxyOnly ? Qt::yellow : Qt::red, 3));
+                        painter->setPen(
+                            QPen(DesignTokens::color(clipStatus == FileStatus::StatusProxyOnly ? QStringLiteral("warning") : QStringLiteral("danger")), 3));
                         painter->drawRect(m_thumbRect.adjusted(0, 0, -1, -1));
                         painter->restore();
                     } else if (cType == ClipType::Image || cType == ClipType::SlideShow) {
@@ -443,10 +447,10 @@ public:
                         painter->save();
                         int penWidth = m_thumbRect.height() / 14;
                         penWidth += penWidth % 2;
-                        painter->setPen(QPen(QColor(255, 255, 255, 160), penWidth));
+                        painter->setPen(QPen(DesignTokens::instance()->alpha(QStringLiteral("on-accent"), 0.63), penWidth));
                         penWidth /= 2;
                         painter->drawRoundedRect(m_thumbRect.adjusted(penWidth, penWidth, -penWidth - 1, -penWidth - 1), 4, 4);
-                        painter->setPen(QPen(Qt::black, 1));
+                        painter->setPen(QPen(DesignTokens::color(QStringLiteral("surface-viewer")), 1));
                         painter->drawRoundedRect(m_thumbRect.adjusted(0, 0, -1, -1), 4, 4);
                         painter->restore();
                     }
@@ -456,12 +460,12 @@ public:
                             painter->save();
                             int rectSize = qMin(m_thumbRect.height() / 2.5, style->pixelMetric(QStyle::PM_SmallIconSize) * 1.5);
                             const QRect proxyRect(m_thumbRect.x(), m_thumbRect.y(), rectSize, rectSize);
-                            painter->fillRect(proxyRect, QColor(220, 220, 10, 200));
+                            painter->fillRect(proxyRect, DesignTokens::color(QStringLiteral("warning")));
                             QFont font = painter->font();
                             font.setPixelSize(proxyRect.height());
                             font.setBold(true);
                             painter->setFont(font);
-                            painter->setPen(Qt::black);
+                            painter->setPen(DesignTokens::color(QStringLiteral("surface-viewer")));
                             painter->drawText(proxyRect, Qt::AlignCenter, i18nc("@label The first letter of Proxy, used as abbreviation", "P"));
                             painter->restore();
                         }
@@ -565,7 +569,7 @@ public:
                         int progressHeight = option.fontMetrics.ascent() / 4;
                         QRect progress(r1.x() + 1, opt.rect.bottom() - progressHeight - 2, progressWidth, progressHeight);
                         painter->setPen(Qt::NoPen);
-                        painter->setBrush(Qt::darkGray);
+                        painter->setBrush(DesignTokens::color(QStringLiteral("surface-control")));
                         if (status == TaskManagerStatus::Running) {
                             painter->drawRoundedRect(progress, 2, 2);
                             painter->setBrush((option.state & static_cast<int>((QStyle::State_Selected) != 0)) != 0 ? option.palette.text()
@@ -816,7 +820,7 @@ public:
             FileStatus::ClipStatus clipStatus = FileStatus::ClipStatus(index.data(AbstractProjectItem::ClipStatus).toInt());
             if (clipStatus == FileStatus::StatusMissing || clipStatus == FileStatus::StatusProxyOnly) {
                 painter->save();
-                painter->setPen(QPen(clipStatus == FileStatus::StatusProxyOnly ? Qt::yellow : Qt::red, 3));
+                painter->setPen(QPen(DesignTokens::color(clipStatus == FileStatus::StatusProxyOnly ? QStringLiteral("warning") : QStringLiteral("danger")), 3));
                 painter->drawRect(m_thumbRect);
                 painter->restore();
             } else if (cType == ClipType::Image || cType == ClipType::SlideShow) {
@@ -824,10 +828,10 @@ public:
                 painter->save();
                 int penWidth = m_thumbRect.height() / 14;
                 penWidth += penWidth % 2;
-                painter->setPen(QPen(QColor(255, 255, 255, 160), penWidth));
+                painter->setPen(QPen(DesignTokens::instance()->alpha(QStringLiteral("on-accent"), 0.63), penWidth));
                 penWidth /= 2;
                 painter->drawRoundedRect(m_thumbRect.adjusted(penWidth, penWidth, -penWidth - 1, -penWidth + 1), 4, 4);
-                painter->setPen(QPen(Qt::black, 1));
+                painter->setPen(QPen(DesignTokens::color(QStringLiteral("surface-viewer")), 1));
                 painter->drawRoundedRect(m_thumbRect.adjusted(0, 0, -1, 1), 4, 4);
                 painter->restore();
             }
@@ -846,12 +850,12 @@ public:
                     painter->save();
                     int rectSize = qMin(m_thumbRect.height() / 2.5, logicalIconSize * 1.5);
                     const QRect proxyRect(m_thumbRect.x(), m_thumbRect.y(), rectSize, rectSize);
-                    painter->fillRect(proxyRect, QColor(220, 220, 10, 200));
+                    painter->fillRect(proxyRect, DesignTokens::color(QStringLiteral("warning")));
                     QFont font = painter->font();
                     font.setPixelSize(proxyRect.height());
                     font.setBold(true);
                     painter->setFont(font);
-                    painter->setPen(Qt::black);
+                    painter->setPen(DesignTokens::color(QStringLiteral("surface-viewer")));
                     painter->drawText(proxyRect, Qt::AlignCenter, i18nc("@label The first letter of Proxy, used as abbreviation", "P"));
                     painter->restore();
                 }
@@ -864,7 +868,7 @@ public:
                 QRect thumbRect = m_thumbRect.adjusted(2, 2, -2, -2);
                 QRect progress(thumbRect.x(), thumbRect.bottom() - progressHeight - 2, thumbRect.width(), progressHeight);
                 painter->setPen(Qt::NoPen);
-                painter->setBrush(Qt::darkGray);
+                painter->setBrush(DesignTokens::color(QStringLiteral("surface-control")));
                 if (status == TaskManagerStatus::Running) {
                     painter->drawRoundedRect(progress, 2, 2);
                     painter->setBrush((option.state & static_cast<int>((QStyle::State_Selected) != 0)) != 0 ? option.palette.text()
@@ -1268,32 +1272,9 @@ SmallJobLabel::SmallJobLabel(QWidget *parent)
     hide();
 }
 
-const QString SmallJobLabel::getStyleSheet(const QPalette &p)
+const QString SmallJobLabel::getStyleSheet(const QPalette &)
 {
-    KColorScheme scheme(p.currentColorGroup(), KColorScheme::Window);
-    QColor bg = scheme.background(KColorScheme::LinkBackground).color();
-    QColor fg = scheme.foreground(KColorScheme::LinkText).color();
-    QString style =
-        QStringLiteral("QPushButton {margin:3px;padding:2px;background-color: rgb(%1, %2, %3);border-radius: 4px;border: none;color: rgb(%4, %5, %6)}")
-            .arg(bg.red())
-            .arg(bg.green())
-            .arg(bg.blue())
-            .arg(fg.red())
-            .arg(fg.green())
-            .arg(fg.blue());
-
-    bg = scheme.background(KColorScheme::ActiveBackground).color();
-    fg = scheme.foreground(KColorScheme::ActiveText).color();
-    style.append(
-        QStringLiteral("\nQPushButton:hover {margin:3px;padding:2px;background-color: rgb(%1, %2, %3);border-radius: 4px;border: none;color: rgb(%4, %5, %6)}")
-            .arg(bg.red())
-            .arg(bg.green())
-            .arg(bg.blue())
-            .arg(fg.red())
-            .arg(fg.green())
-            .arg(fg.blue()));
-
-    return style;
+    return DesignPaint::badgeStyleSheet(QStringLiteral("QPushButton"), QStringLiteral("accent-soft"), QStringLiteral("ink"), QStringLiteral("accent-fill"));
 }
 
 void SmallJobLabel::setAction(QAction *action)
@@ -1451,7 +1432,7 @@ Bin::Bin(std::shared_ptr<ProjectItemModel> model, QWidget *parent, bool isMainBi
     // Search line
     m_searchLine = new QLineEdit(this);
     m_searchLine->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-    m_searchLine->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_searchLine->setFont(UiUtils::smallFont());
     // m_searchLine->setClearButtonEnabled(true);
     m_searchLine->setPlaceholderText(i18n("Search…"));
     m_searchLine->setFocusPolicy(Qt::ClickFocus);
@@ -1670,7 +1651,7 @@ Bin::Bin(std::shared_ptr<ProjectItemModel> model, QWidget *parent, bool isMainBi
     m_filterButton->setToolTip(i18n("Filter"));
     m_filterButton->setWhatsThis(xi18nc("@info:whatsthis", "Filter the project bin contents. Click on the filter icon to toggle the filter display. Click on "
                                                            "the arrow icon to open a list of possible filter settings."));
-    m_filterButton->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_filterButton->setFont(UiUtils::smallFont());
     m_filterButton->setMenu(m_filterMenu);
 
     connect(m_filterButton, &QToolButton::toggled, this, [this](bool toggle) {

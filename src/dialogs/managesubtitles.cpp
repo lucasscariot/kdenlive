@@ -12,6 +12,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "klocalizedstring.h"
 #include "subtitlestyleedit.h"
 #include "timeline2/view/timelinecontroller.h"
+#include "utils/uiutils.h"
 #include <KMessageBox>
 #include <QFontDatabase>
 #include <QListWidget>
@@ -44,7 +45,7 @@ ManageSubtitles::ManageSubtitles(std::shared_ptr<SubtitleModel> model, TimelineC
     , m_model(model)
     , m_controller(controller)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(i18nc("@title:window", "Manage Subtitles"));

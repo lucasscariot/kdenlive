@@ -42,7 +42,9 @@
 #include "timeline2/view/previewmanager.h"
 #include "timeline2/view/timelinewidget.h"
 #include "transitions/transitionsrepository.hpp"
+#include "utils/designtokens.h"
 #include "utils/thumbnailcache.hpp"
+#include "utils/uiutils.h"
 
 #include <KColorScheme>
 #include <KGuiItem>
@@ -138,6 +140,7 @@ void TimelineController::setModel(std::shared_ptr<TimelineItemModel> model, bool
     }
     connect(m_model.get(), &TimelineModel::connectPreviewManager, this, &TimelineController::connectPreviewManager);
     connect(m_model.get(), &TimelineModel::selectionModeChanged, this, &TimelineController::colorsChanged);
+    connect(DesignTokens::instance(), &DesignTokens::themeChanged, this, &TimelineController::colorsChanged);
     connect(this, &TimelineController::selectionChanged, this, &TimelineController::handleSelectionChange);
     connect(this, &TimelineController::selectionChanged, this, &TimelineController::updateTrimmingMode);
     connect(this, &TimelineController::videoTargetChanged, this, &TimelineController::updateVideoTarget);
@@ -5346,116 +5349,69 @@ bool TimelineController::hasKeyframeAt(int cid, int frame)
 
 QColor TimelineController::videoColor() const
 {
-    if (KdenliveSettings::videoColor().alpha() > 0) {
-        return KdenliveSettings::videoColor();
-    }
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    return scheme.foreground(KColorScheme::LinkText).color();
+    return getTimelineClipColor(ClipType::Video);
 }
 
 QColor TimelineController::targetColor() const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    QColor base = scheme.foreground(KColorScheme::PositiveText).color();
-    QColor high = QApplication::palette().highlightedText().color();
-    double factor = 0.3;
-    QColor res = QColor(qBound(0, base.red() + int(factor * (high.red() - 128)), 255), qBound(0, base.green() + int(factor * (high.green() - 128)), 255),
-                        qBound(0, base.blue() + int(factor * (high.blue() - 128)), 255), 255);
-    return res;
+    return DesignTokens::color(QStringLiteral("success"));
 }
 
 QColor TimelineController::targetTextColor() const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    return scheme.background(KColorScheme::PositiveBackground).color();
+    return DesignTokens::color(QStringLiteral("on-accent"));
 }
 
 QColor TimelineController::audioColor() const
 {
-    if (KdenliveSettings::audioColor().alpha() > 0) {
-        return KdenliveSettings::audioColor();
-    }
-    return KdenliveSettings::thumbColor1().darker(150);
+    return getTimelineClipColor(ClipType::Audio);
 }
 
 QColor TimelineController::titleColor() const
 {
-    if (KdenliveSettings::titleColor().alpha() > 0) {
-        return KdenliveSettings::titleColor();
-    }
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    QColor base = scheme.foreground(KColorScheme::LinkText).color();
-    QColor high = scheme.foreground(KColorScheme::NegativeText).color();
-    QColor title = QColor(qBound(0, base.red() + int(high.red() - 128), 255), qBound(0, base.green() + int(high.green() - 128), 255),
-                          qBound(0, base.blue() + int(high.blue() - 128), 255), 255);
-    return title;
+    return getTimelineClipColor(ClipType::Text);
 }
 
 QColor TimelineController::imageColor() const
 {
-    if (KdenliveSettings::imageColor().alpha() > 0) {
-        return KdenliveSettings::imageColor();
-    }
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    return scheme.foreground(KColorScheme::NeutralText).color();
+    return getTimelineClipColor(ClipType::Image);
 }
 
 QColor TimelineController::slideshowColor() const
 {
-    if (KdenliveSettings::slideshowColor().alpha() > 0) {
-        return KdenliveSettings::slideshowColor();
-    }
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    QColor base = scheme.foreground(KColorScheme::LinkText).color();
-    QColor high = scheme.foreground(KColorScheme::NeutralText).color();
-    QColor slide = QColor(qBound(0, base.red() + int(high.red() - 128), 255), qBound(0, base.green() + int(high.green() - 128), 255),
-                          qBound(0, base.blue() + int(high.blue() - 128), 255), 255);
-    return slide;
+    return getTimelineClipColor(ClipType::SlideShow);
 }
 
 QColor TimelineController::lockedColor() const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    return scheme.foreground(KColorScheme::NegativeText).color();
+    return DesignTokens::color(QStringLiteral("danger"));
 }
 
 QColor TimelineController::groupColor() const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    return scheme.foreground(KColorScheme::ActiveText).color().darker(150);
+    return DesignTokens::color(QStringLiteral("ink-secondary"));
+}
+
+QString TimelineController::clipRole(ClipType::ProducerType type) const
+{
+    switch (type) {
+    case ClipType::Audio:
+        return QStringLiteral("music");
+    case ClipType::Text:
+    case ClipType::TextTemplate:
+        return QStringLiteral("titles");
+    case ClipType::Image:
+    case ClipType::SlideShow:
+        return QStringLiteral("stills");
+    default:
+        return QStringLiteral("video");
+    }
 }
 
 QColor TimelineController::getDefaultClipColor(ClipType::ProducerType type) const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-    switch (type) {
-    case ClipType::Video:
-    case ClipType::AV:
-        return scheme.foreground(KColorScheme::LinkText).color();
-    case ClipType::Audio:
-        return KdenliveSettings::thumbColor1().darker(150);
-    case ClipType::Text:
-    case ClipType::TextTemplate:
-    {
-        QColor base = scheme.foreground(KColorScheme::LinkText).color();
-        QColor high = scheme.foreground(KColorScheme::NegativeText).color();
-        return QColor(qBound(0, base.red() + int(high.red() - 128), 255),
-                      qBound(0, base.green() + int(high.green() - 128), 255),
-                      qBound(0, base.blue() + int(high.blue() - 128), 255), 255);
-    }
-    case ClipType::Image:
-        return scheme.foreground(KColorScheme::NeutralText).color();
-    case ClipType::SlideShow:
-    {
-        QColor base = scheme.foreground(KColorScheme::LinkText).color();
-        QColor high = scheme.foreground(KColorScheme::NeutralText).color();
-        return QColor(qBound(0, base.red() + int(high.red() - 128), 255),
-                      qBound(0, base.green() + int(high.green() - 128), 255),
-                      qBound(0, base.blue() + int(high.blue() - 128), 255), 255);
-    }
-    default:
-        return scheme.foreground(KColorScheme::LinkText).color();
-    }
+    // Final Cut style roles from the design tokens
+    return DesignTokens::color(QStringLiteral("role-") + clipRole(type));
 }
 
 QColor TimelineController::getTimelineClipColor(ClipType::ProducerType type) const
@@ -5496,11 +5452,10 @@ QColor TimelineController::getTimelineClipColor(ClipType::ProducerType type) con
 
 QColor TimelineController::selectionColor() const
 {
-    KColorScheme scheme(QApplication::palette().currentColorGroup(), KColorScheme::Complementary);
     if (m_model && m_model->singleSelectionMode()) {
-        return Qt::red;
+        return DesignTokens::color(QStringLiteral("danger"));
     }
-    return scheme.foreground(KColorScheme::NeutralText).color();
+    return DesignTokens::color(QStringLiteral("accent"));
 }
 
 void TimelineController::switchRecording(int trackId, bool record)
@@ -5707,7 +5662,7 @@ void TimelineController::collapseActiveTrack()
     }
     int collapsed = m_model->getTrackProperty(m_activeTrack, QStringLiteral("kdenlive:collapsed")).toInt();
     // Default unit for timeline.qml objects size
-    int baseUnit = qMax(28, qRound(QFontInfo(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont)).pixelSize() * 1.8));
+    int baseUnit = qMax(28, qRound(QFontInfo(UiUtils::smallFont()).pixelSize() * 1.8));
     m_model->setTrackProperty(m_activeTrack, QStringLiteral("kdenlive:collapsed"), collapsed > 0 ? QStringLiteral("0") : QString::number(baseUnit));
 }
 

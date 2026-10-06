@@ -8,6 +8,7 @@
 #include "core.h"
 #include "definitions.h"
 #include "doc/kthumb.h"
+#include "utils/uiutils.h"
 #include <QColorDialog>
 #include <QFontDatabase>
 #include <QFontDialog>
@@ -19,7 +20,7 @@ SubtitleStyleEdit::SubtitleStyleEdit(QWidget *parent)
     : QDialog(parent)
 {
     setupUi(this);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 

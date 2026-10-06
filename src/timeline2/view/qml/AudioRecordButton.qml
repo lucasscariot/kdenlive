@@ -18,7 +18,7 @@ Rectangle {
     width: K.UiUtils.baseSizeMedium * 1.5
     height: K.UiUtils.baseSizeMedium * 1.5
     radius: recState == MediaRecorder.PausedState ? K.UiUtils.baseSizeMedium * 0.2 : K.UiUtils.baseSizeMedium * .75
-    color: activePalette.text
+    color: K.Design.colors["ink"]
     border.width: 0
     
     // Public properties
@@ -28,8 +28,8 @@ Rectangle {
     required property bool isLocked
 
     // Private properties
-    readonly property bool isDarkTheme: activePalette.window.hslLightness < activePalette.windowText.hslLightness
-    readonly property string buttonFillColorStoppedRecording: isDarkTheme ? "#c62828" : "#b71c1c"
+    readonly property bool isDarkTheme: K.Design.colors["surface-panel"].hslLightness < K.Design.colors["ink"].hslLightness
+    readonly property string buttonFillColorStoppedRecording: K.Design.colors["danger-fill"]
     readonly property string buttonFillColorPaused: isDarkTheme ? 'black' : 'white'
     
     // Visual feedback for disabled state
@@ -83,7 +83,7 @@ Rectangle {
         width: recbutton.width
         height: recbutton.height
         radius: recbutton.radius
-        color: "#e53e3e"  // Same red as recording state
+        color: K.Design.colors["danger"]  // Same red as recording state
         opacity: 0
         anchors.centerIn: recbutton
         border.width: 0
@@ -131,7 +131,7 @@ Rectangle {
         onEntered:  {
             if (!recbutton.isLocked) {
                 buttonFill.color = Qt.lighter(buttonFill.color, 1.5)
-                recbutton.color = Qt.lighter(activePalette.text, 1.3)
+                recbutton.color = Qt.lighter(K.Design.colors["ink"], 1.3)
             }
         }
         onExited:  {
@@ -143,7 +143,7 @@ Rectangle {
                 } else {
                     buttonFill.color = recbutton.buttonFillColorStoppedRecording
                 }
-                recbutton.color = activePalette.text
+                recbutton.color = K.Design.colors["ink"]
             }
         }
     }

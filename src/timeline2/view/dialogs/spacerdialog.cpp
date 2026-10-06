@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "spacerdialog.h"
+#include "utils/uiutils.h"
 
 #include <QFontDatabase>
 #include <QWheelEvent>
@@ -15,7 +16,7 @@ SpacerDialog::SpacerDialog(const GenTime &duration, const Timecode &tc, QWidget 
     : QDialog(parent)
     , m_in(nullptr, tc)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     inputLayout->addWidget(&m_in);
     m_in.setValue(duration);

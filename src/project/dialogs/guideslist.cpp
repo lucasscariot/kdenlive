@@ -18,6 +18,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "project/projectmanager.h"
 #include "utils/thumbnailcache.hpp"
 #include "utils/timecode.h"
+#include "utils/uiutils.h"
 
 #include <KLocalizedString>
 #include <KMessageBox>
@@ -157,7 +158,7 @@ GuidesList::GuidesList(QWidget *parent)
     : QWidget(parent)
 {
     setupUi(this);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     int fontHeight = QFontMetrics(font()).lineSpacing();
     m_proxy = new GuidesProxyModel(fontHeight, this);
     connect(guides_list, &QListView::doubleClicked, this, &GuidesList::editGuide);

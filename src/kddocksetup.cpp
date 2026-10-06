@@ -7,6 +7,8 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "kddocksetup.h"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/designpaint.h"
+#include "utils/designtokens.h"
 #include "utils/kdenlivestyle.h"
 
 #include <QDragEnterEvent>
@@ -106,8 +108,7 @@ public:
 static void paintHeaderStrip(QWidget *widget, const QRect &rect)
 {
     QPainter p(widget);
-    p.fillRect(rect, KdenliveStyle::headerColor(widget->palette()));
-    p.fillRect(QRect(rect.left(), rect.bottom(), rect.width(), 1), KdenliveStyle::overlay(widget->palette(), 0.1));
+    DesignPaint::headerStrip(&p, rect);
 }
 
 class KdenliveDockTabBar : public KDDockWidgets::QtWidgets::TabBar
@@ -131,7 +132,7 @@ public:
         tabStyle->setParent(this);
         setStyle(tabStyle);
         setPalette(qApp->palette());
-        setFont(KdenliveStyle::chromeFont(qApp->font()));
+        setFont(DesignTokens::font(QStringLiteral("text-caption")));
 
         connect(this, &QWidget::customContextMenuRequested, []() { Q_EMIT pCore.get()->switchTitleBars(); });
         connect(this, &KDDockWidgets::QtWidgets::TabBar::countChanged, [&]() {
@@ -237,13 +238,12 @@ protected:
             return QObject::eventFilter(watched, event);
         }
         QPainter p(button);
-        p.setRenderHint(QPainter::Antialiasing, true);
         if (button->isEnabled() && (button->underMouse() || button->isDown())) {
-            p.setPen(Qt::NoPen);
-            p.setBrush(KdenliveStyle::overlay(button->palette(), button->isDown() ? 0.18 : 0.1));
-            p.drawRoundedRect(QRectF(button->rect()).adjusted(1, 1, -1, -1), 4, 4);
+            DesignPaint::panel(&p, QRectF(button->rect()).adjusted(1, 1, -1, -1), DesignPaint::wash(true, button->isDown()), Qt::transparent,
+                               DesignTokens::radius(QStringLiteral("radius-sm")));
         }
-        QRect iconRect(0, 0, 16, 16);
+        const int iconSize = DesignTokens::size(QStringLiteral("icon-md"));
+        QRect iconRect(0, 0, iconSize, iconSize);
         iconRect.moveCenter(button->rect().center());
         button->icon().paint(&p, iconRect, Qt::AlignCenter, button->isEnabled() ? QIcon::Normal : QIcon::Disabled);
         return true;
@@ -297,10 +297,10 @@ protected:
     {
         paintHeaderStrip(this, rect());
         QPainter p(this);
-        QFont font = KdenliveStyle::chromeFont(qApp->font());
+        QFont font = DesignTokens::font(QStringLiteral("text-caption"));
         font.setWeight(QFont::DemiBold);
         p.setFont(font);
-        p.setPen(KdenliveStyle::overlay(palette(), 0.85));
+        p.setPen(DesignTokens::color(QStringLiteral("ink")));
         // Leave room for the buttons laid out on the right
         int right = width();
         for (QWidget *child : findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
@@ -345,9 +345,9 @@ public:
     void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
-        p.fillRect(QWidget::rect(), palette().window());
+        p.fillRect(QWidget::rect(), DesignTokens::color(QStringLiteral("surface-window")));
         // A hairline at rest, an accent bar while hovered so the drag target is obvious
-        const QColor color = hovered ? palette().highlight().color() : KdenliveStyle::overlay(palette(), 0.1);
+        const QColor color = DesignTokens::color(hovered ? QStringLiteral("accent") : QStringLiteral("separator"));
         const int thickness = hovered ? 2 : 1;
         const QRect r = QWidget::rect();
         if (m_controller->isVertical()) {
@@ -392,13 +392,13 @@ KDDockWidgets::Core::View *CustomWidgetFactory::createTabBar(KDDockWidgets::Core
 QIcon CustomWidgetFactory::iconForButtonType(KDDockWidgets::TitleBarButtonType type, qreal dpr) const
 {
     // Line icons in the same weight as the style's chevrons, drawn on a 16px grid
-    const int size = 16;
+    const int size = DesignTokens::size(QStringLiteral("icon-md"));
     QPixmap pixmap(QSize(size, size) * dpr);
     pixmap.setDevicePixelRatio(dpr);
     pixmap.fill(Qt::transparent);
     QPainter p(&pixmap);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(KdenliveStyle::overlay(qApp->palette(), 0.8), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(DesignTokens::color(QStringLiteral("ink-secondary")), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(Qt::NoBrush);
     auto arrow = [&p](QPointF from, QPointF to, QPointF corner1, QPointF corner2) {
         p.drawLine(from, to);

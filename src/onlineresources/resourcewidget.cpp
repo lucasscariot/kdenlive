@@ -6,6 +6,7 @@
 
 #include "resourcewidget.hpp"
 #include "core.h"
+#include "utils/uiutils.h"
 
 #include <KConfigGroup>
 #include <KFileItem>
@@ -34,7 +35,7 @@ ResourceWidget::ResourceWidget(QWidget *parent)
     : QWidget(parent)
     , m_showloadingWarning(true)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
 
     int iconHeight = int(QFontInfo(font()).pixelSize() * 3.5);

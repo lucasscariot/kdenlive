@@ -6,6 +6,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 #include "cliptranscode.h"
 #include "kdenlivesettings.h"
+#include "utils/uiutils.h"
 
 #include <QFontDatabase>
 #include <QStandardPaths>
@@ -23,7 +24,7 @@ ClipTranscode::ClipTranscode(QStringList urls, const QString &params, QStringLis
     , m_automaticMode(automaticMode)
     , m_postParams(std::move(postParams))
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose);
     m_infoMessage = new KMessageWidget;

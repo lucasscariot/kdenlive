@@ -5,6 +5,7 @@
 */
 
 #include "speechdialog.h"
+#include "utils/uiutils.h"
 
 #include "bin/model/subtitlemodel.hpp"
 #include "core.h"
@@ -36,7 +37,7 @@ SpeechDialog::SpeechDialog(std::shared_ptr<TimelineItemModel> timeline, QPoint z
     , m_tid(-1)
 
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     speech_info->setWordWrap(true);
     speech_info->hide();

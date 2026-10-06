@@ -184,7 +184,7 @@ Item {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 text: KI18n.i18n("No clip loaded")
-                color: activePalette.text
+                color: K.Design.colors["ink"]
                 font.bold: true
             }
             Label {
@@ -192,7 +192,7 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 text: KI18n.i18n("Double-click a clip in the Project Bin to preview it here")
-                color: activePalette.text
+                color: K.Design.colors["ink"]
                 font: K.UiUtils.smallestReadableFont
             }
         }
@@ -264,8 +264,8 @@ Item {
                     top: parent.top
                     horizontalCenter: parent.horizontalCenter
                 }
-                color: clipNameLabel.hovered || contextMenu.visible ? "#CC222277" : "#88222277"
-                border.color: clipNameLabel.hovered ? "#000000" : "transparent"
+                color: clipNameLabel.hovered || contextMenu.visible ? K.Design.alpha("accent-fill", 0.85) : K.Design.alpha("accent-fill", 0.6)
+                border.color: clipNameLabel.hovered ? K.Design.colors["surface-viewer"] : 'transparent'
                 border.width: 1
                 radius: 2
                 visible: root.controller.clipName != ""
@@ -337,10 +337,10 @@ Item {
                 font.family: fontMetrics.font.family
                 font.pointSize: 1.5 * fontMetrics.font.pointSize
                 objectName: "timecode"
-                color: "#ffffff"
+                color: K.Design.colors["on-accent"]
                 padding: 2
                 background: Rectangle {
-                    color: root.controller.monitorIsActive ? "#DD006600": "#66000000"
+                    color: root.controller.monitorIsActive ? K.Design.alpha("success-fill", 0.87) : K.Design.alpha("surface-viewer", 0.4)
                 }
                 text: root.controller.timecode
                 visible: root.showTimecode
@@ -361,10 +361,10 @@ Item {
                 font.family: fontMetrics.font.family
                 font.pointSize: 1.5 * fontMetrics.font.pointSize
                 objectName: "fpsdropped"
-                color: "#ffffff"
+                color: K.Design.colors["on-accent"]
                 padding: 2
                 background: Rectangle {
-                    color: root.dropped ? "#99ff0000" : "#66004400"
+                    color: root.dropped ? K.Design.alpha("danger", 0.6) : K.Design.alpha("success-fill", 0.4)
                 }
                 text: KI18n.i18n("%1fps", root.fps)
                 visible: root.showFps
@@ -389,9 +389,9 @@ Item {
                 }
                 visible: Math.abs(root.controller.speed) > 1
                 text: "x" + root.controller.speed
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "darkgreen"
+                    color: K.Design.colors["success-fill"]
                 }
                 padding: 5
                 horizontalAlignment: TextInput.AlignHCenter
@@ -406,9 +406,9 @@ Item {
                 }
                 visible: root.showMarkers && root.controller.position == root.controller.zoneIn && root.duration > 0
                 text: root.controller.zoneIn == root.controller.zoneOut ? KI18n.i18n("In/Out Point") : KI18n.i18n("In Point")
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "#228b22"
+                    color: K.Design.colors["success"]
                 }
                 padding: 4
                 horizontalAlignment: TextInput.AlignHCenter
@@ -429,9 +429,9 @@ Item {
                 }
                 visible: root.showMarkers && root.controller.position == root.controller.zoneOut && root.controller.zoneOut > root.controller.zoneIn
                 text: KI18n.i18n("Out Point")
-                color: "white"
+                color: K.Design.colors["on-accent"]
                 background: Rectangle {
-                    color: "#770000"
+                    color: K.Design.colors["danger-fill"]
                 }
                 padding: 4
                 horizontalAlignment: TextInput.AlignHCenter
@@ -465,7 +465,7 @@ Item {
                 background: Rectangle {
                     color: root.controller.markerColor
                 }
-                color: "#000000"
+                color: K.Design.colors["surface-viewer"]
                 padding: 0
                 maximumLength: 20
             }
@@ -480,7 +480,7 @@ Item {
             property bool showVideoDrag: root.controller.clipHasAV || !audioView.isAudioClip
             height: K.UiUtils.baseSizeMedium * 3
             width: showVideoDrag ? height * 2 : height
-            color: Qt.rgba(activePalette.base.r, activePalette.base.g, activePalette.base.b, 0.5)
+            color: Qt.rgba(K.Design.colors["surface-timeline"].r, K.Design.colors["surface-timeline"].g, K.Design.colors["surface-timeline"].b, 0.5)
             radius: 4
             opacity: root.inLowerThird ? 1 : 0
             visible: root.controller.clipHasAV || audioView.isAudioClip
@@ -489,9 +489,9 @@ Item {
                 height: dragZone.height
                 width: height
                 radius: 4
-                color: activePalette.highlight
+                color: K.Design.colors["accent-fill"]
                 border.width: 1
-                border.color: activePalette.base
+                border.color: K.Design.colors["surface-timeline"]
                 visible: dragZone.showVideoDrag && (cursorArea.containsMouse && cursorArea.leftSide)
             }
             Rectangle {
@@ -500,9 +500,9 @@ Item {
                 height: dragZone.height
                 width: height
                 radius: 4
-                color: activePalette.highlight
+                color: K.Design.colors["accent-fill"]
                 border.width: 1
-                border.color: activePalette.base
+                border.color: K.Design.colors["surface-timeline"]
                 visible: cursorArea.containsMouse && !cursorArea.leftSide
             }
             Row {
@@ -576,7 +576,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredWidth: labelRow.implicitWidth + 8
                     height: jobLabel.height + progressBar.height + 4
-                    color: "#80333333"
+                    color: K.Design.alpha("surface-control", 0.5)
                     radius: 5
                     MouseArea {
                         id: jobsArea
@@ -602,7 +602,7 @@ Item {
                             text: jobContainer.modelData
                             font.pointSize: fontMetrics.font.pointSize
                             elide: Text.ElideMiddle
-                            color: 'white'
+                            color: K.Design.colors["on-accent"]
                         }
                     }
                     Rectangle {
@@ -614,9 +614,9 @@ Item {
                         anchors.rightMargin: 4
                         height: 6
                         radius: 2
-                        color: "#33ffffff"
+                        color: K.Design.alpha("on-accent", 0.2)
                         border {
-                            color: "#99000000"
+                            color: K.Design.alpha("surface-viewer", 0.6)
                             width: 1
                         }
                         Rectangle {
