@@ -139,6 +139,7 @@ private:
     /** @brief Init QtMultimedia audio record settings */
     bool initAudioRecDevice();
     void initMiscPage();
+    void initMcpPage();
     void initProjectPage();
     void initProxyPage();
     void initTimelinePage();

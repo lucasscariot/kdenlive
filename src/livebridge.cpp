@@ -3,6 +3,7 @@
     SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 #include "livebridge.h"
+#include "config-kdenlive.h"
 
 #include "bin/bin.h"
 #include "bin/clipcreator.hpp"
@@ -19,8 +20,10 @@
 
 #include <QApplication>
 #include <QCryptographicHash>
+#ifdef USE_DBUS
 #include <QDBusConnection>
 #include <QDBusError>
+#endif
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -62,11 +65,13 @@ bool keys(const QJsonObject &object, const QStringList &allowed)
 LiveBridge::LiveBridge(QObject *parent)
     : QObject(parent)
 {
-    if (!QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/kde/kdenlive/LiveBridge"), this,
+#ifdef USE_DBUS
+    if (qEnvironmentVariableIntValue("KDENLIVE_MCP_BRIDGE") == 1 &&
+        !QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/kde/kdenlive/LiveBridge"), this,
                                                       QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {
         qWarning() << "Live bridge registration failed:" << QDBusConnection::sessionBus().lastError().message();
-        return;
     }
+#endif
     // Detect document/sequence switches even when no client is currently calling us.
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, [this] { bind(); });
@@ -77,7 +82,7 @@ QString LiveBridge::capabilities() const
 {
     return json({{"ok", true},
                  {"protocolVersion", 1},
-                 {"transport", "session-dbus"},
+                 {"transport", "native-editor"},
                  {"operations", QJsonArray{"import", "remove_asset", "remove_clip", "replace_media", "audio_envelope", "rename_track", "save", "insert", "move",
                                            "trim", "undo", "redo"}},
                  {"insertModes", QJsonArray{"video", "audio"}},
@@ -228,6 +233,11 @@ QString LiveBridge::state()
 
 QString LiveBridge::apply(const QString &request)
 {
+    return applyAuthorized(request, {});
+}
+
+QString LiveBridge::applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize)
+{
     if (m_executing || QApplication::activeModalWidget() || QApplication::mouseButtons() != Qt::NoButton)
         return failure(QStringLiteral("EDITOR_BUSY"), QStringLiteral("Editor is busy, dragging or has a modal dialog."));
     if (!bind()) return failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline."));
@@ -254,6 +264,10 @@ QString LiveBridge::apply(const QString &request)
     const auto expected = object.value(QStringLiteral("expectedRevision"));
     if (!expected.isDouble() || expected.toDouble(-1) != double(m_revision))
         return failure(QStringLiteral("REVISION_CONFLICT"), QStringLiteral("Project changed; read current state before editing."));
+    if (authorize) {
+        const auto rejection = authorize();
+        if (!rejection.isEmpty()) return json(rejection);
+    }
     QScopedValueRollback<bool> executing(m_executing, true);
     auto result = execute(object.value(QStringLiteral("command")).toObject());
     if (result.value(QStringLiteral("ok")).toBool()) {

@@ -1700,4 +1700,20 @@
       <default>true</default>
     </entry>
     </group>
+    <group name="MCP API">
+        <entry name="mcpEnabled" type="Bool">
+            <label>Enable the local MCP API</label>
+            <default>false</default>
+        </entry>
+        <entry name="mcpPort" type="Int">
+            <label>Local MCP port</label>
+            <default>8765</default>
+            <min>1024</min>
+            <max>65535</max>
+        </entry>
+        <entry name="mcpMediaRoot" type="Path">
+            <label>Additional folder allowed for media imports</label>
+            <default></default>
+        </entry>
+    </group>
 </kcfg>

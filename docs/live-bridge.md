@@ -28,7 +28,7 @@ On Omarchy, open **Kdenlive Live MCP** from the app launcher. The terminal comma
 is `~/.local/bin/kdenlive-live`, which also accepts a `.kdenlive` project path.
 Installation copies the built application to `~/.local/opt/kdenlive-live`, so
 the original checkout and build folder are not needed to launch it.
-The launcher enables the bridge and uses `kdenlive-live` subdirectories inside
+To enable the legacy bridge, launch with `KDENLIVE_MCP_BRIDGE=1`. The launcher uses `kdenlive-live` subdirectories inside
 the user's XDG config, data and cache directories. The system Kdenlive package
 remains installed. The build still needs the host's Qt, KDE
 and MLT libraries; rebuild after incompatible system-library updates.
@@ -40,7 +40,8 @@ Settings remain in the separate XDG directories until removed explicitly.
 
 The MCP client needs the companion `desktop_instances`, `desktop_state` and
 `desktop_apply` tools and access to the same user's D-Bus session. This repository
-contains the native editor bridge; it does not bundle the TypeScript MCP server.
+also offers a [native HTTP MCP server](native-mcp.md), which connects directly
+without the companion or D-Bus bridge.
 
 ## D-Bus interface
 
