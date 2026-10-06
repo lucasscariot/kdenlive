@@ -100,10 +100,11 @@ Row {
             property int aWaveInPoint: Math.round((waveform.parentClip.inPoint + ((index + waveform.offset) * waveform.maxWidth / scaleFactor)) * Math.abs(waveform.parentClip.speed))
             waveInPoint: aWaveInPoint
             waveOutPoint: aWaveInPoint + Math.round(width / scaleFactor * Math.abs(waveform.parentClip.speed))
-            bgColorEven: waveform.parentClip.selected ? waveform.audioColor : waveform.audioColor.darker(1.5) //K.KdenliveSettings.thumbColor1.darker(5)
-            bgColorOdd: waveform.parentClip.selected ? waveform.audioColor : waveform.audioColor.darker(1.5)//K.KdenliveSettings.thumbColor2.darker(5)
-            fgColorEven: waveform.parentClip.selected ? K.KdenliveSettings.thumbColor1 :  K.KdenliveSettings.thumbColor1.darker(1.5)
-            fgColorOdd: waveform.parentClip.selected ? K.KdenliveSettings.thumbColor2 : K.KdenliveSettings.thumbColor2.darker(1.5)
+            // Waveform drawn as a lighter tint of the clip color, so tagged clips keep their color
+            bgColorEven: waveform.parentClip.selected ? waveform.audioColor : waveform.audioColor.darker(1.5)
+            bgColorOdd: waveform.parentClip.selected ? waveform.audioColor : waveform.audioColor.darker(1.5)
+            fgColorEven: Qt.tint(waveform.audioColor, Qt.rgba(1, 1, 1, waveform.parentClip.selected ? 0.55 : 0.35))
+            fgColorOdd: Qt.tint(waveform.audioColor, Qt.rgba(1, 1, 1, waveform.parentClip.selected ? 0.65 : 0.45))
             drawChannelNames: false //(index + waveform.offset) == 0
         }
     }

@@ -564,6 +564,18 @@ Item {
         }
     }
     
+    // Background band and bottom hairline, slightly darker than the tracks
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        color: Qt.darker(activePalette.window, 1.18)
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, 0.1)
+        }
+    }
     // Ruler marks
     Item {
         id: timecodeContainer
@@ -583,18 +595,22 @@ Item {
             x: Math.round(realPos * rulerRoot.timeline.scaleFactor)
             height: parent.height
             property bool showText: (tickRepeater.offset + index)%rulerRoot.labelMod == 0
+            // Labelled ticks run the full height with the timecode beside them, others are short
             Rectangle {
                 anchors.bottom: parent.bottom
-                height: parent.showText ? K.UiUtils.baseSizeMedium * 0.8 : 4
+                height: parent.showText ? parent.height : 3
                 width: 1
-                color: rulerRoot.dimmedColor2
+                color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, parent.showText ? 0.22 : 0.16)
             }
             Label {
                 visible: parent.showText
                 anchors.top: parent.top
+                anchors.topMargin: 1
+                leftPadding: 4
                 text: rulerRoot.timeline.timecode(parent.realPos + rulerRoot.timecodeOffset)
                 font: K.UiUtils.smallestReadableFont
                 color: rulerRoot.dimmedColor
+                opacity: 0.85
             }
         }
     }
@@ -649,8 +665,9 @@ Item {
         frameOut: rulerRoot.timeline.zoneOut
         snapping: rulerRoot.snapping
         showZoneLabels: rulerRoot.showZoneLabels
-        color: rulerRoot.timeline.useRuler ? Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.9) :
-        Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.5)
+        // Translucent so the zone reads as a range, not as a solid bar across the ruler
+        color: rulerRoot.timeline.useRuler ? Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.5) :
+        Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.25)
         anchors.bottom: parent.bottom
         height: rulerRoot.zoneHeight
         onUpdateZone: (start, end, update) => {

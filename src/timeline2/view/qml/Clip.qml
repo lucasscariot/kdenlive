@@ -479,7 +479,7 @@ Rectangle {
             ClipAudioThumbs {
                 timeScale: clipRoot.timeScale
                 parentClip: clipRoot
-                audioColor: clipRoot.timeline.audioColor
+                audioColor: clipRoot.getColor()
             }
         }
 
@@ -499,6 +499,9 @@ Rectangle {
                     && !(clipRoot.hideClipViews
                          || clipRoot.itemType == K.ClipType.Unknown
                          || clipRoot.itemType === K.ClipType.Color
+                         // titles are mostly transparent, their thumbnails are just black frames at lane height
+                         || clipRoot.itemType === K.ClipType.Text
+                         || clipRoot.itemType === K.ClipType.TextTemplate
                          // not if it is a audio clip, but audio thumbs are disabled
                          || clipRoot.parentTrack.isAudio && !K.KdenliveSettings.audiothumbnails
                          // not if it is a video clip, but video thumbs are disabled

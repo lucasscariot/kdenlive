@@ -2591,7 +2591,7 @@ function getTrackColor(audio, header) {
                 x: Math.round(guideRoot.model.frame * root.timeScale);
                 // Keep guides visible over clips without competing with them
                 color: guideRoot.model.color
-                opacity: 0.6
+                opacity: 0.45
             }
         }
     }
