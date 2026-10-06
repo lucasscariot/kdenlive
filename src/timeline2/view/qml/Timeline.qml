@@ -526,7 +526,7 @@ function getTrackColor(audio, header) {
     readonly property bool autoTrackHeight: root.timeline.autotrackHeight
     // A saturated red stands out from footage and from the blue selection accent
     readonly property color playheadColor: '#E5483E'
-    readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.2)
+    readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.1)
     readonly property color frameColor: Qt.rgba(activePalette.shadow.r, activePalette.shadow.g, activePalette.shadow.b, 0.5)
     // Wide enough by default for the track name to share the first row with its tag and buttons
     property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)

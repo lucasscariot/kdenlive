@@ -1104,9 +1104,8 @@ bool MainWindow::readOptions()
 
     if (KdenliveSettings::trackheight() == 0) {
         QFont ft = QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
-        // Height of the icon row
-        int baseUnit = qMax(28, qCeil(QFontInfo(ft).pixelSize() * 1.8));
-        int trackHeight = baseUnit + qMax(22, qCeil(QFontInfo(ft).pixelSize() * 2.5) + 6);
+        // One header row of controls is enough now that the track name shares it; the rest shows the clip name strip and thumbnails
+        int trackHeight = qMax(44, qCeil(QFontInfo(ft).pixelSize() * 3.4));
         KdenliveSettings::setTrackheight(trackHeight);
     }
     bool firstRun = false;
