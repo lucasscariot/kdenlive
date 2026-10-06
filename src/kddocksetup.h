@@ -29,4 +29,5 @@ public:
     KDDockWidgets::Core::View *createStack(KDDockWidgets::Core::Stack *, KDDockWidgets::Core::View *parent) const override;
     KDDockWidgets::Core::View *createTabBar(KDDockWidgets::Core::TabBar *, KDDockWidgets::Core::View *parent) const override;
     KDDockWidgets::Core::View *createSeparator(KDDockWidgets::Core::Separator *, KDDockWidgets::Core::View *parent) const override;
+    QIcon iconForButtonType(KDDockWidgets::TitleBarButtonType type, qreal dpr) const override;
 };

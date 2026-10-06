@@ -16,7 +16,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QObject>
 #include <QTabBar>
 
+#include <QAbstractButton>
+#include <QChildEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QProxyStyle>
 #include <QStyleFactory>
 #include <QStyleOptionTab>
@@ -217,6 +220,36 @@ public:
     void paintEvent(QPaintEvent *) override {}
 };
 
+/** @brief Repaints KDDockWidgets title bar buttons as flat tool buttons: bare icon, rounded hover background */
+class TitleButtonPainter : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() != QEvent::Paint) {
+            return QObject::eventFilter(watched, event);
+        }
+        auto *button = qobject_cast<QAbstractButton *>(watched);
+        if (!button) {
+            return QObject::eventFilter(watched, event);
+        }
+        QPainter p(button);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        if (button->isEnabled() && (button->underMouse() || button->isDown())) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(KdenliveStyle::overlay(button->palette(), button->isDown() ? 0.18 : 0.1));
+            p.drawRoundedRect(QRectF(button->rect()).adjusted(1, 1, -1, -1), 4, 4);
+        }
+        QRect iconRect(0, 0, 16, 16);
+        iconRect.moveCenter(button->rect().center());
+        button->icon().paint(&p, iconRect, Qt::AlignCenter, button->isEnabled() ? QIcon::Normal : QIcon::Disabled);
+        return true;
+    }
+};
+
 class KdenliveDockTitleBar : public KDDockWidgets::QtWidgets::TitleBar
 {
 public:
@@ -249,6 +282,17 @@ public:
     }
 
 protected:
+    void childEvent(QChildEvent *event) override
+    {
+        if (event->type() == QEvent::ChildPolished) {
+            if (auto *button = qobject_cast<QAbstractButton *>(event->child())) {
+                button->setAttribute(Qt::WA_Hover, true);
+                button->installEventFilter(&m_buttonPainter);
+            }
+        }
+        KDDockWidgets::QtWidgets::TitleBar::childEvent(event);
+    }
+
     void paintEvent(QPaintEvent *) override
     {
         paintHeaderStrip(this, rect());
@@ -270,6 +314,7 @@ protected:
 
 private:
     KDDockWidgets::Core::TitleBar *const m_controller;
+    TitleButtonPainter m_buttonPainter;
 };
 
 class KdenliveDockSeparator : public KDDockWidgets::QtWidgets::Separator
@@ -342,4 +387,64 @@ KDDockWidgets::Core::View *CustomWidgetFactory::createSeparator(KDDockWidgets::C
 KDDockWidgets::Core::View *CustomWidgetFactory::createTabBar(KDDockWidgets::Core::TabBar *controller, KDDockWidgets::Core::View *parent) const
 {
     return new KdenliveDockTabBar(controller, parent);
+}
+
+QIcon CustomWidgetFactory::iconForButtonType(KDDockWidgets::TitleBarButtonType type, qreal dpr) const
+{
+    // Line icons in the same weight as the style's chevrons, drawn on a 16px grid
+    const int size = 16;
+    QPixmap pixmap(QSize(size, size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(KdenliveStyle::overlay(qApp->palette(), 0.8), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    auto arrow = [&p](QPointF from, QPointF to, QPointF corner1, QPointF corner2) {
+        p.drawLine(from, to);
+        QPainterPath head;
+        head.moveTo(corner1);
+        head.lineTo(to);
+        head.lineTo(corner2);
+        p.drawPath(head);
+    };
+    switch (type) {
+    case KDDockWidgets::TitleBarButtonType::Close:
+        p.drawLine(QPointF(4.5, 4.5), QPointF(11.5, 11.5));
+        p.drawLine(QPointF(11.5, 4.5), QPointF(4.5, 11.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Float:
+        // Pop out: frame open at the top right with an arrow leaving it
+        p.drawPolyline(QPolygonF({QPointF(7, 3.5), QPointF(3.5, 3.5), QPointF(3.5, 12.5), QPointF(12.5, 12.5), QPointF(12.5, 9)}));
+        arrow(QPointF(7.5, 8.5), QPointF(12.5, 3.5), QPointF(9, 3.5), QPointF(12.5, 7));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Normal:
+        // Dock back: arrow entering the frame
+        p.drawPolyline(QPolygonF({QPointF(7, 3.5), QPointF(3.5, 3.5), QPointF(3.5, 12.5), QPointF(12.5, 12.5), QPointF(12.5, 9)}));
+        arrow(QPointF(12.5, 3.5), QPointF(7.5, 8.5), QPointF(7.5, 5), QPointF(11, 8.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Maximize:
+        p.drawRoundedRect(QRectF(3.5, 3.5, 9, 9), 1.5, 1.5);
+        break;
+    case KDDockWidgets::TitleBarButtonType::Minimize:
+        p.drawLine(QPointF(4, 11.5), QPointF(12, 11.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::AutoHide:
+    case KDDockWidgets::TitleBarButtonType::UnautoHide: {
+        // Pin, tilted once the panel auto hides
+        if (type == KDDockWidgets::TitleBarButtonType::UnautoHide) {
+            p.translate(8, 8);
+            p.rotate(45);
+            p.translate(-8, -8);
+        }
+        p.drawRoundedRect(QRectF(6, 2.5, 4, 5), 1, 1);
+        p.drawLine(QPointF(4, 7.5), QPointF(12, 7.5));
+        p.drawLine(QPointF(8, 7.5), QPointF(8, 13.5));
+        break;
+    }
+    default:
+        break;
+    }
+    p.end();
+    return QIcon(pixmap);
 }

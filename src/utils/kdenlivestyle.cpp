@@ -541,9 +541,11 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
         QRect box(0, 0, 16, 16);
         box.moveCenter(option->rect.center());
         if (hover) {
-            drawRoundedPanel(painter, box, overlay(option->palette, option->state & State_Sunken ? 0.2 : 0.12), Qt::transparent, 3);
+            const QColor base = current ? option->palette.color(QPalette::HighlightedText) : option->palette.color(QPalette::WindowText);
+            drawRoundedPanel(painter, box, withAlpha(base, option->state & State_Sunken ? 0.25 : 0.16), Qt::transparent, box.height() / 2.);
         }
-        const QColor color = overlay(option->palette, hover ? 0.9 : current ? 0.6 : 0.35);
+        const QColor color =
+            current ? withAlpha(option->palette.color(QPalette::HighlightedText), hover ? 1.0 : 0.75) : overlay(option->palette, hover ? 0.9 : 0.35);
         const QRectF cross = QRectF(box).adjusted(5, 5, -5, -5);
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
@@ -641,25 +643,37 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
         return;
     case CE_TabBarTabShape:
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
-            const QRect r = tab->rect;
+            // Pill tabs: the current one is filled with the accent, others only react to hover
+            const QRect pill = tab->rect.adjusted(3, 4, -3, -4);
+            const qreal radius = qMin(pill.width(), pill.height()) / 2.;
             if (tab->state & State_Selected) {
-                const bool atBottom = tab->shape == QTabBar::RoundedSouth || tab->shape == QTabBar::TriangularSouth;
-                const QRect line = atBottom ? QRect(r.left() + 6, r.top(), r.width() - 12, 2) : QRect(r.left() + 6, r.bottom() - 1, r.width() - 12, 2);
-                painter->fillRect(line, tab->palette.highlight());
+                QColor accent = tab->palette.color(QPalette::Highlight);
+                if (!(tab->state & State_Enabled)) {
+                    accent = withAlpha(accent, 0.5);
+                }
+                drawRoundedPanel(painter, pill, accent, Qt::transparent, radius);
             } else if ((tab->state & State_MouseOver) && (tab->state & State_Enabled)) {
-                drawRoundedPanel(painter, r.adjusted(2, 3, -2, -3), overlay(tab->palette, 0.07), Qt::transparent);
+                drawRoundedPanel(painter, pill, overlay(tab->palette, 0.08), Qt::transparent, radius);
             }
             return;
         }
         break;
     case CE_TabBarTabLabel:
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
-            if (!(tab->state & State_Selected)) {
-                QStyleOptionTab dimmed(*tab);
-                dimmed.palette.setColor(QPalette::WindowText, withAlpha(tab->palette.color(QPalette::WindowText), 0.6));
-                QProxyStyle::drawControl(element, &dimmed, painter, widget);
-                return;
+            QStyleOptionTab label(*tab);
+            if (tab->state & State_Selected) {
+                label.palette.setColor(QPalette::WindowText, tab->palette.color(QPalette::HighlightedText));
+                painter->save();
+                QFont font = painter->font();
+                font.setWeight(QFont::DemiBold);
+                painter->setFont(font);
+                QProxyStyle::drawControl(element, &label, painter, widget);
+                painter->restore();
+            } else {
+                label.palette.setColor(QPalette::WindowText, withAlpha(tab->palette.color(QPalette::WindowText), 0.6));
+                QProxyStyle::drawControl(element, &label, painter, widget);
             }
+            return;
         }
         break;
     case CE_Splitter:
