@@ -70,9 +70,12 @@ private Q_SLOTS:
         port = freePort();
         calls = 0;
         server = std::make_unique<McpServer>(
-            QJsonArray{QJsonObject{{"name", "probe"}, {"inputSchema", QJsonObject{{"type", "object"}}}}},
-            [this](const QString &, const QJsonObject &, const QString &) {
+            QJsonArray{QJsonObject{{"name", "probe"}, {"inputSchema", QJsonObject{{"type", "object"}}}},
+                       QJsonObject{{"name", "picture"}, {"inputSchema", QJsonObject{{"type", "object"}}}}},
+            [this](const QString &name, const QJsonObject &, const QString &) {
                 ++calls;
+                if (name == QLatin1String("picture"))
+                    return QJsonObject{{"ok", true}, {"width", 1}, {"image", QJsonObject{{"data", "iVBORw0KGgo="}, {"mimeType", "image/png"}}}};
                 return QJsonObject{{"ok", true}, {"calls", calls}};
             },
             directory.filePath("token"));
@@ -93,11 +96,21 @@ private Q_SLOTS:
         QCOMPARE(send(R"({"jsonrpc":"2.0","method":"notifications/initialized"})", session).status, 202);
         const auto listed = send(R"({"jsonrpc":"2.0","id":3,"method":"tools/list"})", session);
         QCOMPARE(listed.status, 200);
-        QCOMPARE(QJsonDocument::fromJson(listed.body).object()["result"].toObject()["tools"].toArray().size(), 1);
+        QCOMPARE(QJsonDocument::fromJson(listed.body).object()["result"].toObject()["tools"].toArray().size(), 2);
         const auto tool = send(R"({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"probe","arguments":{}}})", session);
         QCOMPARE(tool.status, 200);
         QCOMPARE(calls, 1);
         QVERIFY(QJsonDocument::fromJson(tool.body).object()["result"].toObject()["structuredContent"].toObject()["ok"].toBool());
+        const auto picture =
+            QJsonDocument::fromJson(send(R"({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"picture","arguments":{}}})", session).body)
+                .object()["result"]
+                .toObject();
+        // Images become MCP image content and are not duplicated in the structured result.
+        const auto content = picture["content"].toArray();
+        QCOMPARE(content.size(), 2);
+        QCOMPARE(content.at(1).toObject()["type"].toString(), QString("image"));
+        QCOMPARE(content.at(1).toObject()["mimeType"].toString(), QString("image/png"));
+        QVERIFY(!picture["structuredContent"].toObject()["data"].toObject().contains("image"));
         QCOMPARE(send({}, session, "GET").status, 405);
         QCOMPARE(send({}, session, "DELETE").status, 204);
         QCOMPARE(send(R"({"jsonrpc":"2.0","id":5,"method":"ping"})", session).status, 404);

@@ -288,14 +288,16 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
         return response(
             {{"jsonrpc", "2.0"},
              {"id", id},
-             {"result",
-              QJsonObject{{"protocolVersion", version},
-                          {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
-                          {"serverInfo", QJsonObject{{"name", "kdenlive-native"}, {"version", "1.0.0"}}},
-                          {"instructions", "This server edits the visible Kdenlive project. Read desktop_state first and preserve its session/revision. Use a "
-                                           "new requestId for each edit and retry uncertain outcomes only with the identical payload. Import/replacement are "
-                                           "asynchronous; wait for bin readiness. Edits share native Undo with the user. Open and save a local project before "
-                                           "editing. Media imports are restricted to the project folder and configured additional media folder."}}}},
+             {"result", QJsonObject{{"protocolVersion", version},
+                                    {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
+                                    {"serverInfo", QJsonObject{{"name", "kdenlive-native"}, {"version", "1.0.0"}}},
+                                    {"instructions",
+                                     "This server edits the visible Kdenlive project. Read desktop_state first and preserve its session/revision. Use a "
+                                     "new requestId for each edit and retry uncertain outcomes only with the identical payload. Import/replacement are "
+                                     "asynchronous; wait for bin readiness. Edits share native Undo with the user. Open and save a local project before "
+                                     "editing. Media imports, save_as and render outputs are restricted to the project folder and configured additional media "
+                                     "folder. Use desktop_batch to make many edits one Undo step. For a format change (e.g. vertical), save_as a copy, "
+                                     "set the profile, reframe clips and resize titles, verifying with desktop_frame_capture, then desktop_render."}}}},
             Status::Ok, allocated);
     }
     if (sessionId.isEmpty()) return rpcError(notification ? nullId : id, -32600, "Mcp-Session-Id is required.", Status::BadRequest);
@@ -317,12 +319,14 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
     for (const auto &tool : m_tools)
         if (tool.toObject().value("name").toString() == name) known = true;
     if (!known || (params.contains("arguments") && !params.value("arguments").isObject())) return rpcError(id, -32602, "Unknown tool or invalid arguments.");
-    const auto result = m_callTool(name, params.value("arguments").toObject(), m_mediaRoot);
+    auto result = m_callTool(name, params.value("arguments").toObject(), m_mediaRoot);
+    // Images travel as MCP image content, not inside the structured JSON.
+    const auto image = result.take("image").toObject();
     const bool ok = result.value("ok").toBool();
     const QJsonObject envelope = ok ? QJsonObject{{"ok", true}, {"data", result}} : result;
     const QString text = QString::fromUtf8(QJsonDocument(envelope).toJson(QJsonDocument::Compact));
-    return response(
-        {{"jsonrpc", "2.0"},
-         {"id", id},
-         {"result", QJsonObject{{"isError", !ok}, {"structuredContent", envelope}, {"content", QJsonArray{QJsonObject{{"type", "text"}, {"text", text}}}}}}});
+    QJsonArray content{QJsonObject{{"type", "text"}, {"text", text}}};
+    if (ok && image.value("data").isString())
+        content.append(QJsonObject{{"type", "image"}, {"data", image.value("data")}, {"mimeType", image.value("mimeType").toString("image/png")}});
+    return response({{"jsonrpc", "2.0"}, {"id", id}, {"result", QJsonObject{{"isError", !ok}, {"structuredContent", envelope}, {"content", content}}}});
 }

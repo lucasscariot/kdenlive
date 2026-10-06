@@ -24,6 +24,11 @@ public:
     explicit LiveBridge(QObject *parent);
     /** Policy runs only for a new, revision-checked request, never for a receipt replay. */
     QString applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize);
+    /** Read-only production helpers; each validates its own arguments. */
+    QJsonObject frameCapture(const QJsonObject &arguments);
+    QJsonObject effectList(const QJsonObject &arguments);
+    QJsonObject titleRead(const QJsonObject &arguments);
+    QJsonObject renderStatus();
 
 public Q_SLOTS:
     Q_SCRIPTABLE QString capabilities() const;
@@ -38,6 +43,10 @@ private:
     void contentChanged();
     QJsonObject snapshot() const;
     QJsonObject execute(const QJsonObject &command);
+    QJsonObject executeBatch(const QJsonObject &command);
+    QJsonObject executeProduction(const QJsonObject &command, bool &handled);
+    QJsonObject startRender(const QJsonObject &command);
+    QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;
 
     QPointer<KdenliveDoc> m_document;
@@ -54,4 +63,15 @@ private:
     };
     QHash<QString, Receipt> m_receipts;
     QQueue<QString> m_receiptOrder;
+    struct RenderState
+    {
+        QString preset;
+        QString status;
+        int progress{0};
+        int frame{0};
+        QString error;
+        qint64 started{0};
+    };
+    QMap<QString, RenderState> m_renders;
+    bool m_renderTracking{false};
 };
