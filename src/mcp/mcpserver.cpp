@@ -17,6 +17,7 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QTcpServer>
+#include <QUrl>
 #include <QUuid>
 #include <cmath>
 
@@ -123,17 +124,20 @@ bool McpServer::loadCredential(bool rotate)
 
 void McpServer::configure(bool enabled, int port, const QString &mediaRoot)
 {
-    if (m_enabled == enabled && m_port == port && m_mediaRoot == mediaRoot && (m_http || !enabled)) return;
+    // KUrlRequester may persist a file URL even when its KConfig entry is a Path.
+    const QUrl mediaUrl(mediaRoot);
+    const QString localRoot = mediaUrl.isLocalFile() ? mediaUrl.toLocalFile() : mediaRoot;
+    if (m_enabled == enabled && m_port == port && m_mediaRoot == localRoot && (m_http || !enabled)) return;
     stop();
     m_enabled = enabled;
     m_port = port;
-    m_mediaRoot = mediaRoot;
+    m_mediaRoot = localRoot;
     if (!enabled) return;
     if (port < 1024 || port > 65535) {
         setStatus(QStringLiteral("MCP port must be between 1024 and 65535."));
         return;
     }
-    if (!mediaRoot.isEmpty() && (!QFileInfo(mediaRoot).isDir() || !QFileInfo(mediaRoot).isAbsolute())) {
+    if (!localRoot.isEmpty() && (!QFileInfo(localRoot).isDir() || !QFileInfo(localRoot).isAbsolute())) {
         setStatus(QStringLiteral("The additional media folder must be an existing absolute directory."));
         return;
     }
