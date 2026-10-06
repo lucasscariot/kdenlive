@@ -12,6 +12,7 @@
 #include <QCursor>
 #include <QDialog>
 #include <QEvent>
+#include <QIcon>
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
@@ -145,6 +146,14 @@ void KdenliveStyle::installIfFusion()
     }
     QApplication::setStyle(new KdenliveStyle(QStyleFactory::create(QStringLiteral("fusion"))));
     QApplication::setFont(DesignTokens::font(QStringLiteral("text-body")));
+
+    // Lucide based icons drawn in the theme's icon ink; names they do not cover fall back to Breeze
+    QIcon::setThemeSearchPaths(QStringList{QStringLiteral(":/design/icons")} + QIcon::themeSearchPaths());
+    const auto applyIconTheme = []() {
+        QIcon::setThemeName(DesignTokens::instance()->isDark() ? QStringLiteral("KdenlivePro-dark") : QStringLiteral("KdenlivePro-light"));
+    };
+    applyIconTheme();
+    QObject::connect(DesignTokens::instance(), &DesignTokens::themeChanged, qApp, applyIconTheme);
 }
 
 bool KdenliveStyle::isActive()

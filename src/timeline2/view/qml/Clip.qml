@@ -611,7 +611,7 @@ Rectangle {
                     }
 
                     opacity: mixArea.containsMouse || trimInMixArea.pressed || trimInMixArea.containsMouse || clipRoot.isMixSelected ? 1 : 0.7
-                    border.color: clipRoot.isMixSelected ? clipRoot.timeline.selectionColor : "white"
+                    border.color: clipRoot.isMixSelected ? clipRoot.timeline.selectionColor : K.Design.colors["on-accent"]
                     border.width: clipRoot.mixDuration > 0 ? 2 : 0
                     radius: 3
                     Rectangle {
@@ -1483,7 +1483,7 @@ Rectangle {
                         }
                         color: K.Design.colors["on-accent"]
                         //style: Text.Outline
-                        //styleColor: 'black'
+                        //styleColor: K.Design.colors["surface-viewer"]
                     }
                 }
 
@@ -1524,7 +1524,7 @@ Rectangle {
                             }
                             color: K.Design.colors["on-accent"]
                             style: Text.Outline
-                            styleColor: 'black'
+                            styleColor: K.Design.colors["surface-viewer"]
                         }
                     }
                 }
@@ -1583,7 +1583,7 @@ Rectangle {
                             rightMargin: 2
                         }
                         color: K.Design.colors["on-accent"]
-                        styleColor: 'black'
+                        styleColor: K.Design.colors["surface-viewer"]
                     }
                }
                Rectangle{
@@ -1608,7 +1608,7 @@ Rectangle {
                             topMargin: (labelRect.height-proxyLabel.height)/2
                         }
                         color: K.Design.colors["surface-viewer"]
-                        styleColor: 'black'
+                        styleColor: K.Design.colors["surface-viewer"]
                     }
                 }
                 Rectangle{
@@ -1633,7 +1633,7 @@ Rectangle {
                             topMargin: (labelRect.height-proxyLabel.height)/2
                         }
                         color: K.Design.colors["on-accent"]
-                        styleColor: 'white'
+                        styleColor: K.Design.colors["on-accent"]
                     }
                 }
             }

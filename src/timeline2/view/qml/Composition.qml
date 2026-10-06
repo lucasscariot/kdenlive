@@ -58,7 +58,7 @@ Item {
     property bool selected: false
     property double speed: 1.0
     property color color: displayRect.color
-    property color borderColor: 'black'
+    property color borderColor: K.Design.alpha("surface-viewer", 0.55)
     readonly property bool trimInProgress: trimInMouseArea.pressed || trimOutMouseArea.pressed
     readonly property bool isUserInteracting: mouseArea.pressed || trimInProgress
     readonly property bool hideCompoViews: !visible || width < minClipWidthForViews

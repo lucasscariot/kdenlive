@@ -1,0 +1,11 @@
+[Icon Theme]
+Name=KdenlivePro-light
+Comment=Kdenlive Pro icons, generated from Lucide by src/design/generate-icon-theme.py
+Inherits=breeze,hicolor
+Directories=scalable
+
+[scalable]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable

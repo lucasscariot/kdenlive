@@ -105,7 +105,7 @@ Rectangle {
     }
     Label {
         id: trackTarget
-        property color bgColor: 'grey'
+        property color bgColor: K.Design.colors["ink-tertiary"]
         font: K.UiUtils.smallestReadableFont
         color: trackHeadRoot.timeline.targetTextColor
         background: Rectangle {

@@ -10,7 +10,7 @@ Item {
     id: overlayLabel
     property alias text: label.text
     property color backgroundColor: K.Design.colors["scrim"]
-    property color textColor: "white"
+    property color textColor: K.Design.colors["on-accent"]
     property int padding: 6
     property alias font: label.font
     property bool flipText: false

@@ -411,7 +411,7 @@ Item {
             }
             color: K.Design.colors["surface-viewer"]
          }
-        color: "yellow"
+        color: K.Design.colors["warning"]
     }
 
     MouseArea {

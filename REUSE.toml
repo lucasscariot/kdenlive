@@ -305,3 +305,9 @@ path = "src/design/tokens.json"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Kdenlive contributors"
 SPDX-License-Identifier = "GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL"
+
+[[annotations]]
+path = "src/design/icons/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Lucide Icons and Contributors"
+SPDX-License-Identifier = "ISC"
