@@ -2,6 +2,10 @@
 
 # Kdenlive
 
+This fork adds an optional native D-Bus bridge for live MCP editing. See the
+[live bridge build, installation and protocol guide](docs/live-bridge.md).
+It is based on Kdenlive 26.08.1 and is an experimental community fork.
+
 Kdenlive is a powerful, free and open-source video editor that brings professional-grade video editing capabilities to everyone. Whether you're creating a simple family video or working on a complex project, Kdenlive provides the tools you need to bring your vision to life.
 
 For more information about Kdenlive's features, tutorials, and community, please visit our [official website](https://kdenlive.org).

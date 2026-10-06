@@ -33,6 +33,10 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT HAIKU)
     set(USE_DBUS_DEFAULT ON)
 endif()
 option(USE_DBUS "Build components using DBus" ${USE_DBUS_DEFAULT})
+option(KDENLIVE_LIVE_BRIDGE "Build the optional local live-editing D-Bus API" OFF)
+if(KDENLIVE_LIVE_BRIDGE AND NOT USE_DBUS)
+    message(FATAL_ERROR "KDENLIVE_LIVE_BRIDGE requires USE_DBUS")
+endif()
 
 option(BUILD_DESIGNERPLUGIN "Build plugin for Qt Designer" OFF)
 
@@ -275,4 +279,3 @@ feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
 # pre-commit hook
 include(KDEGitCommitHooks)
 kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
-
