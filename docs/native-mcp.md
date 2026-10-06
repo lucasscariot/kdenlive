@@ -10,7 +10,7 @@ Node runtime or D-Bus bridge is required for live editing.
 3. Check that the status says `Listening on http://127.0.0.1:8765/mcp`.
 4. Pick your client's format under **Client configuration** and click **Copy**:
    generic `mcpServers` JSON (Claude Desktop, Cursor and most clients), a
-   `claude mcp add` command for Claude Code, a Codex `config.toml` entry, or the
+   `claude mcp add --scope user` command for Claude Code, a Codex `config.toml` entry, or the
    bare URL and header. Add it to your client and reconnect.
 5. Open and save a project in Kdenlive. MCP edits act on its visible sequence.
 

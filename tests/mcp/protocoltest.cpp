@@ -161,7 +161,7 @@ private Q_SLOTS:
         QCOMPARE(entry["url"].toString(), url);
         QCOMPARE(entry["headers"].toObject()["Authorization"].toString(), bearer);
         const auto claude = server->clientConfiguration(McpClientFormat::ClaudeCode);
-        QVERIFY(claude.startsWith("claude mcp add --transport http kdenlive " + url));
+        QVERIFY(claude.startsWith("claude mcp add --scope user --transport http kdenlive " + url));
         QVERIFY(claude.contains(bearer));
         QVERIFY(server->clientConfiguration(McpClientFormat::Codex).startsWith("[mcp_servers.kdenlive]\nurl = \"" + url));
         QVERIFY(server->clientConfiguration(McpClientFormat::Plain).contains("Authorization: " + bearer));
