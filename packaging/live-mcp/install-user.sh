@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 set -euo pipefail
 
-if [[ $# != 1 || ! -x "$1/bin/kdenlive" || ! -d "$1/share/kdenlive" ]]; then
-  echo "Usage: $0 <installed-CMake-prefix>" >&2
+if [[ $# -lt 1 || $# -gt 2 || ! -x "$1/bin/kdenlive" || ! -d "$1/share/kdenlive" ]]; then
+  echo "Usage: $0 <installed-CMake-prefix> [matching-Qt-library-directory]" >&2
   exit 2
 fi
 
@@ -31,6 +31,19 @@ fi
 mkdir -p "$live_prefix" "$HOME/.local/bin" "$desktop_dir"
 # Replacing directory entries also allows updating an executable that is running.
 cp -a --remove-destination "$source_tree/." "$live_prefix/"
+if [[ $# == 2 ]]; then
+  # Bundle only the optional modules, using the same Qt version as the system.
+  mkdir -p "$live_prefix/lib"
+  for module in HttpServer WebSockets; do
+    library="$2/libQt6$module.so.6"
+    [[ -f "$library" ]] || { echo "Missing Qt module: $library" >&2; exit 1; }
+    cp -L --remove-destination "$library" "$live_prefix/lib/libQt6$module.so.6"
+  done
+fi
+if LD_LIBRARY_PATH="$live_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$live_prefix/bin/kdenlive" | grep -q 'not found'; then
+  echo 'Installed editor has missing runtime dependencies' >&2
+  exit 1
+fi
 install -m 755 "$script_dir/kdenlive-live" "$live_prefix/bin/kdenlive-live"
 ln -sfn "$live_prefix/bin/kdenlive-live" "$command_path"
 cat > "$desktop_file" <<DESKTOP

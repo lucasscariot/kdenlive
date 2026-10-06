@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mlt LC_NUMERIC="C" version="7.40.0" producer="main_bin">
+  <profile description="Kdenlive MCP 1280x720 30/1" width="1280" height="720" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="1280" display_aspect_den="720" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
+  <producer id="producer0" in="0" out="599">
+    <property name="mlt_service">avformat-novalidate</property>
+    <property name="resource">@MEDIA@</property>
+    <property name="length">600</property>
+    <property name="kdenlive:clipname">source.mkv</property>
+    <property name="kdenlive:id">2</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
+  </producer>
+  <producer id="producer-66cfd82e-aaaf-4aa5-af82-b11b5b548948" in="0" out="1199">
+    <property name="mlt_service">timewarp</property>
+    <property name="resource">0.5:@MEDIA@</property>
+    <property name="warp_resource">@MEDIA@</property>
+    <property name="warp_speed">0.5</property>
+    <property name="warp_pitch">1</property>
+    <property name="length">1200</property>
+    <property name="eof">pause</property>
+    <property name="threads">2</property>
+    <property name="kdenlive:id">2</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
+    <property name="kdenlive:clipname">source.mkv</property>
+  </producer>
+  <producer id="producer-d9e08578-927f-4bcd-8792-1610ef3f923b" in="0" out="1199">
+    <property name="mlt_service">timewarp</property>
+    <property name="resource">0.5:@MEDIA@</property>
+    <property name="warp_resource">@MEDIA@</property>
+    <property name="warp_speed">0.5</property>
+    <property name="warp_pitch">1</property>
+    <property name="length">1200</property>
+    <property name="eof">pause</property>
+    <property name="threads">2</property>
+    <property name="kdenlive:id">2</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
+    <property name="kdenlive:clipname">source.mkv</property>
+  </producer>
+  <producer id="title-8a34c4f0-e981-477b-8d9b-ab9a1b25458e" in="0" out="239">
+    <property name="mlt_service">color</property>
+    <property name="resource">0x00000000</property>
+    <property name="mlt_image_format">rgba</property>
+    <property name="length">240</property>
+    <property name="eof">pause</property>
+    <property name="set.test_audio">1</property>
+    <property name="kdenlive:id">3</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000003}</property>
+    <property name="kdenlive:clipname">Native MCP • 10 seconds</property>
+  </producer>
+  <producer id="black_track" in="0" out="299">
+    <property name="length">2147483647</property>
+    <property name="eof">continue</property>
+    <property name="resource">black</property>
+    <property name="mlt_service">color</property>
+    <property name="mlt_image_format">rgba</property>
+  </producer>
+  <playlist id="playlist0">
+    <entry producer="producer-66cfd82e-aaaf-4aa5-af82-b11b5b548948" in="600" out="899">
+      <property name="kdenlive:id">2</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
+    </entry>
+  </playlist>
+  <playlist id="playlist1"/>
+  <tractor id="tractor0" in="0" out="299">
+    <property name="kdenlive:track_name">V1</property>
+    <property name="kdenlive:trackheight">67</property>
+    <property name="kdenlive:timeline_active">1</property>
+    <property name="kdenlive:collapsed">0</property>
+    <track hide="audio" producer="playlist0"/>
+    <track hide="audio" producer="playlist1"/>
+  </tractor>
+  <playlist id="playlist2">
+    <property name="kdenlive:audio_track">1</property>
+    <entry producer="producer-d9e08578-927f-4bcd-8792-1610ef3f923b" in="600" out="899">
+      <property name="kdenlive:id">2</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
+    </entry>
+  </playlist>
+  <playlist id="playlist3"><property name="kdenlive:audio_track">1</property></playlist>
+  <tractor id="tractor1" in="0" out="299">
+    <property name="kdenlive:track_name">A1</property>
+    <property name="kdenlive:audio_track">1</property>
+    <property name="kdenlive:trackheight">67</property>
+    <property name="kdenlive:timeline_active">1</property>
+    <property name="kdenlive:collapsed">0</property>
+    <track hide="video" producer="playlist2"/>
+    <track hide="video" producer="playlist3"/>
+  </tractor>
+  <playlist id="playlist4">
+    <blank length="30"/>
+    <entry producer="title-8a34c4f0-e981-477b-8d9b-ab9a1b25458e" in="0" out="239">
+      <property name="kdenlive:id">3</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000003}</property>
+    </entry>
+  </playlist>
+  <playlist id="playlist5"/>
+  <tractor id="tractor2" in="0" out="299">
+    <property name="kdenlive:track_name">Titles</property>
+    <property name="kdenlive:trackheight">67</property>
+    <property name="kdenlive:timeline_active">1</property>
+    <property name="kdenlive:collapsed">0</property>
+    <track hide="audio" producer="playlist4"/>
+    <track hide="audio" producer="playlist5"/>
+  </tractor>
+  <tractor id="{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}" in="0" out="299">
+    <property name="kdenlive:uuid">{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}</property>
+    <property name="kdenlive:clipname">Native MCP 10 second acceptance</property>
+    <property name="kdenlive:sequenceproperties.hasAudio">1</property>
+    <property name="kdenlive:sequenceproperties.hasVideo">1</property>
+    <property name="kdenlive:sequenceproperties.activeTrack">0</property>
+    <property name="kdenlive:sequenceproperties.tracksCount">3</property>
+    <property name="kdenlive:sequenceproperties.documentuuid">{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}</property>
+    <property name="kdenlive:duration">300</property>
+    <property name="kdenlive:maxduration">300</property>
+    <property name="kdenlive:producer_type">17</property>
+    <property name="kdenlive:id">1</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000001}</property>
+    <property name="kdenlive:clip_type">0</property>
+    <property name="kdenlive:file_hash">8332cdde8eb37c9c85b65cfd162137cb</property>
+    <property name="kdenlive:folderid">1</property>
+    <property name="kdenlive:sequenceproperties.groups">[]</property>
+    <track producer="black_track"/>
+    <track producer="tractor0"/>
+    <track producer="tractor1"/>
+    <track producer="tractor2"/>
+    <transition id="transition0">
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+      <property name="mlt_service">qtblend</property>
+      <property name="internal_added">237</property>
+      <property name="always_active">1</property>
+    </transition>
+    <transition id="transition1">
+      <property name="a_track">0</property>
+      <property name="b_track">2</property>
+      <property name="mlt_service">mix</property>
+      <property name="sum">1</property>
+      <property name="accepts_blanks">1</property>
+      <property name="internal_added">237</property>
+      <property name="always_active">1</property>
+    </transition>
+    <transition id="transition2">
+      <property name="a_track">0</property>
+      <property name="b_track">3</property>
+      <property name="mlt_service">qtblend</property>
+      <property name="internal_added">237</property>
+      <property name="always_active">1</property>
+    </transition>
+  </tractor>
+  <playlist id="main_bin">
+    <property name="kdenlive:folder.-1.1">Sequences</property>
+    <property name="kdenlive:sequenceFolder">1</property>
+    <property name="kdenlive:docproperties.audioChannels">2</property>
+    <property name="kdenlive:docproperties.compositing">1</property>
+    <property name="kdenlive:docproperties.documentid">3116021389463670</property>
+    <property name="kdenlive:docproperties.enableTimelineZone">0</property>
+    <property name="kdenlive:docproperties.enableproxy">0</property>
+    <property name="kdenlive:docproperties.generateproxy">0</property>
+    <property name="kdenlive:docproperties.kdenliveversion">26.04.2</property>
+    <property name="kdenlive:docproperties.profile">atsc_720p_30</property>
+    <property name="kdenlive:docproperties.uuid">{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}</property>
+    <property name="kdenlive:docproperties.version">1.1</property>
+    <property name="kdenlive:docproperties.patchversion">1</property>
+    <property name="kdenlive:docproperties.opensequences">{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}</property>
+    <property name="kdenlive:docproperties.activetimeline">{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}</property>
+    <property name="xml_retain">1</property>
+    <entry producer="producer0" in="0" out="599"/>
+    <entry producer="title-8a34c4f0-e981-477b-8d9b-ab9a1b25458e" in="0" out="239"/>
+    <entry producer="{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}" in="0" out="299"/>
+  </playlist>
+  <tractor id="project_tractor" in="0" out="299">
+    <property name="kdenlive:projectTractor">1</property>
+    <track producer="{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}" in="0" out="299"/>
+  </tractor>
+</mlt>

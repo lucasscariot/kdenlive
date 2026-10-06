@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
+#include <functional>
 
 class KdenliveDoc;
 class TimelineItemModel;
@@ -21,6 +22,8 @@ class LiveBridge final : public QObject
 
 public:
     explicit LiveBridge(QObject *parent);
+    /** Policy runs only for a new, revision-checked request, never for a receipt replay. */
+    QString applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize);
 
 public Q_SLOTS:
     Q_SCRIPTABLE QString capabilities() const;

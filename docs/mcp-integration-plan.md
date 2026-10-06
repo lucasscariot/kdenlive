@@ -19,7 +19,7 @@ must remain revision-checked, undoable, and visible in the GUI.
 
 ## Selected design
 
-Enable MCP in Settings → Misc, choose a localhost port, and copy the Codex
+Enable MCP in Settings → Configure Kdenlive → MCP API, choose a localhost port, and copy the Codex
 configuration. The settings page reports whether the listener actually started.
 The installed application owns the server and its token; no Node process is
 needed for the live API.

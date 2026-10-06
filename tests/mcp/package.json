@@ -1,0 +1,7 @@
+{
+  "name": "kdenlive-native-mcp-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node acceptance.mjs" },
+  "devDependencies": { "@modelcontextprotocol/sdk": "1.29.0" }
+}

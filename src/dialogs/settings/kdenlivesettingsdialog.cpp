@@ -39,7 +39,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QAction>
 #include <QAudioDevice>
 #include <QButtonGroup>
+#include <QClipboard>
 #include <QDir>
+#include <QFormLayout>
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QMediaDevices>
@@ -70,6 +72,7 @@ KdenliveSettingsDialog::KdenliveSettingsDialog(QMap<QString, QString> mappable_a
     setWindowModality(Qt::ApplicationModal);
 
     initMiscPage();
+    initMcpPage();
     initProjectPage();
     initProxyPage();
 
@@ -192,6 +195,55 @@ bool KdenliveSettingsDialog::initAudioRecDevice()
         updateButtons();
     });
     return true;
+}
+
+void KdenliveSettingsDialog::initMcpPage()
+{
+    if (!pCore->mcpAvailable()) return;
+    auto *page = new QWidget;
+    auto *layout = new QFormLayout(page);
+    auto *explanation = new QLabel(i18n("Connect an MCP client directly to this Kdenlive instance. The API listens on this computer only. Open and save a "
+                                        "project before editing; changes appear in the timeline and share Undo history."),
+                                   page);
+    explanation->setWordWrap(true);
+    layout->addRow(explanation);
+    auto *enabled = new QCheckBox(i18n("Enable local MCP API"), page);
+    enabled->setObjectName(QStringLiteral("kcfg_mcpEnabled"));
+    layout->addRow(enabled);
+    auto *port = new QSpinBox(page);
+    port->setObjectName(QStringLiteral("kcfg_mcpPort"));
+    port->setRange(1024, 65535);
+    layout->addRow(i18n("Port:"), port);
+    auto *mediaRoot = new KUrlRequester(page);
+    mediaRoot->setObjectName(QStringLiteral("kcfg_mcpMediaRoot"));
+    mediaRoot->setMode(KFile::Directory | KFile::ExistingOnly | KFile::LocalOnly);
+    layout->addRow(i18n("Additional media folder:"), mediaRoot);
+    auto *scope = new QLabel(
+        i18n("Imports and replacements can use files inside the project folder or this additional folder. Leave it empty to allow only the project folder."),
+        page);
+    scope->setWordWrap(true);
+    layout->addRow(scope);
+    auto *status = new QLabel(pCore->mcpStatus(), page);
+    status->setObjectName(QStringLiteral("mcpStatus"));
+    status->setWordWrap(true);
+    status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addRow(i18n("Status:"), status);
+    auto *copy = new QPushButton(i18n("Copy Codex Configuration"), page);
+    copy->setEnabled(!pCore->mcpClientConfiguration().isEmpty());
+    layout->addRow(copy);
+    auto *rotate = new QPushButton(i18n("Regenerate Access Token"), page);
+    rotate->setToolTip(i18n("Existing clients must use the new configuration after token regeneration."));
+    layout->addRow(rotate);
+    connect(pCore.get(), &Core::mcpStatusChanged, page, [status, copy](const QString &value) {
+        status->setText(value);
+        copy->setEnabled(!pCore->mcpClientConfiguration().isEmpty());
+    });
+    connect(copy, &QPushButton::clicked, page, [] {
+        const auto configuration = pCore->mcpClientConfiguration();
+        if (!configuration.isEmpty()) QGuiApplication::clipboard()->setText(configuration);
+    });
+    connect(rotate, &QPushButton::clicked, page, [] { pCore->rotateMcpToken(); });
+    addPage(page, i18n("MCP API"), QStringLiteral("network-server"));
 }
 
 void KdenliveSettingsDialog::initMiscPage()

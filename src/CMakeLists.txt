@@ -86,9 +86,13 @@ if(CRASH_AUTO_TEST)
     list(APPEND kdenlive_SRCS logger.cpp)
 endif()
 
-if(KDENLIVE_LIVE_BRIDGE)
+if(KDENLIVE_LIVE_BRIDGE OR KDENLIVE_MCP_API)
     list(APPEND kdenlive_SRCS livebridge.cpp)
     set_property(SOURCE core.cpp APPEND PROPERTY COMPILE_DEFINITIONS KDENLIVE_LIVE_BRIDGE)
+endif()
+if(KDENLIVE_MCP_API)
+    list(APPEND kdenlive_SRCS mcp/mcpserver.cpp mcp/mcptools.cpp)
+    set_property(SOURCE core.cpp APPEND PROPERTY COMPILE_DEFINITIONS KDENLIVE_MCP_API)
 endif()
 
 ecm_qt_declare_logging_category(kdenlive_SRCS
@@ -305,6 +309,9 @@ target_link_libraries(kdenliveLib PUBLIC
 )
 
 target_link_libraries(kdenliveLib PUBLIC KDAB::kddockwidgets)
+if(KDENLIVE_MCP_API)
+    target_link_libraries(kdenliveLib PUBLIC Qt6::HttpServer Qt6::Network)
+endif()
 
 target_link_libraries(kdenliveLib PUBLIC FFmpeg::FFmpeg)
 
