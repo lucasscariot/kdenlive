@@ -1,4 +1,9 @@
 <RCC>
+    <qresource prefix="/">
+        <file>design/tokens.json</file>
+        <file>design/fonts/InterVariable.ttf</file>
+        <file>design/fonts/JetBrainsMono-Variable.ttf</file>
+    </qresource>
     <qresource prefix="/kxmlgui5/kdenlive">
         <file>kdenliveui.rc</file>
     </qresource>

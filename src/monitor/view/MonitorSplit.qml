@@ -71,11 +71,11 @@ Item {
         y: 0
         width: 1
         height: root.height
-        color: "red"
+        color: K.Design.colors["danger"]
         visible: false
         Text {
             text: KI18n.i18n("Effect")
-            color: "red"
+            color: K.Design.colors["danger"]
             anchors {
                 right: parent.left
                 top: parent.top

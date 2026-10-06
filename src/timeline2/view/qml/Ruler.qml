@@ -49,8 +49,8 @@ Item {
     readonly property var effectZones: timeline.masterEffectZones
     readonly property int guideLabelHeight: K.KdenliveSettings.showmarkers ? fontMetrics.height : 0
     readonly property int previewHeight: Math.ceil(timecodeContainer.height / 5)
-    property color dimmedColor: (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 1.3) : Qt.lighter(activePalette.text, 1.3)
-    property color dimmedColor2: (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 2.2) : Qt.lighter(activePalette.text, 2.2)
+    property color dimmedColor: (K.Design.colors["ink"].r + K.Design.colors["ink"].g + K.Design.colors["ink"].b > 1.5) ? Qt.darker(K.Design.colors["ink"], 1.3) : Qt.lighter(K.Design.colors["ink"], 1.3)
+    property color dimmedColor2: (K.Design.colors["ink"].r + K.Design.colors["ink"].g + K.Design.colors["ink"].b > 1.5) ? Qt.darker(K.Design.colors["ink"], 2.2) : Qt.lighter(K.Design.colors["ink"], 2.2)
     
     signal showRulerMenu()
     signal zoomByWheel(var wheel)
@@ -94,7 +94,7 @@ Item {
             anchors.bottomMargin: rulerRoot.zoneHeight
             width: 25 * rulerRoot.timeline.scaleFactor
             height: rulerRoot.previewHeight
-            color: 'darkred'
+            color: K.Design.colors["danger-fill"]
         }
     }
 
@@ -118,7 +118,7 @@ Item {
         anchors.bottomMargin: rulerRoot.zoneHeight
         width: 25 * rulerRoot.timeline.scaleFactor
         height: rulerRoot.previewHeight
-        color: 'orange'
+        color: K.Design.colors["warning"]
         visible: rulerRoot.workingPreview > -1
     }
 
@@ -200,7 +200,7 @@ Item {
                         leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#F2F2F2'
+                        color: K.Design.colors["on-accent"]
                     }
                 }
                 
@@ -475,7 +475,7 @@ Item {
                         // Shadow delimiting marker start
                         width: 1
                         height: rulerRoot.guideLabelHeight
-                        color: activePalette.dark
+                        color: K.Design.colors["separator"]
                         anchors {
                             right: parent.left
                         }
@@ -493,7 +493,7 @@ Item {
                         leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#F2F2F2'
+                        color: K.Design.colors["on-accent"]
                     }
                     MouseArea {
                         z: 10
@@ -568,12 +568,12 @@ Item {
     Rectangle {
         anchors.fill: parent
         z: -1
-        color: Qt.darker(activePalette.window, 1.18)
+        color: Qt.darker(K.Design.colors["surface-panel"], 1.18)
         Rectangle {
             anchors.bottom: parent.bottom
             width: parent.width
             height: 1
-            color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, 0.1)
+            color: K.Design.colors["separator"]
         }
     }
     // Ruler marks
@@ -600,7 +600,7 @@ Item {
                 anchors.bottom: parent.bottom
                 height: parent.showText ? parent.height : 3
                 width: 1
-                color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, parent.showText ? 0.22 : 0.16)
+                color: K.Design.alpha("ink", parent.showText ? 0.22 : 0.16)
             }
             Label {
                 visible: parent.showText
@@ -666,8 +666,8 @@ Item {
         snapping: rulerRoot.snapping
         showZoneLabels: rulerRoot.showZoneLabels
         // Translucent so the zone reads as a range, not as a solid bar across the ruler
-        color: rulerRoot.timeline.useRuler ? Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.5) :
-        Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.25)
+        color: rulerRoot.timeline.useRuler ? K.Design.alpha("accent", 0.5) :
+        K.Design.alpha("accent", 0.25)
         anchors.bottom: parent.bottom
         height: rulerRoot.zoneHeight
         onUpdateZone: (start, end, update) => {
@@ -683,7 +683,7 @@ Item {
             x: rulerRoot.effectZones[index].x * rulerRoot.timeline.scaleFactor
             height: rulerRoot.zoneHeight - 1
             width: (rulerRoot.effectZones[index].y - rulerRoot.effectZones[index].x) * rulerRoot.timeline.scaleFactor
-            color: "blueviolet"
+            color: K.Design.colors["accent"]
             anchors.bottom: parent.bottom
             opacity: 0.4
         }
@@ -698,7 +698,7 @@ Item {
         frameOut: rulerRoot.timeline.effectZone.y
         snapping: rulerRoot.snapping
         showZoneLabels: rulerRoot.showZoneLabels
-        color: "orchid"
+        color: K.Design.colors["accent"]
         anchors.bottom: parent.bottom
         height: rulerRoot.zoneHeight - 1
         opacity: 0.7

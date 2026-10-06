@@ -23,7 +23,7 @@ import 'TimelineLogic.js' as Logic
 Rectangle {
     id: root
     SystemPalette { id: activePalette }
-    color: activePalette.window
+    color: K.Design.colors["surface-panel"]
 
     required property K.TimelineController timeline
     required property K.TimelineItemModel controller
@@ -34,7 +34,7 @@ Rectangle {
 
     property bool validMenu: false
     property var subtitleItem: undefined
-    property color textColor: activePalette.text
+    property color textColor: K.Design.colors["ink"]
     property var groupTrimData
     property bool trimInProgress: false
     readonly property bool isPanning: tracksArea.isCursorHidden
@@ -181,11 +181,11 @@ Rectangle {
     }
 
     function updatePalette() {
-        root.color = activePalette.window
-        root.textColor = activePalette.text
+        root.color = K.Design.colors["surface-panel"]
+        root.textColor = K.Design.colors["ink"]
         playhead.color = root.playheadColor
-        ruler.dimmedColor = (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 1.3) : Qt.lighter(activePalette.text, 1.3)
-        ruler.dimmedColor2 = (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 2.2) : Qt.lighter(activePalette.text, 2.2)
+        ruler.dimmedColor = (K.Design.colors["ink"].r + K.Design.colors["ink"].g + K.Design.colors["ink"].b > 1.5) ? Qt.darker(K.Design.colors["ink"], 1.3) : Qt.lighter(K.Design.colors["ink"], 1.3)
+        ruler.dimmedColor2 = (K.Design.colors["ink"].r + K.Design.colors["ink"].g + K.Design.colors["ink"].b > 1.5) ? Qt.darker(K.Design.colors["ink"], 2.2) : Qt.lighter(K.Design.colors["ink"], 2.2)
         ruler.repaintRuler()
         // Disable caching for track header icons
         root.paletteUnchanged = false
@@ -364,9 +364,9 @@ Rectangle {
     }
 
 function getTrackColor(audio, header) {
-    var isDarkTheme = activePalette.window.hslLightness < activePalette.windowText.hslLightness
-    var lighterColor = activePalette.base.hslLightness > activePalette.alternateBase.hslLightness ? activePalette.base : activePalette.alternateBase;
-    var darkerColor = activePalette.base.hslLightness > activePalette.alternateBase.hslLightness ? activePalette.alternateBase : activePalette.base;
+    var isDarkTheme = K.Design.colors["surface-panel"].hslLightness < K.Design.colors["ink"].hslLightness
+    var lighterColor = K.Design.colors["surface-timeline"].hslLightness > K.Design.colors["surface-panel"].hslLightness ? K.Design.colors["surface-timeline"] : K.Design.colors["surface-panel"];
+    var darkerColor = K.Design.colors["surface-timeline"].hslLightness > K.Design.colors["surface-panel"].hslLightness ? K.Design.colors["surface-panel"] : K.Design.colors["surface-timeline"];
 
     if (isDarkTheme) {
         // For dark themes, choose the lighter color
@@ -525,9 +525,9 @@ function getTrackColor(audio, header) {
     readonly property int minHeaderWidth: 6 * collapsedHeight
     readonly property bool autoTrackHeight: root.timeline.autotrackHeight
     // A saturated red stands out from footage and from the blue selection accent
-    readonly property color playheadColor: '#E5483E'
-    readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.1)
-    readonly property color frameColor: Qt.rgba(activePalette.shadow.r, activePalette.shadow.g, activePalette.shadow.b, 0.5)
+    readonly property color playheadColor: K.Design.colors["playhead"]
+    readonly property color selectedTrackColor: K.Design.alpha("accent", 0.1)
+    readonly property color frameColor: K.Design.colors["scrim"]
     // Wide enough by default for the track name to share the first row with its tag and buttons
     property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)
     property bool blockAutoScroll: false
@@ -1330,7 +1330,7 @@ function getTrackColor(audio, header) {
                         height: trackHeaders.height + subtitleTrackHeader.height
                         width: parent.width
                         x: root.headerWidth - width
-                        color: 'red'
+                        color: K.Design.colors["accent"]
                         opacity: 0
                         Drag.active: headerMouseArea.drag.active
                         Drag.proposedAction: Qt.MoveAction
@@ -1804,7 +1804,7 @@ function getTrackColor(audio, header) {
                     height: 1
                     anchors.top: parent.top
                     anchors.topMargin: ruler.guideLabelHeight
-                    color: activePalette.dark
+                    color: K.Design.colors["separator"]
                     visible: ruler.guideLabelHeight > 0
                 }
 
@@ -1814,12 +1814,12 @@ function getTrackColor(audio, header) {
                     height: 1
                     anchors.top: parent.top
                     anchors.topMargin: ruler.height - ruler.zoneHeight
-                    color: activePalette.dark
+                    color: K.Design.colors["separator"]
                     Rectangle {
                         width: rulercontainer.width
                         height: 1
                         anchors.top: parent.bottom
-                        color: activePalette.light
+                        color: K.Design.colors["border-control"]
                     }
                 }
                 Flickable {
@@ -2262,10 +2262,10 @@ function getTrackColor(audio, header) {
                             }
                             Rectangle {
                                 id: sameTrackIndicator
-                                border.color: '#ffffff'
+                                border.color: K.Design.colors["on-accent"]
                                 border.width: 2
                                 radius: 2
-                                color: Qt.rgba(1, 1, 1, 0.3)
+                                color: K.Design.alpha("on-accent", 0.3)
                                 visible: false
                                 width: K.UiUtils.baseSizeMedium
                                 height: width
@@ -2286,8 +2286,8 @@ function getTrackColor(audio, header) {
                             property int clickX
                             property int clickY
                             y: -1
-                            color: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.4)
-                            border.color: activePalette.highlight
+                            color: K.Design.alpha("accent", 0.4)
+                            border.color: K.Design.colors["accent-fill"]
                             border.width: 1
                             visible: false
                         }
@@ -2328,9 +2328,9 @@ function getTrackColor(audio, header) {
                                     format: K.KdenliveSettings.displayallchannels
                                     waveInPoint: Math.round((index * recordPlaceHolder.maxWidth / root.timeScale) * recordPlaceHolder.channels)
                                     waveOutPoint: waveInPoint + Math.round(width / root.timeScale) * recordPlaceHolder.channels
-                                    fillColor0: Qt.rgba(1, 0, 0, 0.3)
-                                    fillColor1: Qt.rgba(1, 0, 0)
-                                    fillColor2: Qt.rgba(1, .5, 0)
+                                    fillColor0: K.Design.alpha("danger", 0.3)
+                                    fillColor1: K.Design.colors["danger"]
+                                    fillColor2: K.Design.colors["warning"]
                                     enforceRepaint: false
                                 }
                             }
@@ -2341,7 +2341,7 @@ function getTrackColor(audio, header) {
                                 anchors.rightMargin: 2
                                 anchors.top: parent.top
                                 font: K.UiUtils.smallestReadableFont
-                                color: '#ffffff'
+                                color: K.Design.colors["on-accent"]
                                 onRecStateChanged: {
                                     if (recState == 1) {
                                         // Recording
@@ -2396,7 +2396,7 @@ function getTrackColor(audio, header) {
             Rectangle {
                 id: cutLine
                 visible: K.Core.activeTool === K.ToolType.RazorTool && (tracksArea.mouseY > ruler.height || subtitleMouseArea.containsMouse)
-                color: 'red'
+                color: K.Design.colors["playhead"]
                 width: 1
                 opacity: 1
                 height: tracksContainerArea.height
@@ -2409,7 +2409,7 @@ function getTrackColor(audio, header) {
                 //x: root.consumerPosition * root.timeScale - scrollView.contentX
                 y: ruler.height
                 Rectangle {
-                    color: 'red'
+                    color: K.Design.colors["playhead"]
                     width: Math.max(0, 1 * root.timeScale - 1)
                     visible: width > 1
                     opacity: 0.2
@@ -2421,7 +2421,7 @@ function getTrackColor(audio, header) {
             Rectangle {
                 id: multicamLine
                 visible: K.Core.activeTool === K.ToolType.MulticamTool && root.timeline.multicamIn > -1
-                color: 'purple'
+                color: K.Design.colors["role-composition"]
                 width: 3
                 opacity: 1
                 height: tracksContainerArea.height
@@ -2432,7 +2432,7 @@ function getTrackColor(audio, header) {
                     width: multilabel.contentWidth + 4
                     height: multilabel.contentHeight + 2
                     radius: height / 4
-                    color: 'purple'
+                    color: K.Design.colors["role-composition"]
                     anchors {
                         top: parent.top
                         left: parent.left
@@ -2444,7 +2444,7 @@ function getTrackColor(audio, header) {
                         leftPadding: 2
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#ffffff'
+                        color: K.Design.colors["on-accent"]
                     }
                 }
             }
@@ -2477,7 +2477,7 @@ function getTrackColor(audio, header) {
         ]
         Label {
             id: bubbleHelpLabel
-            color: activePalette.text //application.toolTipTextColor
+            color: K.Design.colors["ink"] //application.toolTipTextColor
             anchors.centerIn: parent
             font: K.UiUtils.smallestReadableFont
         }
@@ -2500,7 +2500,7 @@ function getTrackColor(audio, header) {
         horizontalOffset: 3
         verticalOffset: 3
         radius: 8
-        color: '#80000000'
+        color: K.Design.colors["scrim"]
         transparentBorder: true
         fast: true
     }*/

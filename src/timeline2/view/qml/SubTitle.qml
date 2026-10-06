@@ -279,13 +279,13 @@ Item {
             wrapMode: TextField.WordWrap
             horizontalAlignment: displayText == text ? TextInput.AlignHCenter : TextInput.AlignLeft
             background: Rectangle {
-                color: subtitleRoot.timeline.subtitlesLocked ? "#ff6666" : enabled ? "#fff" : '#ccccff'
+                color: subtitleRoot.timeline.subtitlesLocked ? K.Design.colors["danger"] : enabled ? K.Design.colors["ink"] : K.Design.colors["ink-secondary"]
                 border {
-                    color: subtitleRoot.selected ? subtitleRoot.timeline.selectionColor : "#000"
+                    color: subtitleRoot.selected ? subtitleRoot.timeline.selectionColor : K.Design.colors["surface-viewer"]
                     width: subtitleRoot.isGrabbed ? 8 : 2
                 }
             }
-            color: 'black'
+            color: K.Design.colors["surface-viewer"]
             padding: 0
         }
     }
@@ -376,7 +376,7 @@ Item {
                 anchors.left: parent.left
                 width: subtitleRoot.handleWidth
                 height: parent.height
-                color: 'lawngreen'
+                color: K.Design.colors["success"]
                 opacity: 0
                 Drag.active: startMouseArea.drag.active
                 Drag.proposedAction: Qt.MoveAction
@@ -481,7 +481,7 @@ Item {
                 anchors.right: parent.right
                 width: subtitleRoot.handleWidth
                 height: parent.height
-                color: 'red'
+                color: K.Design.colors["danger"]
                 opacity: 0
                 Drag.active: endMouseArea.drag.active
                 Drag.proposedAction: Qt.MoveAction

@@ -42,7 +42,7 @@ MouseArea {
         color: Qt.rgba(myPalette.window.r, myPalette.window.g, myPalette.window.b, 0.7)
         opacity: 0
         radius: 4
-        border.color : Qt.rgba(0, 0, 0, 0.3)
+        border.color : K.Design.alpha("surface-viewer", 0.3)
         border.width: 1
         OpacityAnimator {
             id: animator

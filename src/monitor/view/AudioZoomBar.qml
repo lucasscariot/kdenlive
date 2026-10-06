@@ -20,7 +20,7 @@ Rectangle {
     signal zoomOutRuler(int xPos)
     signal zoomInRuler(int xPos)
 
-    color: activePalette.midlight
+    color: K.Design.colors["separator"]
     width: parent.width
 
     SystemPalette { id: activePalette }
@@ -93,15 +93,15 @@ Rectangle {
                     height: thumbsContainer.streamHeight - 2
                     anchors.right: parent.right
                     anchors.left: parent.left
-                    color: Utils.mixColors(activePalette.midlight, activePalette.text, 0.3)
+                    color: Utils.mixColors(K.Design.colors["separator"], K.Design.colors["ink"], 0.3)
                 }
                 // Highlight color for the selected wave part
                 Rectangle {
                     x: audioSeekZone.monitorController.zoneIn * audioSeekZone.width / audioSeekZone.duration
                     width: (audioSeekZone.monitorController.zoneOut - audioSeekZone.monitorController.zoneIn) * audioSeekZone.width / audioSeekZone.duration
                     height: thumbsContainer.streamHeight - 2
-                    color:  Utils.mixColors(activePalette.midlight, activePalette.highlight, 0.7)
-                        //Utils.desaturateColor(activePalette.highlight, 0.6, 1)
+                    color:  Utils.mixColors(K.Design.colors["separator"], K.Design.colors["accent-fill"], 0.7)
+                        //Utils.desaturateColor(K.Design.colors["accent-fill"], 0.6, 1)
                     visible: audioSeekZone.monitorController.zoneOut > audioSeekZone.monitorController.zoneIn
                 }
                 K.TimelineWaveform {
@@ -120,7 +120,7 @@ Rectangle {
                     scaleFactor: audioSeekZone.width / aClipDuration
                     waveInPoint: 0
                     waveOutPoint: waveform2.aClipDuration
-                    fgColorEven: "#00000000"//K.KdenliveSettings.thumbColor1
+                    fgColorEven: 'transparent'//K.KdenliveSettings.thumbColor1
                     fgColorOdd: "#00000000" //K.KdenliveSettings.thumbColor2
                     bgColorEven: audioSeekZone.color
                     bgColorOdd: audioSeekZone.color
@@ -129,7 +129,7 @@ Rectangle {
                         height: 2
                         y: -2
                         visible: streamContainer.index > 0
-                        color: Qt.darker(audioSeekZone.color) //activePalette.base
+                        color: Qt.darker(audioSeekZone.color) //K.Design.colors["surface-timeline"]
                     }
                 }
                 // fade a bit the not viewed zone audio wave
@@ -154,7 +154,7 @@ Rectangle {
     }
     // Playhead position
     Rectangle {
-        color: "#99FF0000"
+        color: K.Design.alpha("danger", 0.6)
         width: 2
         height: parent.height - 2 * zoomRef.border.width - 1
         x: audioSeekZone.monitorController.position * audioSeekZone.width / audioSeekZone.duration
@@ -169,7 +169,7 @@ Rectangle {
         opacity: mainHandleArea.containsMouse || mainHandleArea.pressed ? 1 : audioSeekZone.monitorController.timeZoomFactor === 1. ? 0.5 : 0.8
         radius: 2
         border.width: audioSeekZone.monitorController.clipHasAV ? 2 : 2
-        border.color: mainHandleArea.containsMouse || mainHandleArea.pressed ? activePalette.highlight : activePalette.text
+        border.color: mainHandleArea.containsMouse || mainHandleArea.pressed ? K.Design.colors["accent-fill"] : K.Design.colors["ink"]
         color: 'transparent'
     }
 

@@ -8,12 +8,16 @@
 #include <QProxyStyle>
 
 /** @class KdenliveStyle
-    @brief Flat, evenly spaced widget style layered on Fusion.
+    @brief The Kdenlive Pro widget style, layered on Fusion.
 
-    Fusion is what Qt falls back to when no desktop style (like Breeze) is available. Its
-    gradients and outlines derived from a darker window color look dated and disappear on
-    dark palettes, so this proxy repaints the common controls with one set of radii,
-    paddings and translucent overlays computed from the palette.
+    Every metric, radius, color and font comes from DesignTokens and every shape from
+    DesignPaint, so widgets match the design system and the QML views reading the same tokens.
+
+    Widgets opt into variants with dynamic properties:
+    - `_kdenlive_primary`: the accent filled primary action of a dialog or bar (push and tool buttons)
+    - `_kdenlive_segmented`: a segment of a segmented control (checkable push buttons)
+    - `_kdenlive_pagebar`: a page of the bottom page bar (checkable push buttons)
+    - `_kdenlive_panel_toggle`: a quiet toggle in the panel top bar (checkable tool buttons)
  */
 class KdenliveStyle : public QProxyStyle
 {
@@ -33,16 +37,8 @@ public:
     void unpolish(QWidget *widget) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
-    /** @brief Install this style if the application uses Fusion */
+    /** @brief Install this style and the design fonts if the application uses Fusion */
     static void installIfFusion();
     /** @brief A new instance of the application style, for widgets that need their own style object */
     static QStyle *cloneApplicationStyle();
-    /** @brief Background of panel headers (tab strips, dock title bars) */
-    static QColor headerColor(const QPalette &palette);
-    /** @brief The smaller font used for panel chrome, so content stays dominant */
-    static QFont chromeFont(const QFont &base);
-    /** @brief Background of dialogs, slightly raised above the main window so they read as a separate layer */
-    static QColor elevatedColor(const QPalette &palette);
-    /** @brief Text color at the given opacity, for hover overlays and hairlines */
-    static QColor overlay(const QPalette &palette, qreal alpha);
 };

@@ -426,7 +426,7 @@ Item {
     Rectangle {
         id: speedController
         anchors.bottom: parent.bottom
-        color: activePalette.highlight //'#cccc0000'
+        color: K.Design.colors["accent-fill"] //'#cccc0000'
         visible: false
         clip: true
         height: K.UiUtils.baseSizeMedium * 1.5
@@ -441,7 +441,7 @@ Item {
             anchors.fill: parent
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: speedController.resizeRight ? (speedLabel.implicitWidth > speedController.width ? Text.AlignLeft : Text.AlignRight) : Text.AlignLeft
-            color: activePalette.highlightedText
+            color: K.Design.colors["on-accent"]
         }
         transitions: [ Transition {
             NumberAnimation { property: "opacity"; duration: 300}
@@ -454,7 +454,7 @@ Item {
             x: trackRoot.effectZones[index].x * trackRoot.timeline.scaleFactor
             height: 2
             width: (trackRoot.effectZones[index].y - trackRoot.effectZones[index].x) * trackRoot.timeline.scaleFactor
-            color: 'blueviolet'
+            color: K.Design.colors["accent"]
             opacity: 1
             anchors.top: parent.top
         }

@@ -34,14 +34,14 @@ Rectangle {
         anchors.left: parent.left
         height: parent.height
         width: 2
-        color: 'white'
+        color: K.Design.colors["on-accent"]
         opacity: 0.5
     }
     Rectangle {
         anchors.right: parent.right
         height: parent.height
         width: 2
-        color: 'white'
+        color: K.Design.colors["on-accent"]
         opacity: 0.5
     }
     
@@ -52,7 +52,7 @@ Rectangle {
         height: parent.height
         width: height
         color: moveMouseArea.containsMouse || moveMouseArea.drag.active ? 'white' : 'transparent'
-        border.color: 'white'
+        border.color: K.Design.colors["on-accent"]
         border.width: 1.5
         opacity: 0.5
         Drag.active: moveMouseArea.drag.active
@@ -115,14 +115,14 @@ Rectangle {
         width: inLabel.contentWidth + 4
         height: inLabel.contentHeight
         anchors.bottom: rzone.top
-        color: activePalette.highlight
+        color: K.Design.colors["accent-fill"]
         Label {
             id: inLabel
             anchors.fill: parent
             horizontalAlignment: Text.AlignHCenter
             text: rzone.timeline.timecode(rzone.frameIn)
             font: K.UiUtils.smallestReadableFont
-            color: activePalette.highlightedText
+            color: K.Design.colors["on-accent"]
         }
     }
     Rectangle {
@@ -130,7 +130,7 @@ Rectangle {
         width: outLabel.contentWidth + 4
         height: outLabel.contentHeight
         anchors.bottom: rzone.top
-        color: activePalette.highlight
+        color: K.Design.colors["accent-fill"]
         x: rzone.width - (outLabel.contentWidth + 4)
         Label {
             id: outLabel
@@ -138,7 +138,7 @@ Rectangle {
             horizontalAlignment: Text.AlignHCenter
             text: rzone.timeline.timecode(rzone.frameOut)
             font: K.UiUtils.smallestReadableFont
-            color: activePalette.highlightedText
+            color: K.Design.colors["on-accent"]
         }
     }
     Rectangle {
@@ -150,14 +150,14 @@ Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         width: durationLabel.contentWidth + 4
         height: durationLabel.contentHeight
-        color: activePalette.highlight
+        color: K.Design.colors["accent-fill"]
         Label {
             id: durationLabel
             anchors.fill: parent
             horizontalAlignment: Text.AlignHCenter
             text: rzone.timeline.timecode(rzone.frameOut - rzone.frameIn)
             font: K.UiUtils.smallestReadableFont
-            color: activePalette.highlightedText
+            color: K.Design.colors["on-accent"]
         }
     }
     Rectangle {
@@ -166,7 +166,7 @@ Rectangle {
             anchors.leftMargin: 0
             height: parent.height
             width: 5
-            color: 'lawngreen'
+            color: K.Design.colors["success"]
             opacity: 0
             Drag.active: trimInMouseArea.drag.active
             Drag.proposedAction: Qt.MoveAction
@@ -215,7 +215,7 @@ Rectangle {
             anchors.rightMargin: 0
             height: parent.height
             width: 5
-            color: 'darkred'
+            color: K.Design.colors["danger-fill"]
             opacity: 0
             Drag.active: trimOutMouseArea.drag.active
             Drag.proposedAction: Qt.MoveAction

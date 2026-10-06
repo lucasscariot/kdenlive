@@ -4,8 +4,9 @@
 */
 
 #include "kdenlivestyle.h"
+#include "designpaint.h"
+#include "designtokens.h"
 
-#include <KColorScheme>
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QCursor>
@@ -21,133 +22,90 @@
 
 #include <tuple>
 
+using DesignPaint::Direction;
+using DesignPaint::withAlpha;
+
 namespace {
-constexpr qreal Radius = 4.;
-
-enum class Direction { Up, Down, Left, Right };
-
-void drawChevron(QPainter *painter, const QRectF &rect, Direction direction, const QColor &color)
+QColor token(const char *name)
 {
-    const qreal size = qMin(qMin(rect.width(), rect.height()), 9.) / 2.;
-    if (size <= 0) {
-        return;
-    }
-    const QPointF c = rect.center();
-    QPainterPath path;
-    switch (direction) {
-    case Direction::Down:
-        path.moveTo(c.x() - size, c.y() - size / 2);
-        path.lineTo(c.x(), c.y() + size / 2);
-        path.lineTo(c.x() + size, c.y() - size / 2);
-        break;
-    case Direction::Up:
-        path.moveTo(c.x() - size, c.y() + size / 2);
-        path.lineTo(c.x(), c.y() - size / 2);
-        path.lineTo(c.x() + size, c.y() + size / 2);
-        break;
-    case Direction::Left:
-        path.moveTo(c.x() + size / 2, c.y() - size);
-        path.lineTo(c.x() - size / 2, c.y());
-        path.lineTo(c.x() + size / 2, c.y() + size);
-        break;
-    case Direction::Right:
-        path.moveTo(c.x() - size / 2, c.y() - size);
-        path.lineTo(c.x() + size / 2, c.y());
-        path.lineTo(c.x() - size / 2, c.y() + size);
-        break;
-    }
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    painter->setBrush(Qt::NoBrush);
-    painter->drawPath(path);
-    painter->restore();
+    return DesignTokens::color(QLatin1String(name));
 }
 
-QRectF pixelAligned(const QRect &rect)
+int radius(const char *name)
 {
-    // Half pixel inset so 1px pens land on whole pixels
-    return QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5);
+    return DesignTokens::radius(QLatin1String(name));
 }
 
-void drawRoundedPanel(QPainter *painter, const QRect &rect, const QColor &fill, const QColor &border, qreal radius = Radius)
+int size(const char *name)
 {
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->setPen(border.alpha() > 0 ? QPen(border, 1) : QPen(Qt::NoPen));
-    painter->setBrush(fill.alpha() > 0 ? QBrush(fill) : QBrush(Qt::NoBrush));
-    painter->drawRoundedRect(pixelAligned(rect), radius, radius);
-    painter->restore();
+    return DesignTokens::size(QLatin1String(name));
 }
 
 QColor textColor(const QStyleOption *option)
 {
-    return option->palette.color(option->state & QStyle::State_Enabled ? QPalette::Active : QPalette::Disabled, QPalette::Text);
+    return option->state & QStyle::State_Enabled ? token("ink") : token("ink-tertiary");
 }
 
-QColor withAlpha(QColor color, qreal alpha)
+bool hasFlag(const QWidget *widget, const char *property)
 {
-    color.setAlphaF(color.alphaF() * alpha);
-    return color;
+    return widget && widget->property(property).toBool();
 }
 
 /** @brief Input fields: line edits, spin boxes, editable combo boxes */
 void drawInput(QPainter *painter, const QStyleOption *option, const QRect &rect)
 {
     const bool enabled = option->state & QStyle::State_Enabled;
-    QColor border = KdenliveStyle::overlay(option->palette, enabled && (option->state & QStyle::State_MouseOver) ? 0.24 : 0.13);
+    QColor border = token("border-control");
     if (enabled && (option->state & QStyle::State_HasFocus)) {
-        border = option->palette.color(QPalette::Highlight);
+        border = token("focus-ring");
+    } else if (enabled && (option->state & QStyle::State_MouseOver)) {
+        border = token("fill-thumb");
     }
-    drawRoundedPanel(painter, rect, option->palette.color(QPalette::Base), border);
+    DesignPaint::panel(painter, rect, token("surface-control"), border, radius("radius-md"));
 }
 
-/** @brief Push buttons and non editable combo boxes */
-void drawButton(QPainter *painter, const QStyleOption *option, const QRect &rect, bool isDefault)
+/** @brief Push buttons, non editable combo boxes and stand alone tool buttons */
+void drawButton(QPainter *painter, const QStyleOption *option, const QRect &rect, bool primary)
 {
     const bool enabled = option->state & QStyle::State_Enabled;
     const bool sunken = option->state & (QStyle::State_Sunken | QStyle::State_On);
     const bool hover = enabled && (option->state & QStyle::State_MouseOver);
-    QColor fill = option->palette.color(QPalette::Button);
-    QColor border = KdenliveStyle::overlay(option->palette, hover ? 0.2 : 0.1);
-    if (isDefault && enabled) {
-        fill = option->palette.color(QPalette::Highlight);
+    QColor fill = hover ? token("surface-control-hover") : token("surface-control");
+    QColor border = token("border-control");
+    if (primary) {
+        fill = token("accent-fill");
         border = Qt::transparent;
+        if (hover) {
+            fill = fill.lighter(112);
+        }
     }
     if (sunken) {
         fill = fill.darker(115);
-    } else if (hover) {
-        fill = fill.lighter(isDefault ? 112 : 118);
     }
     if (!enabled) {
-        fill = withAlpha(fill, 0.6);
+        fill = withAlpha(fill, DesignTokens::opacity(QStringLiteral("opacity-disabled")));
     }
-    drawRoundedPanel(painter, rect, fill, border);
+    DesignPaint::panel(painter, rect, fill, border, radius("radius-md"));
 }
+
 /** @brief Accent filled buttons: the dialog default, or one explicitly marked as the primary action */
 bool isPrimaryButton(const QStyleOptionButton *button, const QWidget *widget)
 {
-    if (widget && widget->property("_kdenlive_primary").toBool()) {
+    if (hasFlag(widget, "_kdenlive_primary")) {
         return true;
     }
     // Icon only buttons (like file choosers) become default when focused, an accent square there is noise
     return (button->features & QStyleOptionButton::DefaultButton) && !button->text.isEmpty();
 }
+
+/** @brief Height of a pill tab, centered in its tab rectangle */
+QRect pillRect(const QRect &tabRect)
+{
+    QRect pill(0, 0, tabRect.width() - 2 * DesignTokens::space(1), size("control-sm"));
+    pill.moveCenter(tabRect.center());
+    return pill;
+}
 } // namespace
-
-QColor KdenliveStyle::overlay(const QPalette &palette, qreal alpha)
-{
-    return withAlpha(palette.color(QPalette::WindowText), alpha);
-}
-
-QColor KdenliveStyle::elevatedColor(const QPalette &palette)
-{
-    const QColor window = palette.color(QPalette::Window);
-    const QColor text = palette.color(QPalette::WindowText);
-    const qreal mix = 0.07;
-    return QColor::fromRgbF(window.redF() + (text.redF() - window.redF()) * mix, window.greenF() + (text.greenF() - window.greenF()) * mix,
-                            window.blueF() + (text.blueF() - window.blueF()) * mix);
-}
 
 void KdenliveStyle::polish(QWidget *widget)
 {
@@ -172,42 +130,21 @@ bool KdenliveStyle::eventFilter(QObject *watched, QEvent *event)
         if (dialog && dialog->isWindow()) {
             // Dialogs float over the main window without a shadow of their own: a raised surface and a hairline border separate them
             QPainter painter(dialog);
-            painter.fillRect(dialog->rect(), elevatedColor(dialog->palette()));
-            painter.setPen(overlay(dialog->palette(), 0.24));
+            painter.fillRect(dialog->rect(), token("surface-panel"));
+            painter.setPen(token("border-control"));
             painter.drawRect(dialog->rect().adjusted(0, 0, -1, -1));
         }
     }
     return QProxyStyle::eventFilter(watched, event);
 }
 
-QColor KdenliveStyle::headerColor(const QPalette &palette)
-{
-    KColorScheme scheme(palette.currentColorGroup(), KColorScheme::Header);
-    return scheme.background(KColorScheme::NormalBackground).color();
-}
-
-QFont KdenliveStyle::chromeFont(const QFont &base)
-{
-    QFont font(base);
-    if (font.pointSizeF() > 0) {
-        font.setPointSizeF(font.pointSizeF() * 0.92);
-    } else if (font.pixelSize() > 0) {
-        font.setPixelSize(qRound(font.pixelSize() * 0.92));
-    }
-    return font;
-}
-
 void KdenliveStyle::installIfFusion()
 {
-    if (QApplication::style()->name().compare(QLatin1String("fusion"), Qt::CaseInsensitive) == 0) {
-        QApplication::setStyle(new KdenliveStyle(QStyleFactory::create(QStringLiteral("fusion"))));
-        // Editing interfaces are dense: slightly smaller text leaves more room for the footage
-        QFont font = QApplication::font();
-        if (font.pointSizeF() > 0) {
-            font.setPointSizeF(font.pointSizeF() * 0.9);
-            QApplication::setFont(font);
-        }
+    if (QApplication::style()->name().compare(QLatin1String("fusion"), Qt::CaseInsensitive) != 0) {
+        return;
     }
+    QApplication::setStyle(new KdenliveStyle(QStyleFactory::create(QStringLiteral("fusion"))));
+    QApplication::setFont(DesignTokens::font(QStringLiteral("text-body")));
 }
 
 QStyle *KdenliveStyle::cloneApplicationStyle()
@@ -221,59 +158,60 @@ QStyle *KdenliveStyle::cloneApplicationStyle()
 int KdenliveStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, const QWidget *widget) const
 {
     switch (metric) {
+    // Spacing steps: space-1 2px, space-2 4px, space-3 8px, space-4 16px
+    case PM_LayoutLeftMargin:
+    case PM_LayoutTopMargin:
+    case PM_LayoutRightMargin:
+    case PM_LayoutBottomMargin:
+    case PM_LayoutHorizontalSpacing:
+    case PM_LayoutVerticalSpacing:
+    case PM_CheckBoxLabelSpacing:
+    case PM_RadioButtonLabelSpacing:
+    case PM_HeaderMargin:
+        return DesignTokens::space(3);
     case PM_ButtonMargin:
-        return 10;
+        return DesignTokens::space(3) + DesignTokens::space(2);
+    case PM_ToolBarItemSpacing:
+    case PM_ToolBarItemMargin:
+    case PM_MenuHMargin:
+    case PM_MenuVMargin:
+    case PM_MenuBarHMargin:
+        return DesignTokens::space(2);
+    case PM_MenuBarItemSpacing:
+    case PM_MenuBarVMargin:
+        return DesignTokens::space(1);
+    case PM_TabBarTabHSpace:
+        return DesignTokens::space(4) + DesignTokens::space(3);
+    case PM_ToolBarSeparatorExtent:
+        return DesignTokens::space(3) + DesignTokens::space(2) + 1;
     case PM_ButtonShiftHorizontal:
     case PM_ButtonShiftVertical:
     case PM_TabBarTabShiftHorizontal:
     case PM_TabBarTabShiftVertical:
-        return 0;
-    case PM_ToolBarItemSpacing:
-        return 4;
-    case PM_ToolBarItemMargin:
-        return 4;
+    case PM_TabBarBaseOverlap:
     case PM_ToolBarFrameWidth:
         return 0;
-    case PM_ToolBarSeparatorExtent:
-        return 13;
-    case PM_TabBarTabHSpace:
-        return 24;
-    case PM_TabBarTabVSpace:
-        return 12;
-    case PM_TabBarBaseOverlap:
-        return 0;
     case PM_ScrollBarExtent:
-        return 10;
+        return size("scrollbar");
     case PM_ScrollBarSliderMin:
-        return 32;
+        return 2 * DesignTokens::space(4);
     case PM_IndicatorWidth:
     case PM_IndicatorHeight:
     case PM_ExclusiveIndicatorWidth:
     case PM_ExclusiveIndicatorHeight:
-        return 16;
-    case PM_CheckBoxLabelSpacing:
-    case PM_RadioButtonLabelSpacing:
-        return 8;
-    case PM_MenuBarItemSpacing:
-        return 2;
-    case PM_MenuBarHMargin:
-        return 4;
-    case PM_MenuBarVMargin:
-        return 2;
-    case PM_MenuHMargin:
-    case PM_MenuVMargin:
-        return 4;
-    case PM_HeaderMargin:
-        return 6;
     case PM_TabCloseIndicatorWidth:
     case PM_TabCloseIndicatorHeight:
-        return 16;
+        return size("indicator");
+    case PM_SliderThickness:
+    case PM_SliderLength:
+        return size("slider-thumb") + 2;
     case PM_MenuButtonIndicator:
         // Wide enough to aim at the menu part of split buttons
-        return 18;
-    case PM_LayoutHorizontalSpacing:
-    case PM_LayoutVerticalSpacing:
-        return 6;
+        return size("icon-md") + DesignTokens::space(1);
+    case PM_SmallIconSize:
+    case PM_ToolBarIconSize:
+    case PM_ButtonIconSize:
+        return size("icon-md");
     default:
         return QProxyStyle::pixelMetric(metric, option, widget);
     }
@@ -291,26 +229,44 @@ int KdenliveStyle::styleHint(StyleHint hint, const QStyleOption *option, const Q
     }
 }
 
-QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &size, const QWidget *widget) const
+QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &contentsSize, const QWidget *widget) const
 {
-    QSize s = QProxyStyle::sizeFromContents(type, option, size, widget);
+    QSize s = QProxyStyle::sizeFromContents(type, option, contentsSize, widget);
     switch (type) {
     case CT_PushButton:
-        s.setHeight(qMax(s.height(), option->fontMetrics.height() + 12));
+        s.setHeight(qMax(s.height(), size("control-md")));
         break;
     case CT_ToolButton:
-        s += QSize(4, 4);
-        if (widget && widget->property("_kdenlive_panel_toggle").toBool()) {
-            s.rwidth() += 12;
+        s = s.expandedTo(QSize(size("control-sm"), size("control-sm")));
+        if (hasFlag(widget, "_kdenlive_panel_toggle")) {
+            s.rwidth() += 2 * DesignTokens::space(3);
+        } else if (hasFlag(widget, "_kdenlive_primary")) {
+            s.setHeight(qMax(s.height(), size("control-md")));
         }
         break;
     case CT_ComboBox:
     case CT_LineEdit:
     case CT_SpinBox:
-        s.setHeight(qMax(s.height(), option->fontMetrics.height() + 10));
+        s.setHeight(qMax(s.height(), size("control-md")));
         break;
     case CT_HeaderSection:
-        s.setHeight(s.height() + 4);
+        s.setHeight(qMax(s.height(), size("control-md")));
+        break;
+    case CT_TabBarTab:
+        if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
+            const bool vertical = tab->shape == QTabBar::RoundedWest || tab->shape == QTabBar::RoundedEast;
+            if (!vertical) {
+                // Room for the pill and space-2 above and below it
+                s.setHeight(size("control-sm") + 2 * DesignTokens::space(2));
+            }
+        }
+        break;
+    case CT_MenuItem:
+        if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option)) {
+            if (item->menuItemType != QStyleOptionMenuItem::Separator) {
+                s.setHeight(qMax(s.height(), size("control-sm") + DesignTokens::space(1)));
+            }
+        }
         break;
     default:
         break;
@@ -325,7 +281,7 @@ QRect KdenliveStyle::subElementRect(SubElement element, const QStyleOption *opti
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
             const bool vertical = tab->shape == QTabBar::RoundedWest || tab->shape == QTabBar::RoundedEast || tab->shape == QTabBar::TriangularWest ||
                                   tab->shape == QTabBar::TriangularEast;
-            const int fade = 28;
+            const int fade = DesignTokens::space(5) - DesignTokens::space(2);
             const QRect r = tab->rect;
             if (!vertical) {
                 return element == SE_TabBarTearIndicatorLeft ? QRect(r.left(), r.top(), fade, r.height())
@@ -380,23 +336,19 @@ QRect KdenliveStyle::subControlRect(ComplexControl control, const QStyleOptionCo
 void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const
 {
     const bool enabled = option->state & State_Enabled;
+    const bool hover = enabled && (option->state & State_MouseOver);
     switch (element) {
     case PE_PanelButtonTool: {
-        const bool autoRaise = option->state & State_AutoRaise;
-        QColor fill = Qt::transparent;
-        if (option->state & State_Sunken) {
-            fill = overlay(option->palette, 0.16);
-        } else if (option->state & State_On) {
-            fill = withAlpha(option->palette.color(QPalette::Highlight), 0.35);
-        } else if (enabled && (option->state & State_MouseOver)) {
-            fill = overlay(option->palette, 0.09);
+        QColor fill = DesignPaint::wash(hover, option->state & State_Sunken);
+        if (option->state & State_On) {
+            fill = token("accent-soft");
         }
-        if (!autoRaise && fill.alpha() == 0) {
+        if (!(option->state & State_AutoRaise) && fill.alpha() == 0) {
             // Stand alone tool buttons still read as buttons
             drawButton(painter, option, option->rect, false);
             return;
         }
-        drawRoundedPanel(painter, option->rect, fill, Qt::transparent);
+        DesignPaint::panel(painter, option->rect, fill, Qt::transparent, radius("radius-md"));
         return;
     }
     case PE_PanelButtonCommand:
@@ -410,29 +362,28 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
             }
         }
         break;
-    case PE_FrameLineEdit: {
-        const bool enabledFocus = enabled && (option->state & State_HasFocus);
-        drawRoundedPanel(painter, option->rect, Qt::transparent, enabledFocus ? option->palette.color(QPalette::Highlight) : overlay(option->palette, 0.13));
+    case PE_FrameLineEdit:
+        DesignPaint::panel(painter, option->rect, Qt::transparent, enabled && (option->state & State_HasFocus) ? token("focus-ring") : token("border-control"),
+                           radius("radius-md"));
         return;
-    }
     case PE_IndicatorCheckBox:
     case PE_IndicatorItemViewItemCheck: {
         const int side = qMin(option->rect.width(), option->rect.height());
         QRect box(0, 0, side, side);
         box.moveCenter(option->rect.center());
         const bool on = option->state & (State_On | State_NoChange);
-        const QColor accent = option->palette.color(QPalette::Highlight);
-        QColor border = on ? accent : overlay(option->palette, enabled && (option->state & State_MouseOver) ? 0.6 : 0.42);
-        QColor fill = on ? accent : option->palette.color(QPalette::Base);
+        QColor border = on ? token("accent-fill") : (hover ? token("ink-secondary") : token("ink-tertiary"));
+        QColor fill = on ? token("accent-fill") : token("surface-control");
         if (!enabled) {
-            border = withAlpha(border, 0.5);
-            fill = withAlpha(fill, 0.5);
+            const qreal disabled = DesignTokens::opacity(QStringLiteral("opacity-disabled"));
+            border = withAlpha(border, disabled);
+            fill = withAlpha(fill, disabled);
         }
-        drawRoundedPanel(painter, box, fill, border, 3);
+        DesignPaint::panel(painter, box, fill, border, radius("radius-xs"));
         if (on) {
             painter->save();
             painter->setRenderHint(QPainter::Antialiasing, true);
-            painter->setPen(QPen(option->palette.color(QPalette::HighlightedText), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter->setPen(QPen(token("on-accent"), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             const QRectF r(box);
             if (option->state & State_NoChange) {
                 painter->drawLine(QPointF(r.left() + r.width() * 0.28, r.center().y()), QPointF(r.right() - r.width() * 0.28, r.center().y()));
@@ -449,65 +400,61 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
     }
     case PE_IndicatorRadioButton: {
         const int side = qMin(option->rect.width(), option->rect.height());
-        QRect circle(0, 0, side, side);
-        circle.moveCenter(option->rect.center());
+        QRectF circle(0, 0, side, side);
+        circle.moveCenter(QRectF(option->rect).center());
         const bool on = option->state & State_On;
-        const QColor accent = option->palette.color(QPalette::Highlight);
-        QColor border = on ? accent : overlay(option->palette, enabled && (option->state & State_MouseOver) ? 0.6 : 0.42);
-        QColor fill = on ? accent : option->palette.color(QPalette::Base);
+        QColor border = on ? token("accent-fill") : (hover ? token("ink-secondary") : token("ink-tertiary"));
+        QColor fill = on ? token("accent-fill") : token("surface-control");
         if (!enabled) {
-            border = withAlpha(border, 0.5);
-            fill = withAlpha(fill, 0.5);
+            const qreal disabled = DesignTokens::opacity(QStringLiteral("opacity-disabled"));
+            border = withAlpha(border, disabled);
+            fill = withAlpha(fill, disabled);
         }
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setPen(QPen(border, 1));
-        painter->setBrush(fill);
-        painter->drawEllipse(pixelAligned(circle));
+        DesignPaint::panel(painter, circle, fill, border, side / 2.);
         if (on) {
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(option->palette.color(QPalette::HighlightedText));
-            const qreal dot = side * 0.18;
-            painter->drawEllipse(QRectF(circle).center(), dot, dot);
+            const qreal dot = side * 0.36;
+            QRectF center(0, 0, dot, dot);
+            center.moveCenter(circle.center());
+            DesignPaint::pill(painter, center, token("on-accent"));
         }
-        painter->restore();
         return;
     }
     case PE_FrameFocusRect:
-        // Item views show focus through selection; elsewhere a thin accent ring
+        // Item views show focus through selection; elsewhere the focus ring token
         if (qobject_cast<const QAbstractItemView *>(widget)) {
             return;
         }
-        drawRoundedPanel(painter, option->rect, Qt::transparent, withAlpha(option->palette.color(QPalette::Highlight), 0.7), 3);
+        DesignPaint::panel(painter, option->rect, Qt::transparent, token("focus-ring"), radius("radius-sm"));
         return;
     case PE_IndicatorToolBarSeparator: {
-        painter->save();
-        painter->setPen(overlay(option->palette, 0.12));
         const QRect r = option->rect;
+        const int inset = DesignTokens::space(3);
         if (option->state & State_Horizontal) {
-            const int x = r.center().x();
-            painter->drawLine(x, r.top() + 6, x, r.bottom() - 6);
+            painter->fillRect(QRect(r.center().x(), r.top() + inset, 1, r.height() - 2 * inset), token("separator"));
         } else {
-            const int y = r.center().y();
-            painter->drawLine(r.left() + 6, y, r.right() - 6, y);
+            painter->fillRect(QRect(r.left() + inset, r.center().y(), r.width() - 2 * inset, 1), token("separator"));
         }
-        painter->restore();
         return;
     }
     case PE_IndicatorToolBarHandle:
     case PE_PanelToolBar:
+    case PE_IndicatorButtonDropDown:
         return;
     case PE_FrameTabBarBase:
-        painter->fillRect(QRect(option->rect.left(), option->rect.bottom(), option->rect.width(), 1), overlay(option->palette, 0.1));
+        painter->fillRect(QRect(option->rect.left(), option->rect.bottom(), option->rect.width(), 1), token("separator"));
         return;
     case PE_FrameTabWidget:
-        drawRoundedPanel(painter, option->rect, Qt::transparent, overlay(option->palette, 0.1));
-        return;
     case PE_FrameGroupBox:
-        drawRoundedPanel(painter, option->rect, Qt::transparent, overlay(option->palette, 0.12));
+        DesignPaint::panel(painter, option->rect, Qt::transparent, token("separator"), radius("radius-lg"));
         return;
     case PE_PanelTipLabel:
-        drawRoundedPanel(painter, option->rect, option->palette.color(QPalette::ToolTipBase), overlay(option->palette, 0.15), 3);
+        DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-sm"));
+        return;
+    case PE_PanelMenu:
+    case PE_FrameMenu:
+        painter->fillRect(option->rect, token("surface-raised"));
+        painter->setPen(token("border-control"));
+        painter->drawRect(option->rect.adjusted(0, 0, -1, -1));
         return;
     case PE_IndicatorArrowDown:
     case PE_IndicatorArrowUp:
@@ -517,16 +464,14 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
                                     : element == PE_IndicatorArrowUp   ? Direction::Up
                                     : element == PE_IndicatorArrowLeft ? Direction::Left
                                                                        : Direction::Right;
-        drawChevron(painter, option->rect, direction, withAlpha(textColor(option), 0.8));
+        DesignPaint::chevron(painter, option->rect, direction, enabled ? token("ink-secondary") : token("ink-tertiary"));
         return;
     }
-    case PE_IndicatorButtonDropDown:
-        return;
     case PE_IndicatorTabTearLeft:
     case PE_IndicatorTabTearRight: {
         // Fade the cut tab into the header instead of clipping it hard
         const QRect r = option->rect;
-        const QColor header = headerColor(option->palette);
+        const QColor header = token("surface-sidebar");
         QColor clear = header;
         clear.setAlpha(0);
         QLinearGradient gradient(r.topLeft(), r.topRight());
@@ -536,9 +481,9 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
         return;
     }
     case PE_IndicatorTabClose: {
-        const bool hover = enabled && (option->state & (State_MouseOver | State_Raised));
+        const bool closeHover = enabled && (option->state & (State_MouseOver | State_Raised));
         const bool current = option->state & State_Selected;
-        if (!hover && !current && widget) {
+        if (!closeHover && !current && widget) {
             // Only the current tab and the hovered one show their close button
             if (const auto *bar = qobject_cast<const QTabBar *>(widget->parentWidget())) {
                 const int hovered = bar->tabAt(bar->mapFromGlobal(QCursor::pos()));
@@ -547,14 +492,14 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
                 }
             }
         }
-        QRect box(0, 0, 16, 16);
+        const int side = size("indicator");
+        QRect box(0, 0, side, side);
         box.moveCenter(option->rect.center());
-        if (hover) {
-            const QColor base = current ? option->palette.color(QPalette::HighlightedText) : option->palette.color(QPalette::WindowText);
-            drawRoundedPanel(painter, box, withAlpha(base, option->state & State_Sunken ? 0.25 : 0.16), Qt::transparent, box.height() / 2.);
+        const QColor ink = current ? token("on-accent") : token("ink");
+        if (closeHover) {
+            DesignPaint::pill(painter, box, withAlpha(ink, option->state & State_Sunken ? 0.25 : 0.16));
         }
-        const QColor color =
-            current ? withAlpha(option->palette.color(QPalette::HighlightedText), hover ? 1.0 : 0.75) : overlay(option->palette, hover ? 0.9 : 0.35);
+        const QColor color = withAlpha(ink, closeHover ? 1.0 : (current ? 0.75 : 0.45));
         const QRectF cross = QRectF(box).adjusted(5, 5, -5, -5);
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
@@ -572,26 +517,30 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
 
 void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const
 {
+    const bool enabled = option->state & State_Enabled;
+    const bool hover = enabled && (option->state & State_MouseOver);
     switch (element) {
     case CE_PushButtonBevel:
         if (const auto *button = qstyleoption_cast<const QStyleOptionButton *>(option)) {
-            if (widget && widget->property("_kdenlive_pagebar").toBool()) {
-                // Page bar: an accent underline marks the current page, hover gets a soft fill
+            if (hasFlag(widget, "_kdenlive_pagebar")) {
+                // Page bar: an accent underline marks the current page, hover gets a wash
                 const QRect r = option->rect;
-                if ((option->state & State_MouseOver) && (option->state & State_Enabled)) {
-                    drawRoundedPanel(painter, r.adjusted(0, 2, 0, -2), overlay(option->palette, 0.07), Qt::transparent);
+                if (hover) {
+                    DesignPaint::panel(painter, r.adjusted(0, DesignTokens::space(1), 0, -DesignTokens::space(1)), DesignPaint::wash(true, false),
+                                       Qt::transparent, radius("radius-md"));
                 }
                 if (option->state & State_On) {
-                    painter->fillRect(QRect(r.left() + 10, r.bottom() - 1, r.width() - 20, 2), option->palette.highlight());
+                    const int inset = DesignTokens::space(3) + DesignTokens::space(1);
+                    painter->fillRect(QRect(r.left() + inset, r.bottom() - 1, r.width() - 2 * inset, 2), token("accent"));
                 }
                 return;
             }
-            if (widget && widget->property("_kdenlive_segmented").toBool()) {
+            if (hasFlag(widget, "_kdenlive_segmented")) {
                 // Segmented control: the current segment is raised, the others only react to hover
                 if (option->state & State_On) {
-                    drawRoundedPanel(painter, option->rect, option->palette.color(QPalette::Button).lighter(125), overlay(option->palette, 0.08), 3.5);
-                } else if ((option->state & State_MouseOver) && (option->state & State_Enabled)) {
-                    drawRoundedPanel(painter, option->rect, overlay(option->palette, 0.07), Qt::transparent, 3.5);
+                    DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-sm"));
+                } else if (hover) {
+                    DesignPaint::panel(painter, option->rect, DesignPaint::wash(true, false), Qt::transparent, radius("radius-sm"));
                 }
                 return;
             }
@@ -601,79 +550,100 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
             }
             if (button->features & QStyleOptionButton::HasMenu) {
                 const int indicator = proxy()->pixelMetric(PM_MenuButtonIndicator, option, widget);
-                const QRect arrow(option->rect.right() - indicator - 4, option->rect.top(), indicator, option->rect.height());
-                drawChevron(painter, arrow, Direction::Down, withAlpha(textColor(option), 0.8));
+                const QRect arrow(option->rect.right() - indicator - DesignTokens::space(2), option->rect.top(), indicator, option->rect.height());
+                DesignPaint::chevron(painter, arrow, Direction::Down, isPrimaryButton(button, widget) ? token("on-accent") : textColor(option));
             }
             return;
         }
         break;
     case CE_PushButtonLabel:
         if (const auto *button = qstyleoption_cast<const QStyleOptionButton *>(option)) {
-            if (widget && (widget->property("_kdenlive_segmented").toBool() || widget->property("_kdenlive_pagebar").toBool()) && !(option->state & State_On)) {
-                QStyleOptionButton dimmed(*button);
-                dimmed.palette.setColor(QPalette::ButtonText, withAlpha(option->palette.color(QPalette::ButtonText), 0.65));
-                QProxyStyle::drawControl(element, &dimmed, painter, widget);
-                return;
+            QStyleOptionButton label(*button);
+            if ((hasFlag(widget, "_kdenlive_segmented") || hasFlag(widget, "_kdenlive_pagebar")) && !(option->state & State_On)) {
+                label.palette.setColor(QPalette::ButtonText, token("ink-secondary"));
+            } else if (isPrimaryButton(button, widget) && enabled) {
+                label.palette.setColor(QPalette::ButtonText, token("on-accent"));
+            } else {
+                label.palette.setColor(QPalette::ButtonText, textColor(option));
             }
-            if (isPrimaryButton(button, widget) && (option->state & State_Enabled)) {
-                QStyleOptionButton accent(*button);
-                accent.palette.setColor(QPalette::ButtonText, option->palette.color(QPalette::HighlightedText));
-                QProxyStyle::drawControl(element, &accent, painter, widget);
-                return;
-            }
+            QProxyStyle::drawControl(element, &label, painter, widget);
+            return;
         }
         break;
     case CE_ToolBar:
         return;
     case CE_MenuBarEmptyArea:
-        painter->fillRect(option->rect, option->palette.window());
+        painter->fillRect(option->rect, token("surface-window"));
         return;
     case CE_MenuBarItem:
         if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option)) {
             QStyleOptionMenuItem plain(*item);
-            const bool active = (option->state & State_Selected) && (option->state & State_Enabled);
+            const bool active = (option->state & State_Selected) && enabled;
             plain.state &= ~(State_Selected | State_Sunken);
-            painter->fillRect(option->rect, option->palette.window());
+            plain.palette.setColor(QPalette::ButtonText, token("ink"));
+            plain.palette.setColor(QPalette::WindowText, token("ink"));
+            painter->fillRect(option->rect, token("surface-window"));
             if (active) {
-                drawRoundedPanel(painter, option->rect.adjusted(0, 2, 0, -2), overlay(option->palette, option->state & State_Sunken ? 0.16 : 0.1),
-                                 Qt::transparent);
+                DesignPaint::panel(painter, option->rect.adjusted(0, DesignTokens::space(1), 0, -DesignTokens::space(1)),
+                                   DesignPaint::wash(true, option->state & State_Sunken), Qt::transparent, radius("radius-sm"));
             }
             QCommonStyle::drawControl(element, &plain, painter, widget);
             return;
         }
         break;
+    case CE_MenuItem:
+        if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option)) {
+            QStyleOptionMenuItem menuItem(*item);
+            if (item->menuItemType == QStyleOptionMenuItem::Separator) {
+                const QRect r = item->rect;
+                painter->fillRect(QRect(r.left() + DesignTokens::space(3), r.center().y(), r.width() - 2 * DesignTokens::space(3), 1), token("separator"));
+                return;
+            }
+            // A rounded accent row instead of Fusion's full width highlight
+            if ((item->state & State_Selected) && enabled) {
+                DesignPaint::panel(painter, item->rect.adjusted(DesignTokens::space(2), 1, -DesignTokens::space(2), -1), token("accent-fill"), Qt::transparent,
+                                   radius("radius-sm"));
+            }
+            menuItem.palette.setColor(QPalette::Highlight, Qt::transparent);
+            menuItem.palette.setColor(QPalette::HighlightedText, token("on-accent"));
+            menuItem.palette.setColor(QPalette::Text, token("ink"));
+            menuItem.palette.setColor(QPalette::WindowText, token("ink"));
+            menuItem.palette.setColor(QPalette::ButtonText, token("ink"));
+            menuItem.palette.setColor(QPalette::Window, token("surface-raised"));
+            menuItem.palette.setColor(QPalette::Button, token("surface-raised"));
+            QProxyStyle::drawControl(element, &menuItem, painter, widget);
+            return;
+        }
+        break;
     case CE_HeaderSection: {
         const QRect r = option->rect;
-        painter->fillRect(r, headerColor(option->palette));
-        painter->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), overlay(option->palette, 0.12));
-        painter->fillRect(QRect(r.right(), r.top() + 4, 1, r.height() - 8), overlay(option->palette, 0.08));
+        painter->fillRect(r, token("surface-sidebar"));
+        painter->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), token("separator"));
+        painter->fillRect(QRect(r.right(), r.top() + DesignTokens::space(2), 1, r.height() - 2 * DesignTokens::space(2)), token("separator"));
         return;
     }
     case CE_HeaderLabel:
         if (const auto *header = qstyleoption_cast<const QStyleOptionHeader *>(option)) {
-            QStyleOptionHeader dimmed(*header);
-            dimmed.palette.setColor(QPalette::ButtonText, withAlpha(option->palette.color(QPalette::WindowText), 0.7));
-            QProxyStyle::drawControl(element, &dimmed, painter, widget);
+            QStyleOptionHeader label(*header);
+            label.palette.setColor(QPalette::ButtonText, token("ink-secondary"));
+            painter->save();
+            painter->setFont(DesignTokens::font(QStringLiteral("text-caption")));
+            QProxyStyle::drawControl(element, &label, painter, widget);
+            painter->restore();
             return;
         }
         break;
     case CE_HeaderEmptyArea:
-        painter->fillRect(option->rect, headerColor(option->palette));
-        painter->fillRect(QRect(option->rect.left(), option->rect.bottom(), option->rect.width(), 1), overlay(option->palette, 0.12));
+        DesignPaint::headerStrip(painter, option->rect);
         return;
     case CE_TabBarTabShape:
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
             // Pill tabs: the current one is filled with the accent, others only react to hover
-            const QRect pill = tab->rect.adjusted(3, 4, -3, -4);
-            const qreal radius = qMin(pill.width(), pill.height()) / 2.;
+            const QRect pill = pillRect(tab->rect);
             if (tab->state & State_Selected) {
-                QColor accent = tab->palette.color(QPalette::Highlight);
-                if (!(tab->state & State_Enabled)) {
-                    accent = withAlpha(accent, 0.5);
-                }
-                drawRoundedPanel(painter, pill, accent, Qt::transparent, radius);
-            } else if ((tab->state & State_MouseOver) && (tab->state & State_Enabled)) {
-                drawRoundedPanel(painter, pill, overlay(tab->palette, 0.08), Qt::transparent, radius);
+                DesignPaint::pill(painter, pill, enabled ? token("accent-fill") : withAlpha(token("accent-fill"), 0.5));
+            } else if (hover) {
+                DesignPaint::pill(painter, pill, DesignPaint::wash(true, false));
             }
             return;
         }
@@ -681,29 +651,38 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
     case CE_TabBarTabLabel:
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
             QStyleOptionTab label(*tab);
-            if (tab->state & State_Selected) {
-                label.palette.setColor(QPalette::WindowText, tab->palette.color(QPalette::HighlightedText));
-                painter->save();
-                QFont font = painter->font();
-                font.setWeight(QFont::DemiBold);
-                painter->setFont(font);
-                QProxyStyle::drawControl(element, &label, painter, widget);
-                painter->restore();
-            } else {
-                label.palette.setColor(QPalette::WindowText, withAlpha(tab->palette.color(QPalette::WindowText), 0.6));
-                QProxyStyle::drawControl(element, &label, painter, widget);
-            }
+            const bool selected = tab->state & State_Selected;
+            label.palette.setColor(QPalette::WindowText, selected ? token("on-accent") : token("ink-secondary"));
+            painter->save();
+            QFont font = painter->font();
+            font.setWeight(selected ? QFont::DemiBold : QFont::Normal);
+            painter->setFont(font);
+            QProxyStyle::drawControl(element, &label, painter, widget);
+            painter->restore();
             return;
         }
         break;
     case CE_Splitter:
-        painter->fillRect(option->rect, option->palette.window());
+        painter->fillRect(option->rect, token("surface-window"));
         if (option->state & State_Horizontal) {
-            painter->fillRect(QRect(option->rect.center().x(), option->rect.top(), 1, option->rect.height()), overlay(option->palette, 0.1));
+            painter->fillRect(QRect(option->rect.center().x(), option->rect.top(), 1, option->rect.height()), token("separator"));
         } else {
-            painter->fillRect(QRect(option->rect.left(), option->rect.center().y(), option->rect.width(), 1), overlay(option->palette, 0.1));
+            painter->fillRect(QRect(option->rect.left(), option->rect.center().y(), option->rect.width(), 1), token("separator"));
         }
         return;
+    case CE_ProgressBarGroove:
+        DesignPaint::pill(painter, option->rect, token("fill-track"));
+        return;
+    case CE_ProgressBarContents:
+        if (const auto *bar = qstyleoption_cast<const QStyleOptionProgressBar *>(option)) {
+            if (bar->maximum > bar->minimum) {
+                QRect filled = bar->rect;
+                filled.setWidth(int(qint64(filled.width()) * (bar->progress - bar->minimum) / (bar->maximum - bar->minimum)));
+                DesignPaint::pill(painter, filled, token("accent-fill"));
+            }
+            return;
+        }
+        break;
     default:
         break;
     }
@@ -716,58 +695,90 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
     switch (control) {
     case CC_ToolButton:
         if (const auto *tool = qstyleoption_cast<const QStyleOptionToolButton *>(option)) {
+            const bool hover = enabled && (tool->state & State_MouseOver);
+            const bool pressed = tool->state & State_Sunken;
             if (widget && qobject_cast<const QTabBar *>(widget->parentWidget()) && tool->arrowType != Qt::NoArrow) {
                 // Tab bar scroll buttons sit on top of the tabs: give them the header background and a bare chevron
-                painter->fillRect(tool->rect, headerColor(option->palette));
-                if (enabled && (tool->state & (State_MouseOver | State_Sunken))) {
-                    drawRoundedPanel(painter, tool->rect.adjusted(1, 4, -1, -4), overlay(option->palette, tool->state & State_Sunken ? 0.16 : 0.1),
-                                     Qt::transparent, 3);
+                painter->fillRect(tool->rect, token("surface-sidebar"));
+                if (hover || pressed) {
+                    DesignPaint::panel(painter, tool->rect.adjusted(1, DesignTokens::space(2), -1, -DesignTokens::space(2)), DesignPaint::wash(hover, pressed),
+                                       Qt::transparent, radius("radius-sm"));
                 }
                 const Direction direction = tool->arrowType == Qt::LeftArrow    ? Direction::Left
                                             : tool->arrowType == Qt::RightArrow ? Direction::Right
                                             : tool->arrowType == Qt::UpArrow    ? Direction::Up
                                                                                 : Direction::Down;
-                drawChevron(painter, tool->rect, direction, overlay(option->palette, enabled ? 0.8 : 0.25));
+                DesignPaint::chevron(painter, tool->rect, direction, enabled ? token("ink-secondary") : token("ink-tertiary"));
                 return;
             }
             const QRect button = proxy()->subControlRect(control, tool, SC_ToolButton, widget);
             const QRect menu = proxy()->subControlRect(control, tool, SC_ToolButtonMenu, widget);
+            const bool hasMenuPart = tool->subControls & SC_ToolButtonMenu;
+
+            if (hasFlag(widget, "_kdenlive_primary")) {
+                // The primary action of a bar: accent fill, bold label, the menu part behind a divider
+                QColor fill = token("accent-fill");
+                if (!enabled) {
+                    fill = withAlpha(fill, DesignTokens::opacity(QStringLiteral("opacity-disabled")));
+                } else if (pressed) {
+                    fill = fill.darker(115);
+                } else if (hover) {
+                    fill = fill.lighter(112);
+                }
+                DesignPaint::panel(painter, tool->rect, fill, Qt::transparent, radius("radius-md"));
+                const QColor onAccent = token("on-accent");
+                if (hasMenuPart) {
+                    const int inset = DesignTokens::space(3) - DesignTokens::space(1);
+                    painter->fillRect(QRect(menu.left(), menu.top() + inset, 1, menu.height() - 2 * inset), withAlpha(onAccent, 0.35));
+                    DesignPaint::chevron(painter, menu, Direction::Down, onAccent);
+                }
+                QStyleOptionToolButton label(*tool);
+                label.state &= ~(State_Sunken | State_On | State_MouseOver);
+                label.toolButtonStyle = Qt::ToolButtonTextOnly;
+                label.font = DesignTokens::font(QStringLiteral("text-body-strong"));
+                label.palette.setColor(QPalette::ButtonText, onAccent);
+                label.rect = button;
+                proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
+                return;
+            }
+
+            if (hasFlag(widget, "_kdenlive_panel_toggle")) {
+                // Quiet panel toggles: a wash on hover, a brighter label when on, never the accent
+                const bool on = tool->state & State_On;
+                const QColor fill = DesignPaint::wash(hover, pressed);
+                if (fill.alpha() > 0) {
+                    DesignPaint::panel(painter, tool->rect, fill, Qt::transparent, radius("radius-md"));
+                }
+                QStyleOptionToolButton label(*tool);
+                label.state &= ~(State_Sunken | State_On);
+                label.palette.setColor(QPalette::ButtonText, on ? token("ink") : token("ink-secondary"));
+                label.rect = tool->rect.adjusted(DesignTokens::space(3), 0, -DesignTokens::space(3), 0);
+                proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
+                return;
+            }
+
             State flags = tool->state & ~State_Sunken;
             if ((flags & State_AutoRaise) && (!(flags & State_MouseOver) || !enabled)) {
                 flags &= ~State_Raised;
             }
-            if ((tool->state & State_Sunken) && (tool->activeSubControls & (SC_ToolButton | SC_ToolButtonMenu))) {
+            if (pressed && (tool->activeSubControls & (SC_ToolButton | SC_ToolButtonMenu))) {
                 flags |= State_Sunken;
-            }
-            const bool panelToggle = widget && widget->property("_kdenlive_panel_toggle").toBool();
-            if (panelToggle) {
-                // Quiet panel toggles: a soft fill when on or hovered, never the accent
-                const bool on = tool->state & State_On;
-                const bool hover = enabled && (tool->state & State_MouseOver);
-                if (hover || (tool->state & State_Sunken)) {
-                    drawRoundedPanel(painter, tool->rect, overlay(option->palette, tool->state & State_Sunken ? 0.16 : 0.07), Qt::transparent);
-                }
-                QStyleOptionToolButton label(*tool);
-                label.state &= ~(State_Sunken | State_On);
-                label.palette.setColor(QPalette::ButtonText, withAlpha(option->palette.color(QPalette::ButtonText), on ? 1.0 : 0.55));
-                label.rect = tool->rect.adjusted(6, 0, -6, 0);
-                proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
-                return;
             }
             QStyleOption panel(*tool);
             // One panel for button and menu part, so split buttons read as a single control
-            panel.rect = (tool->subControls & SC_ToolButtonMenu) ? tool->rect : button;
+            panel.rect = hasMenuPart ? tool->rect : button;
             panel.state = flags;
             proxy()->drawPrimitive(PE_PanelButtonTool, &panel, painter, widget);
-            if (tool->subControls & SC_ToolButtonMenu) {
-                drawChevron(painter, menu, Direction::Down, withAlpha(textColor(option), 0.75));
+            if (hasMenuPart) {
+                DesignPaint::chevron(painter, menu, Direction::Down, enabled ? token("ink-secondary") : token("ink-tertiary"));
             } else if (tool->features & QStyleOptionToolButton::HasMenu) {
-                const int indicator = qMax(5, proxy()->pixelMetric(PM_MenuButtonIndicator, tool, widget) / 2);
+                const int indicator = DesignTokens::space(3) - DesignTokens::space(1);
                 const QRect arrow(tool->rect.right() - indicator - 1, tool->rect.bottom() - indicator - 1, indicator, indicator);
-                drawChevron(painter, arrow, Direction::Down, withAlpha(textColor(option), 0.75));
+                DesignPaint::chevron(painter, arrow, Direction::Down, token("ink-secondary"));
             }
             QStyleOptionToolButton label(*tool);
             label.state = flags & ~State_Sunken;
+            label.palette.setColor(QPalette::ButtonText, textColor(option));
             const int frame = proxy()->pixelMetric(PM_DefaultFrameWidth, tool, widget);
             label.rect = button.adjusted(frame, frame, -frame, -frame);
             proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
@@ -785,7 +796,7 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
                 drawButton(painter, option, combo->rect, false);
             }
             const QRect arrow = proxy()->subControlRect(control, combo, SC_ComboBoxArrow, widget);
-            drawChevron(painter, arrow, Direction::Down, withAlpha(textColor(option), 0.75));
+            DesignPaint::chevron(painter, arrow, Direction::Down, enabled ? token("ink-secondary") : token("ink-tertiary"));
             return;
         }
         break;
@@ -798,13 +809,13 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
             if (spin->buttonSymbols != QAbstractSpinBox::NoButtons) {
                 const QRect up = proxy()->subControlRect(control, spin, SC_SpinBoxUp, widget);
                 const QRect down = proxy()->subControlRect(control, spin, SC_SpinBoxDown, widget);
-                for (const auto &[rect, sub, upEnabled] : {std::tuple{up, SC_SpinBoxUp, bool(spin->stepEnabled & QAbstractSpinBox::StepUpEnabled)},
-                                                           std::tuple{down, SC_SpinBoxDown, bool(spin->stepEnabled & QAbstractSpinBox::StepDownEnabled)}}) {
-                    if (enabled && upEnabled && (spin->activeSubControls & sub) && (spin->state & (State_MouseOver | State_Sunken))) {
-                        drawRoundedPanel(painter, rect.adjusted(1, 1, -1, -1), overlay(option->palette, spin->state & State_Sunken ? 0.16 : 0.09),
-                                         Qt::transparent, 3);
+                for (const auto &[rect, sub, stepEnabled] : {std::tuple{up, SC_SpinBoxUp, bool(spin->stepEnabled & QAbstractSpinBox::StepUpEnabled)},
+                                                             std::tuple{down, SC_SpinBoxDown, bool(spin->stepEnabled & QAbstractSpinBox::StepDownEnabled)}}) {
+                    if (enabled && stepEnabled && (spin->activeSubControls & sub) && (spin->state & (State_MouseOver | State_Sunken))) {
+                        DesignPaint::panel(painter, rect.adjusted(1, 1, -1, -1), DesignPaint::wash(true, spin->state & State_Sunken), Qt::transparent,
+                                           radius("radius-xs"));
                     }
-                    QColor color = withAlpha(textColor(option), upEnabled ? 0.75 : 0.3);
+                    const QColor color = stepEnabled && enabled ? token("ink-secondary") : token("ink-tertiary");
                     if (spin->buttonSymbols == QAbstractSpinBox::PlusMinus) {
                         painter->save();
                         painter->setPen(QPen(color, 1.5));
@@ -815,7 +826,7 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
                         }
                         painter->restore();
                     } else {
-                        drawChevron(painter, rect, sub == SC_SpinBoxUp ? Direction::Up : Direction::Down, color);
+                        DesignPaint::chevron(painter, rect, sub == SC_SpinBoxUp ? Direction::Up : Direction::Down, color);
                     }
                 }
             }
@@ -826,21 +837,14 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
         if (const auto *bar = qstyleoption_cast<const QStyleOptionSlider *>(option)) {
             const QRect slider = proxy()->subControlRect(control, bar, SC_ScrollBarSlider, widget);
             if (slider.isValid() && bar->maximum != bar->minimum) {
-                const bool active = bar->activeSubControls & SC_ScrollBarSlider;
-                qreal alpha = 0.22;
-                if (active && (bar->state & State_Sunken)) {
-                    alpha = 0.5;
-                } else if (active && (bar->state & State_MouseOver)) {
-                    alpha = 0.36;
+                const bool active = (bar->activeSubControls & SC_ScrollBarSlider) && (bar->state & (State_Sunken | State_MouseOver));
+                const int inset = DesignTokens::space(1);
+                const QRect handle = bar->orientation == Qt::Horizontal ? slider.adjusted(1, inset, -1, -inset) : slider.adjusted(inset, 1, -inset, -1);
+                QColor fill = active ? token("fill-thumb-hover") : token("fill-thumb");
+                if (!enabled) {
+                    fill = withAlpha(fill, DesignTokens::opacity(QStringLiteral("opacity-disabled")));
                 }
-                const QRect handle = bar->orientation == Qt::Horizontal ? slider.adjusted(1, 2, -1, -2) : slider.adjusted(2, 1, -2, -1);
-                const qreal radius = qMin(handle.width(), handle.height()) / 2.;
-                painter->save();
-                painter->setRenderHint(QPainter::Antialiasing, true);
-                painter->setPen(Qt::NoPen);
-                painter->setBrush(overlay(option->palette, enabled ? alpha : 0.1));
-                painter->drawRoundedRect(QRectF(handle), radius, radius);
-                painter->restore();
+                DesignPaint::pill(painter, handle, fill);
             }
             return;
         }
@@ -855,15 +859,11 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
                 ticks.subControls = SC_SliderTickmarks;
                 QProxyStyle::drawComplexControl(control, &ticks, painter, widget);
             }
-            painter->save();
-            painter->setRenderHint(QPainter::Antialiasing, true);
-            painter->setPen(Qt::NoPen);
             if (slider->subControls & SC_SliderGroove) {
-                const qreal thickness = 4;
-                QRectF track = horizontal ? QRectF(groove.left(), groove.center().y() - thickness / 2 + 0.5, groove.width(), thickness)
-                                          : QRectF(groove.center().x() - thickness / 2 + 0.5, groove.top(), thickness, groove.height());
-                painter->setBrush(overlay(option->palette, 0.16));
-                painter->drawRoundedRect(track, thickness / 2, thickness / 2);
+                const qreal thickness = size("slider-track");
+                const QRectF track = horizontal ? QRectF(groove.left(), groove.center().y() - thickness / 2 + 0.5, groove.width(), thickness)
+                                                : QRectF(groove.center().x() - thickness / 2 + 0.5, groove.top(), thickness, groove.height());
+                DesignPaint::pill(painter, track, token("fill-track"));
                 QRectF filled = track;
                 const QPointF handleCenter = QRectF(handle).center();
                 if (horizontal) {
@@ -871,18 +871,14 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
                 } else {
                     (slider->upsideDown ? filled.setBottom(handleCenter.y()) : filled.setTop(handleCenter.y()));
                 }
-                painter->setBrush(enabled ? option->palette.color(QPalette::Highlight) : overlay(option->palette, 0.25));
-                painter->drawRoundedRect(filled, thickness / 2, thickness / 2);
+                DesignPaint::pill(painter, filled, enabled ? token("accent-fill") : token("fill-thumb"));
             }
             if (slider->subControls & SC_SliderHandle) {
-                const qreal diameter = qMin(qMin(handle.width(), handle.height()), 14);
-                const QPointF c = QRectF(handle).center();
-                const bool hover = enabled && (slider->activeSubControls & SC_SliderHandle) && (slider->state & State_MouseOver);
-                painter->setBrush(enabled ? (hover ? option->palette.color(QPalette::BrightText) : option->palette.color(QPalette::WindowText))
-                                          : overlay(option->palette, 0.35));
-                painter->drawEllipse(c, diameter / 2, diameter / 2);
+                const qreal diameter = qMin<qreal>(qMin(handle.width(), handle.height()), size("slider-thumb"));
+                QRectF knob(0, 0, diameter, diameter);
+                knob.moveCenter(QRectF(handle).center());
+                DesignPaint::panel(painter, knob, enabled ? token("ink") : token("ink-tertiary"), token("border-control"), diameter / 2.);
             }
-            painter->restore();
             return;
         }
         break;

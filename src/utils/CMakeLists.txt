@@ -5,6 +5,8 @@ set(kdenlive_SRCS
   ${kdenlive_SRCS}
   utils/clipboardproxy.cpp
   utils/colortools.cpp
+  utils/designpaint.cpp
+  utils/designtokens.cpp
   utils/devices.cpp
   utils/flowlayout.cpp
   utils/gentime.cpp

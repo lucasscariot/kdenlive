@@ -71,14 +71,14 @@ Rectangle {
             name: 'current'
             when: trackHeadRoot.current
             PropertyChanges {
-                trackHeadRoot.color: showAudioRecord ? Qt.tint(getTrackColor(isAudio, true), Qt.rgba(1, 0, 0, 0.16)) : selectedTrackColor
+                trackHeadRoot.color: showAudioRecord ? Qt.tint(getTrackColor(isAudio, true), K.Design.alpha("danger", 0.16)) : selectedTrackColor
             }
         },
         State {
             when: !trackHeadRoot.current
             name: 'normal'
             PropertyChanges {
-                trackHeadRoot.color: showAudioRecord ? Qt.tint(getTrackColor(isAudio, true), Qt.rgba(1, 0, 0, 0.16)) : getTrackColor(isAudio, true)
+                trackHeadRoot.color: showAudioRecord ? Qt.tint(getTrackColor(isAudio, true), K.Design.alpha("danger", 0.16)) : getTrackColor(isAudio, true)
             }
         }
     ]
@@ -152,7 +152,7 @@ Rectangle {
                 visible: trackHeadRoot.isAudio && trackHeadRoot.timeline.clipTargets > 1 && trackHeadRoot.height > (2 * expandButton.height)
                 background: Rectangle {
                     color: Qt.darker(trackTarget.bgColor, 1.5)
-                    border.color: activePalette.light
+                    border.color: K.Design.colors["border-control"]
                 }
                 anchors.bottom: parent.bottom
                 width: parent.width
@@ -190,7 +190,7 @@ Rectangle {
                   || (!trackHeadRoot.isAudio && trackHeadRoot.trackId == trackHeadRoot.timeline.lastVideoTarget)
             PropertyChanges {
                 trackTarget.opacity: 0.3
-                trackTarget.bgColor: activePalette.text
+                trackTarget.bgColor: K.Design.colors["ink"]
                 trackTarget.text: trackHeadRoot.isAudio ? timeline.audioTargetName(trackHeadRoot.trackId) : ''
             }
         },
@@ -198,7 +198,7 @@ Rectangle {
             name: 'noTarget'
             when: !trackHeadRoot.isLocked && !trackHeadRoot.isDisabled
             PropertyChanges {
-                trackTarget.bgColor: activePalette.base
+                trackTarget.bgColor: K.Design.colors["surface-timeline"]
                 trackTarget.text: ''
             }
         }
@@ -270,7 +270,7 @@ Rectangle {
             anchors.left: expandButton.right
             font: K.UiUtils.smallestReadableFont
             text: trackHeadRoot.trackTag
-            color: activePalette.text
+            color: K.Design.colors["ink"]
             background: Rectangle {
                 color: trackLed.bgColor
                 border.color: trackLed.borderColor
@@ -301,7 +301,7 @@ Rectangle {
                     name: 'locked'
                     when: trackHeadRoot.isLocked
                     PropertyChanges {
-                        trackLed.bgColor: Qt.rgba(timeline.lockedColor.r, timeline.lockedColor.g, timeline.lockedColor.b, 0.3)
+                        trackLed.bgColor: K.Design.alpha("danger", 0.3)
                         trackLed.borderColor: timeline.lockedColor
                     }
                 },
@@ -309,9 +309,9 @@ Rectangle {
                     name: 'active'
                     when: trackHeadRoot.isActive
                     PropertyChanges {
-                        trackLed.bgColor: Qt.rgba(timeline.targetColor.r, timeline.targetColor.g, timeline.targetColor.b, 0.25)
+                        trackLed.bgColor: K.Design.alpha("success", 0.25)
                         trackLed.borderColor: timeline.targetColor
-                        trackLed.color: activePalette.text
+                        trackLed.color: K.Design.colors["ink"]
                     }
                 },
                 State {
@@ -319,7 +319,7 @@ Rectangle {
                     when: !trackHeadRoot.isLocked && !trackHeadRoot.isActive
                     PropertyChanges {
                         trackLed.bgColor: 'transparent'
-                        trackLed.borderColor: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, 0.25)
+                        trackLed.borderColor: K.Design.alpha("ink", 0.25)
                         trackLed.opacity: 0.7
                     }
                 }
@@ -358,7 +358,7 @@ Rectangle {
             text: trackHeadRoot.trackName
             elide: Text.ElideRight
             font: K.UiUtils.smallestReadableFont
-            color: activePalette.text
+            color: K.Design.colors["ink"]
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignLeft
             // The editable name below now shares this row, keep this one for debugging layouts only
@@ -483,7 +483,7 @@ Rectangle {
                 color: 'transparent'
                 radius: 2
                 anchors.fill: parent
-                border.color: trackNameMouseArea.containsMouse ? activePalette.highlight : 'transparent'
+                border.color: trackNameMouseArea.containsMouse ? K.Design.colors["accent-fill"] : 'transparent'
                 visible: nameEditContainer.onTopRow || (trackHeadRoot.height >= trackLabel.height + muteButton.height + resizer.height + recLayout.height)
                 MouseArea {
                     id: trackNameMouseArea
@@ -506,7 +506,7 @@ Rectangle {
                     width: parent.width - 8
                     elide: Qt.ElideRight
                     font: K.UiUtils.smallestReadableFont
-                    color: activePalette.text
+                    color: K.Design.colors["ink"]
                     opacity: trackHeadRoot.isDisabled ? 0.5 : 0.9
                 }
                 Label {
@@ -519,7 +519,7 @@ Rectangle {
                     anchors.leftMargin: 4
                     elide: Qt.ElideRight
                     font: K.UiUtils.smallestReadableFont
-                    color: activePalette.text
+                    color: K.Design.colors["ink"]
                 }
                 TextField {
                     id: nameEdit
@@ -527,10 +527,10 @@ Rectangle {
                     width: parent.width
                     text: trackHeadRoot.trackName
                     font: K.UiUtils.smallestReadableFont
-                    color: activePalette.text
+                    color: K.Design.colors["ink"]
                     background: Rectangle {
                         radius: 2
-                        color: activePalette.window
+                        color: K.Design.colors["surface-panel"]
                         anchors.fill: parent
                     }
                     /*style: TextFieldStyle {
@@ -538,7 +538,7 @@ Rectangle {
                         padding.bottom: 0
                         background: Rectangle {
                             radius: 2
-                            color: activePalette.window
+                            color: K.Design.colors["surface-panel"]
                             anchors.fill: parent
                         }
                     }*/
@@ -554,7 +554,7 @@ Rectangle {
     Rectangle {
             id: resizer
             height: Math.round(K.UiUtils.baseSizeMedium/3)
-            color: 'red'
+            color: K.Design.colors["danger"]
             opacity: 0
             Drag.active: trimInMouseArea.drag.active
             Drag.proposedAction: Qt.MoveAction

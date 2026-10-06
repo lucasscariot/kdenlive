@@ -35,8 +35,8 @@ Rectangle {
     width: K.UiUtils.baseSizeMedium
     height: width
     radius: width / 2
-    color: "#99ffffff"
-    border.color: "#ff0000"
+    color: K.Design.alpha("on-accent", 0.6)
+    border.color: K.Design.colors["danger"]
     visible: rotatable && showHandle && smallRectMargin == 0
     opacity: isKeyframe ? 1 : 0.4
     

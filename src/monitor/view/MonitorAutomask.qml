@@ -245,8 +245,8 @@ Item {
                 }
                 Rectangle {
                     id: selectionRect
-                    color: '#66ffffff'
-                    border.color: 'red'
+                    color: K.Design.alpha("on-accent", 0.4)
+                    border.color: K.Design.colors["danger"]
                     border.width: 1
                 }
             }
@@ -276,19 +276,19 @@ Item {
                         property bool isNegative: root.centerPointsTypes[index] == 0
                         x: root.centerPoints[index].x * frame.width - width / 2
                         y: root.centerPoints[index].y * frame.height - height / 2
-                        color: isNegative ? "#FF990000" : "#FF006600"
+                        color: isNegative ? K.Design.colors["danger-fill"] : K.Design.colors["success-fill"]
                         height: K.UiUtils.baseSizeMedium * 1.5
                         width: height
                         radius: 180
                         border.width: 2
-                        border.color: "white"
+                        border.color: K.Design.colors["on-accent"]
                         Rectangle {
                             anchors.fill: kfrPoint
                             anchors.leftMargin: kfrPoint.width / 4
                             anchors.rightMargin: kfrPoint.width / 4
                             anchors.topMargin: kfrPoint.height / 2 - 1
                             anchors.bottomMargin: kfrPoint.height / 2 - 1
-                            color: "#FFFFFF"
+                            color: K.Design.colors["on-accent"]
                         }
                         Rectangle {
                             visible: !kfrPoint.isNegative
@@ -297,7 +297,7 @@ Item {
                             anchors.rightMargin: kfrPoint.width / 2 - 1
                             anchors.topMargin: kfrPoint.height / 4
                             anchors.bottomMargin: kfrPoint.height / 4
-                            color: "#FFFFFF"
+                            color: K.Design.colors["on-accent"]
                         }
                         MouseArea {
                             anchors.fill: kfrPoint
@@ -319,8 +319,8 @@ Item {
                 }
                 Rectangle {
                     id: frameBox
-                    color: '#33ffffff'
-                    border.color: '#ff0000'
+                    color: K.Design.alpha("on-accent", 0.2)
+                    border.color: K.Design.colors["danger"]
                     border.width: 1
                     x: root.boxCoords[0] * frame.width
                     y: root.boxCoords[1] * frame.height
@@ -350,7 +350,7 @@ Item {
         text: root.keyframes.length == 0 ? KI18n.i18n("Select an object in the image first") : root.maskMode != K.MaskModeType.MaskPreview ? KI18n.i18n("Generating image mask") : KI18n.i18n("Generating video mask")
         visible: false
         background: Rectangle {
-            color: root.keyframes.length == 0 ? "darkred" : Qt.rgba(activePalette.window.r, activePalette.window.g, activePalette.window.b, 0.8)
+            color: root.keyframes.length == 0 ? "darkred" : K.Design.alpha("surface-panel", 0.8)
             radius: 5
         }
     }
@@ -361,7 +361,7 @@ Item {
         text: root.maskMode != K.MaskModeType.MaskPreview ? KI18n.i18n("Click on an object or draw a box to start a mask.\nShift+click to include another zone.\nCtrl+click to exclude a zone.") : KI18n.i18n("Previewing video mask")
         visible: root.centerPoints.length == 0 && !frameBox.visible && !frameArea.containsMouse && !generateLabel.visible && !outsideLabel.visible && root.keyframes.length == 0
         background: Rectangle {
-            color: Qt.rgba(activePalette.window.r, activePalette.window.g, activePalette.window.b, 0.8)
+            color: K.Design.alpha("surface-panel", 0.8)
             radius: 5
         }
     }
@@ -371,9 +371,9 @@ Item {
         padding: 5
         text: KI18n.i18n("You are outside of the time zone defined\nfor the mask and cannot add keyframes.\n\n\n")
         visible: false
-        color: 'white'
+        color: K.Design.colors["on-accent"]
         background: Rectangle {
-            color: 'darkred'
+            color: K.Design.colors["danger-fill"]
             radius: 5
         }
         ToolButton {
@@ -424,13 +424,13 @@ Item {
         anchors.fill: monitorframe
         color: 'transparent'
         border.width: firstTimer.running ? 4 : 1
-        border.color: 'darkred'
+        border.color: K.Design.colors["danger-fill"]
         Label {
             anchors.horizontalCenter: monitoredge.horizontalCenter
             text: KI18n.i18n('Mask Mode')
             padding: 5
             background: Rectangle {
-                color: 'darkred'
+                color: K.Design.colors["danger-fill"]
             }
             visible: firstTimer.running
         }
@@ -454,7 +454,7 @@ Item {
                 required property var modelData
                 property int kf: modelData + root.maskStart
                 anchors.bottom: clipMonitorRuler.bottom
-                color: 'red'
+                color: K.Design.colors["danger"]
                 width: clipMonitorRuler.height / 2
                 height: width
                 radius: width

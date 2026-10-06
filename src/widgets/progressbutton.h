@@ -46,6 +46,7 @@ private:
     /** @brief While rendering, replace real action by a fake on so that rendering is not triggered when clicking again. */
     QAction *m_dummyAction;
     bool m_primary{false};
+    void updatePrimaryLook();
 
 Q_SIGNALS:
     void progressChanged();

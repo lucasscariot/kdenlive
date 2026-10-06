@@ -4,11 +4,12 @@
 */
 
 import QtQuick 2.15
+import org.kde.kdenlive as K
 
 Item {
     id: overlayLabel
     property alias text: label.text
-    property color backgroundColor: Qt.rgba(0, 0, 0, 0.5)
+    property color backgroundColor: K.Design.colors["scrim"]
     property color textColor: "white"
     property int padding: 6
     property alias font: label.font

@@ -7,6 +7,7 @@
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import org.kde.kdenlive as K
 
 Rectangle {
     id: zoomContainer
@@ -22,10 +23,10 @@ Rectangle {
     signal proposeZoomFactor(real proposedValue)
     signal zoomByWheel(var wheel)
     signal fitZoom()
-    color: hoveredBar || containerArea.containsMouse ? barPalette.text : activePalette.window
+    color: hoveredBar || containerArea.containsMouse ? barPalette.text : K.Design.colors["surface-panel"]
     radius: height / 2
     border {
-        color: activePalette.window
+        color: K.Design.colors["surface-panel"]
         width: 1
     }
     MouseArea {
@@ -100,7 +101,7 @@ Rectangle {
                     }
                 }
                 Rectangle {
-                    color: zoomContainer.hoveredBar ? activePalette.highlight : containerArea.containsMouse ? activePalette.text : barPalette.text
+                    color: zoomContainer.hoveredBar ? K.Design.colors["accent-fill"] : containerArea.containsMouse ? K.Design.colors["ink"] : barPalette.text
                     opacity: zoomContainer.hoveredBar || containerArea.containsMouse ? 0.6 : 1
                     x: parent.x + zoomStart.width
                     height: parent.height
@@ -134,7 +135,7 @@ Rectangle {
                 id: startHandleRect
                 anchors.fill: parent.pressed ? undefined : parent
                 radius: height / 2
-                color: zoomStart.isActive ? activePalette.highlight : zoomContainer.hoveredBar || containerArea.containsMouse ? activePalette.text : barPalette.text
+                color: zoomStart.isActive ? K.Design.colors["accent-fill"] : zoomContainer.hoveredBar || containerArea.containsMouse ? K.Design.colors["ink"] : barPalette.text
                 Rectangle {
                     anchors.fill: parent
                     anchors.leftMargin: height / 2
@@ -169,7 +170,7 @@ Rectangle {
                 id: endHandleRect
                 anchors.fill: parent.pressed ? undefined : parent
                 radius: height / 2
-                color: zoomEnd.isActive ? activePalette.highlight : zoomContainer.hoveredBar || containerArea.containsMouse ? activePalette.text : barPalette.text
+                color: zoomEnd.isActive ? K.Design.colors["accent-fill"] : zoomContainer.hoveredBar || containerArea.containsMouse ? K.Design.colors["ink"] : barPalette.text
                 Rectangle {
                     anchors {
                         fill: parent
@@ -185,11 +186,11 @@ Rectangle {
         delay: 1000
         timeout: 5000
         background: Rectangle {
-            color: activePalette.alternateBase
-            border.color: activePalette.light
+            color: K.Design.colors["surface-panel"]
+            border.color: K.Design.colors["border-control"]
         }
         contentItem: Label {
-            color: activePalette.text
+            color: K.Design.colors["ink"]
             //font: fixedFont
             text: zoomContainer.toolTipText
         }

@@ -34,8 +34,8 @@ Rectangle {
     // Styling
     width: K.UiUtils.baseSizeMedium
     height: width
-    color: "#99ffffff"
-    border.color: "#ff0000"
+    color: K.Design.alpha("on-accent", 0.6)
+    border.color: K.Design.colors["danger"]
     visible: showHandle
     opacity: otherResizeHandleInUse ? 0 : isKeyframe ? 1 : 0.4
 
