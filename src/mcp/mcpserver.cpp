@@ -113,7 +113,7 @@ QString McpServer::clientConfiguration(McpClientFormat format) const
         return QString::fromUtf8(QJsonDocument(QJsonObject{{"mcpServers", QJsonObject{{"kdenlive", server}}}}).toJson(QJsonDocument::Indented));
     }
     case McpClientFormat::ClaudeCode:
-        return QStringLiteral("claude mcp add --transport http kdenlive %1").arg(url) +
+        return QStringLiteral("claude mcp add --scope user --transport http kdenlive %1").arg(url) +
                (authorization.isEmpty() ? QString() : QStringLiteral(" --header \"Authorization: %1\"").arg(authorization)) + QLatin1Char('\n');
     case McpClientFormat::Codex:
         return QStringLiteral("[mcp_servers.kdenlive]\nurl = \"%1\"\n").arg(url) +
