@@ -72,6 +72,24 @@ this is not an authenticated network service.
 
 Supported commands:
 
+- `import`: absolute local `path`. Returns `binId`; poll state until that bin
+  clip is ready. Reimporting the same canonical path returns the existing ID.
+- `remove_asset`: `binId`. Removes an unused asset from the bin with native
+  undo. Rejects assets used in any sequence and protects sequences themselves.
+  The original file stays on disk. Bin state exposes `inUse`.
+- `remove_clip`: `clipId`. Removes one ungrouped timeline clip without rippling.
+  Rejects locked tracks; retains the bin asset and source file. Native undo
+  restores its original position and effects.
+- `replace_media`: `binId` and `replacementBinId` of two ready bin clips.
+  Uses native Replace Clip, preserving timeline positions, ranges and effects
+  for every instance of the target. The replacement must have matching audio/video
+  streams and be at least as long as the original media. Import it first.
+- `save`: save the current project to its existing writable local file. All
+  bin clips must be ready. Saving does not add a history entry.
+- `audio_envelope`: audio `clipId`, `fadeIn` and `fadeOut` in project frames,
+  and `gainDb` from -60 to 0. Adds a native keyframed volume effect, rejecting
+  clips that already have one. Fades must not overlap. Undo removes the effect.
+- `rename_track`: `trackId` and `name`, using native undoable track renaming.
 - `insert`: the fields above, with `media` equal to `video` or `audio`.
 - `move`: `clipId`, `trackId`, `position`.
 - `trim`: `clipId`, `duration`, `edge` equal to `left` or `right`.
@@ -99,8 +117,8 @@ its old revision. Receipts are in memory; process restart, document replacement
 or active-sequence change invalidates the session. On a lost response, retry the
 identical request before deciding what happened.
 
-The first implementation exposes no batch, import, title, effect, rendering or
-save command. State covers active-sequence tracks/clips and the project bin, not
+The bridge exposes no batch, title, general effect-stack or rendering command.
+State covers active-sequence tracks/clips and the project bin, not
 the complete native document. It does not synchronize an offline project model.
 It rejects edits while a modal dialog or mouse drag is active. Native validation
 handles track locks, collisions and groups. Some trim requests may be constrained
