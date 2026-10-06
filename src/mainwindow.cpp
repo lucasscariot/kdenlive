@@ -157,6 +157,8 @@ MainWindow::MainWindow(QWidget *parent)
     flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
     flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
     flags |= KDDockWidgets::Config::Flag_TabsHaveCloseButton;
+    // Single panels get the same pill tab bar as tabbed groups instead of a different title bar
+    flags |= KDDockWidgets::Config::Flag_AlwaysShowTabs;
     flags |= KDDockWidgets::Config::Flag_TitleBarShowAutoHide;
 
     KDDockWidgets::Config::self().setFlags(flags);
