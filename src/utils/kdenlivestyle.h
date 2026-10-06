@@ -41,4 +41,6 @@ public:
     static void installIfFusion();
     /** @brief A new instance of the application style, for widgets that need their own style object */
     static QStyle *cloneApplicationStyle();
+    /** @brief True when the application uses this style, and with it the design fonts */
+    static bool isActive();
 };

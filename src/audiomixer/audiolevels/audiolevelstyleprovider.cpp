@@ -6,6 +6,7 @@
 #include "audiolevelstyleprovider.h"
 #include "audiolevelconfig.h"
 #include "audiomixer/iecscale.h"
+#include "utils/designtokens.h"
 #include <KColorScheme>
 #include <QFontDatabase>
 
@@ -18,12 +19,12 @@ AudioLevelStyleProvider &AudioLevelStyleProvider::instance()
 AudioLevelStyleProvider::LevelColors AudioLevelStyleProvider::getLevelsFillColors() const
 {
     LevelColors colors;
-    colors.darkGreen = QColor(0, 135, 60);
-    colors.green = QColor(20, 190, 20);
-    colors.yellow = QColor(248, 204, 27);
-    colors.orange = QColor(243, 115, 36);
-    colors.red = QColor(225, 39, 41);
-    colors.darkRed = QColor(200, 39, 41);
+    colors.darkGreen = DesignTokens::color(QStringLiteral("success-fill"));
+    colors.green = DesignTokens::color(QStringLiteral("success"));
+    colors.yellow = DesignTokens::color(QStringLiteral("warning")).lighter(130);
+    colors.orange = DesignTokens::color(QStringLiteral("warning"));
+    colors.red = DesignTokens::color(QStringLiteral("danger"));
+    colors.darkRed = DesignTokens::color(QStringLiteral("danger-fill"));
 
     return colors;
 }
@@ -62,7 +63,7 @@ QColor AudioLevelStyleProvider::getBorderColor(const QPalette &palette, bool isE
 
 QColor AudioLevelStyleProvider::getClippingColor() const
 {
-    return QColor(225, 39, 41); // Same as the red from LevelColors
+    return DesignTokens::color(QStringLiteral("danger")); // Same as the red from LevelColors
 }
 
 QColor AudioLevelStyleProvider::getPeakColor(const QPalette &palette, double peakValue) const

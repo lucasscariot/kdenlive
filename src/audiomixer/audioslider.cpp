@@ -4,7 +4,9 @@
 */
 
 #include "audioslider.hpp"
+#include "utils/designtokens.h"
 #include "utils/painterutils.h"
+#include "utils/uiutils.h"
 
 #include <QDebug>
 #include <QEvent>
@@ -43,7 +45,7 @@ AudioSlider::AudioSlider(Qt::Orientation orientation, QWidget *parent, bool narr
     setAttribute(Qt::WA_Hover, true);
     setMouseTracking(true);
 
-    QFont ft(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    QFont ft(UiUtils::smallFont());
     ft.setPointSizeF(ft.pointSize() * 0.6);
 
     setFont(ft);
@@ -340,11 +342,11 @@ void AudioSlider::drawNarrowKnob(QPainter &painter, const QRectF &knobRect, bool
 {
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
-    bool isDarkTheme = palette().color(QPalette::Window).lightness() < palette().color(QPalette::WindowText).lightness();
-    QColor mainColor = isEnabled() ? QColor(220, 220, 220) : (isDarkTheme ? QColor(130, 130, 130) : QColor(210, 210, 210));
-    QColor outlineColor = isEnabled() ? QColor(120, 120, 120) : (isDarkTheme ? QColor(100, 100, 100) : QColor(180, 180, 180));
-    QColor dividerColor = isEnabled() ? QColor(80, 80, 80) : QColor(80, 80, 80, 128);
-    QColor highlightColor = palette().highlight().color();
+    // Flat fader cap from the design tokens: ink body, control border, accent when highlighted
+    const QColor mainColor = DesignTokens::color(isEnabled() ? QStringLiteral("ink") : QStringLiteral("ink-tertiary"));
+    const QColor outlineColor = DesignTokens::color(QStringLiteral("border-control"));
+    const QColor dividerColor = DesignTokens::color(QStringLiteral("surface-viewer"));
+    const QColor highlightColor = DesignTokens::color(QStringLiteral("accent"));
     qreal penWidth = 1.0;
     QRectF drawingRect = PainterUtils::adjustedForPen(knobRect, penWidth);
     QPen borderPen(highlight ? highlightColor : outlineColor);
@@ -370,14 +372,15 @@ void AudioSlider::drawWideKnob(QPainter &painter, const QRectF &knobRect, bool h
     constexpr qreal kDividerHeight = 1.0;
     constexpr qreal kLowerPartHeight = 11.0;
     constexpr qreal kBottomPartHeight = 4.0;
-    bool isDarkTheme = palette().color(QPalette::Window).lightness() < palette().color(QPalette::WindowText).lightness();
-    const QColor topColor = isEnabled() ? QColor(230, 230, 230) : (isDarkTheme ? QColor(140, 140, 140) : QColor(220, 220, 220));
-    const QColor upperColor = isEnabled() ? QColor(200, 200, 200) : (isDarkTheme ? QColor(120, 120, 120) : QColor(200, 200, 200));
-    const QColor dividerColor = isEnabled() ? QColor(90, 90, 90) : QColor(90, 90, 90, 128);
-    const QColor lowerColor = isEnabled() ? QColor(220, 220, 220) : (isDarkTheme ? QColor(130, 130, 130) : QColor(210, 210, 210));
-    const QColor bottomColor = isEnabled() ? QColor(190, 190, 190) : (isDarkTheme ? QColor(110, 110, 110) : QColor(200, 200, 200));
-    const QColor borderColor = isEnabled() ? QColor(120, 120, 120) : (isDarkTheme ? QColor(100, 100, 100) : QColor(180, 180, 180));
-    const QColor highlightColor = palette().highlight().color();
+    // Same flat cap as the narrow knob, in design tokens
+    const QColor body = DesignTokens::color(isEnabled() ? QStringLiteral("ink") : QStringLiteral("ink-tertiary"));
+    const QColor topColor = body;
+    const QColor upperColor = body;
+    const QColor dividerColor = DesignTokens::color(QStringLiteral("surface-viewer"));
+    const QColor lowerColor = body;
+    const QColor bottomColor = body;
+    const QColor borderColor = DesignTokens::color(QStringLiteral("border-control"));
+    const QColor highlightColor = DesignTokens::color(QStringLiteral("accent"));
     const qreal middlePartPos = kTopPartHeight;
     const qreal dividerPos = middlePartPos + kUpperPartHeight;
     const qreal lowerPartPos = dividerPos + kDividerHeight;

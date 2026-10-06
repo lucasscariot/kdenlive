@@ -9,6 +9,7 @@
 #include "assets/assetlist/view/asseticonprovider.hpp"
 #include "kdenlivesettings.h"
 #include "mltconnection.h"
+#include "utils/uiutils.h"
 
 #include <KAboutData>
 #include <KMessageBox>
@@ -207,7 +208,7 @@ AssetListWidget::AssetListWidget(bool isEffect, QAction *includeList, QAction *t
     m_filterButton->setToolTip(i18n("Filter"));
     m_filterButton->setWhatsThis(xi18nc("@info:whatsthis", "Filter the assets list. Click on the filter icon to toggle the filter display. Click on "
                                                            "the arrow icon to open a list of possible filter settings."));
-    m_filterButton->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_filterButton->setFont(UiUtils::smallFont());
 
     // Menu
     QMenu *more = new QMenu(this);

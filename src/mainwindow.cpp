@@ -37,6 +37,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "layouts/layoutmanagement.h"
 #include "library/librarywidget.h"
 #include "render/renderserver.h"
+#include "utils/uiutils.h"
 
 #ifndef NODBUS
 #include <QDBusConnectionInterface>
@@ -71,6 +72,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "titler/titlewidget.h"
 #include "transitions/transitionlist/view/transitionlistwidget.hpp"
 #include "transitions/transitionsrepository.hpp"
+#include "utils/designpaint.h"
 #include "utils/kdenlivestyle.h"
 #include "widgets/panelbar.h"
 #include "widgets/progressbutton.h"
@@ -1103,7 +1105,7 @@ bool MainWindow::readOptions()
     }
 
     if (KdenliveSettings::trackheight() == 0) {
-        QFont ft = QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont);
+        QFont ft = UiUtils::smallFont();
         // One header row of controls is enough now that the track name shares it; the rest shows the clip name strip and thumbnails
         int trackHeight = qMax(44, qCeil(QFontInfo(ft).pixelSize() * 3.4));
         KdenliveSettings::setTrackheight(trackHeight);
@@ -3017,7 +3019,7 @@ void MainWindow::slotUpdateTimecodeFormat(int ix)
     m_clipMonitor->updateTimecodeFormat();
     m_projectMonitor->updateTimecodeFormat();
     Q_EMIT getCurrentTimeline()->controller()->frameFormatChanged();
-    m_timeFormatButton->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_timeFormatButton->setFont(UiUtils::fixedFont());
 }
 
 void MainWindow::applyToolMessageStyling()
@@ -3026,23 +3028,16 @@ void MainWindow::applyToolMessageStyling()
         return;
     }
 
-    KColorScheme scheme(QApplication::palette().currentColorGroup());
-
+    // Insert and overwrite modes change edits, so they read as a colored badge; normal mode stays plain
     switch (m_currentEditMode) {
     case TimelineMode::InsertEdit:
-        // Use a red color from the palette for insert mode
-        m_trimLabel->setStyleSheet(QStringLiteral("QLabel { padding-left: 2; padding-right: 2; background-color :%1; }")
-                                       .arg(scheme.foreground(KColorScheme::NegativeText).color().name()));
+        m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QStringLiteral("danger-fill"), QStringLiteral("on-accent")));
         break;
     case TimelineMode::OverwriteEdit:
-        // Use a green color from the palette for overwrite mode
-        m_trimLabel->setStyleSheet(QStringLiteral("QLabel { padding-left: 2; padding-right: 2; background-color :%1; }")
-                                       .arg(scheme.foreground(KColorScheme::PositiveText).color().name()));
+        m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QStringLiteral("success-fill"), QStringLiteral("on-accent")));
         break;
     default:
-        // Use normal window background color for normal edit mode
-        m_trimLabel->setStyleSheet(
-            QStringLiteral("QLabel { padding-left: 2; padding-right: 2; background-color :%1; }").arg(QApplication::palette().window().color().name()));
+        m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QString(), QStringLiteral("ink-secondary")));
         break;
     }
 }
@@ -3054,9 +3049,7 @@ void MainWindow::applyZoomLevelButtonStyling()
     }
 
     m_statusZoomLevelButton->setStyleSheet(
-        QStringLiteral("QPushButton { padding: 2px; background-color: rgba(255, 0, 0, 0.25); border: none; border-radius: 4px; } "
-                       "QPushButton:hover { border: 1px solid palette(highlight); } "
-                       "QPushButton:disabled { color: palette(text); background-color: transparent; }"));
+        DesignPaint::badgeStyleSheet(QStringLiteral("QPushButton"), QStringLiteral("accent-soft"), QStringLiteral("ink"), QStringLiteral("fill-pressed")));
 }
 
 void MainWindow::slotRemoveFocus()

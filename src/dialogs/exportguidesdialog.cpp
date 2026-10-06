@@ -5,6 +5,7 @@
 */
 
 #include "exportguidesdialog.h"
+#include "utils/uiutils.h"
 
 #include "bin/model/markerlistmodel.hpp"
 #include "core.h"
@@ -32,7 +33,7 @@ ExportGuidesDialog::ExportGuidesDialog(const MarkerListModel *model, const GenTi
     , m_markerListModel(model)
     , m_projectDuration(duration)
 {
-    //    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    //    setFont(UiUtils::smallFont());
     setupUi(this);
     setWindowTitle(i18n("Export markers"));
 

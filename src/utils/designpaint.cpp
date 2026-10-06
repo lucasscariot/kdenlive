@@ -91,6 +91,22 @@ QColor wash(bool hovered, bool pressed)
     return hovered ? DesignTokens::color(QStringLiteral("fill-hover")) : QColor(Qt::transparent);
 }
 
+QString badgeStyleSheet(const QString &selector, const QString &fillToken, const QString &textToken, const QString &hoverFillToken)
+{
+    const auto css = [](const QString &token) { return token.isEmpty() ? QStringLiteral("transparent") : DesignTokens::color(token).name(QColor::HexArgb); };
+    QString sheet = QStringLiteral("%1 { padding: %2px %3px; border: none; border-radius: %4px; background-color: %5; color: %6; }")
+                        .arg(selector)
+                        .arg(DesignTokens::space(1))
+                        .arg(DesignTokens::space(2))
+                        .arg(DesignTokens::radius(QStringLiteral("radius-sm")))
+                        .arg(css(fillToken), css(textToken));
+    if (!hoverFillToken.isEmpty()) {
+        sheet += QStringLiteral(" %1:hover { background-color: %2; }").arg(selector, css(hoverFillToken));
+    }
+    sheet += QStringLiteral(" %1:disabled { background-color: transparent; color: %2; }").arg(selector, css(QStringLiteral("ink-tertiary")));
+    return sheet;
+}
+
 void setBackground(QWidget *widget, const QString &colorToken)
 {
     QPalette palette = widget->palette();

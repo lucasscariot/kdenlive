@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "transcodeseek.h"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/uiutils.h"
 
 #include <KLocalizedString>
 #include <KMessageBox>
@@ -19,7 +20,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 TranscodeSeek::TranscodeSeek(bool onUserRequest, bool forceReplace, QWidget *parent)
     : QDialog(parent)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     if (onUserRequest) {
         label->setVisible(false);

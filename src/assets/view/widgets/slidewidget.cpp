@@ -5,6 +5,7 @@
 
 #include "slidewidget.hpp"
 #include "assets/model/assetparametermodel.hpp"
+#include "utils/designtokens.h"
 
 SlideWidget::SlideWidget(std::shared_ptr<AssetParameterModel> model, QModelIndex index, QWidget *parent)
     : AbstractParamWidget(std::move(model), index, parent)
@@ -35,8 +36,8 @@ void SlideWidget::slotShowComment(bool) {}
 void SlideWidget::slotRefresh()
 {
     QString value = m_model->data(m_index, AssetParameterModel::ValueRole).toString();
-    QColor bg = QPalette().highlight().color();
-    setStyleSheet(QStringLiteral("QPushButton:checked {background-color:rgb(%1,%2,%3);}").arg(bg.red()).arg(bg.green()).arg(bg.blue()));
+    setStyleSheet(QStringLiteral("QPushButton:checked { background-color: %1; color: %2; }")
+                      .arg(DesignTokens::color(QStringLiteral("accent-fill")).name(), DesignTokens::color(QStringLiteral("on-accent")).name()));
     wipeInfo w = getWipeInfo(value);
     switch (w.start) {
     case UP:

@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "markerdialog.h"
+#include "utils/uiutils.h"
 
 #include "bin/model/markerlistmodel.hpp"
 #include "bin/projectclip.h"
@@ -25,7 +26,7 @@ MarkerDialog::MarkerDialog(ProjectClip *clip, const CommentedTime &t, const QStr
     : QDialog(parent)
     , m_clip(clip)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     setWindowTitle(caption);
 

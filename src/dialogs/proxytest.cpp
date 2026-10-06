@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "proxytest.h"
+#include "utils/uiutils.h"
 
 #include "core.h"
 #include "doc/kdenlivedoc.h"
@@ -26,7 +27,7 @@ ProxyTest::ProxyTest(QWidget *parent)
     : QDialog(parent)
     , m_closing(false)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setupUi(this);
     setWindowTitle(i18nc("@title:window", "Compare Proxy Profile"));
     buttonBox->button(QDialogButtonBox::Apply)->setText(i18n("Test Proxy Profiles"));

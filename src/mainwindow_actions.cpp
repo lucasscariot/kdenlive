@@ -14,6 +14,8 @@
 #include "timeline2/view/timelinecontroller.h"
 #include "timeline2/view/timelinewidget.h"
 #include "transitions/transitionsrepository.hpp"
+#include "utils/designpaint.h"
+#include "utils/uiutils.h"
 
 #include <KActionCollection>
 #include <KActionMenu>
@@ -273,7 +275,7 @@ void MainWindow::setupActions()
               m_audioZoomCycle); // kept action name zoom_audio_thumbs for backwards compatibility before in/out/reset were introduced
 
     m_timeFormatButton = new KSelectAction(QStringLiteral("00:00:00:00 / 00:00:00:00"), this);
-    m_timeFormatButton->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_timeFormatButton->setFont(UiUtils::fixedFont());
     m_timeFormatButton->addAction(i18n("hh:mm:ss:ff"));
     m_timeFormatButton->addAction(i18n("Frames"));
     if (KdenliveSettings::frametimecode()) {
@@ -533,14 +535,14 @@ void MainWindow::setupActions()
 
     if (KdenliveSettings::gpu_accel()) {
         QLabel *warnLabel = new QLabel(i18n("Experimental GPU processing enabled - not for production"), this);
-        warnLabel->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+        warnLabel->setFont(UiUtils::smallFont());
         warnLabel->setAlignment(Qt::AlignHCenter);
-        warnLabel->setStyleSheet(QStringLiteral("QLabel { background-color :red; color:black;padding-left:2px;padding-right:2px}"));
+        warnLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QStringLiteral("danger-fill"), QStringLiteral("on-accent")));
         toolbar->addWidget(warnLabel);
     }
 
     m_trimLabel = new QLabel(QString(), this);
-    m_trimLabel->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_trimLabel->setFont(UiUtils::smallFont());
     m_trimLabel->setAlignment(Qt::AlignHCenter);
     m_trimLabel->setMinimumWidth(m_trimLabel->fontMetrics().boundingRect(i18n("Multicam")).width() + 8);
     m_trimLabel->setToolTip(i18n("Active tool and editing mode"));

@@ -11,6 +11,7 @@
 #include "statusbarmessagelabel.h"
 #include "core.h"
 #include "mainwindow.h"
+#include "utils/uiutils.h"
 
 #include <KColorScheme>
 #include <KIconLoader>
@@ -70,13 +71,13 @@ StatusBarMessageLabel::StatusBarMessageLabel(QWidget *parent)
     m_pixmap->setAlignment(Qt::AlignCenter);
     m_selectionLabel = new QLabel(this);
     m_selectionLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_selectionLabel->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_selectionLabel->setFont(UiUtils::smallFont());
     m_label = new QLabel(this);
     m_label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_label->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_label->setFont(UiUtils::smallFont());
     m_keyMap = new QLabel(this);
     m_keyMap->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_keyMap->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    m_keyMap->setFont(UiUtils::smallFont());
     m_progress = new QProgressBar(this);
     m_progress->setFormat(i18nc("%p is the percent value, % is the percent sign", "%p%"));
     lay2->addWidget(m_selectionLabel);

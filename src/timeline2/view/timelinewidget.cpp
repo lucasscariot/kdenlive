@@ -7,6 +7,7 @@
 #include <KLocalizedQmlContext>
 
 #include "../model/builders/meltBuilder.hpp"
+#include "utils/uiutils.h"
 
 // Required to pass the c++ classes to qml
 #include "bin/bin.h"
@@ -45,7 +46,7 @@ TimelineWidget::TimelineWidget(const QUuid uuid, QWidget *parent)
     m_sortModel = std::make_unique<QSortFilterProxyModel>(this);
     setResizeMode(QQuickWidget::SizeRootObjectToView);
     setVisible(false);
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     setFocusPolicy(Qt::StrongFocus);
     m_favEffects = new QMenu(i18n("Insert an effect..."), this);
     m_favCompositions = new QMenu(i18n("Insert a composition..."), this);

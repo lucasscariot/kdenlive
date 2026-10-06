@@ -147,6 +147,11 @@ void KdenliveStyle::installIfFusion()
     QApplication::setFont(DesignTokens::font(QStringLiteral("text-body")));
 }
 
+bool KdenliveStyle::isActive()
+{
+    return qobject_cast<KdenliveStyle *>(QApplication::style()) != nullptr;
+}
+
 QStyle *KdenliveStyle::cloneApplicationStyle()
 {
     if (qobject_cast<KdenliveStyle *>(QApplication::style())) {

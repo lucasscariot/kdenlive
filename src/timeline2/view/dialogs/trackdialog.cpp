@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "trackdialog.h"
+#include "utils/uiutils.h"
 
 #include "kdenlivesettings.h"
 
@@ -22,7 +23,7 @@ TrackDialog::TrackDialog(std::shared_ptr<TimelineItemModel> model, int trackInde
     , m_activeTrack(activeTrackId)
 {
     setWindowTitle(deleteMode ? i18n("Delete Track(s)") : i18n("Add Track"));
-    // setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    // setFont(UiUtils::smallFont());
     setupUi(this);
     if (m_trackIndex > -1 && m_model->isAudioTrack(m_trackIndex)) {
         audio_track->setChecked(true);

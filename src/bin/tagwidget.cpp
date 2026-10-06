@@ -8,6 +8,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "tagwidget.hpp"
 #include "core.h"
 #include "mainwindow.h"
+#include "utils/uiutils.h"
 
 #include <KActionCollection>
 #include <KColorCombo>
@@ -108,7 +109,7 @@ const QString &DragButton::description() const
 TagWidget::TagWidget(QWidget *parent)
     : QWidget(parent)
 {
-    setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    setFont(UiUtils::smallFont());
     auto *lay = new QHBoxLayout;
     lay->setContentsMargins(0, 0, 0, 0);
     lay->addStretch(10);

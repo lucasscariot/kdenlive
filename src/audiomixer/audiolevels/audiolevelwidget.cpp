@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 #include "audiolevelwidget.hpp"
 #include "core.h"
+#include "utils/uiutils.h"
 
 #include <KColorScheme>
 #include <KLocalizedString>
@@ -56,7 +57,7 @@ AudioLevelWidget::AudioLevelWidget(QWidget *parent, Qt::Orientation orientation,
 {
     // dbscale = {0, -6, -12, -18, -24, -30, -36, -42, -48, -54};
     m_maxDb = 0;
-    QFont ft(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
+    QFont ft(UiUtils::smallFont());
     ft.setPointSizeF(ft.pointSize() * 0.6);
     setFont(ft);
     setupContextMenu();

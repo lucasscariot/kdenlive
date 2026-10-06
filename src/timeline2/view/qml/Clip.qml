@@ -25,6 +25,10 @@ Rectangle {
         id: fontMetrics
         font: K.UiUtils.fixedFont
     }
+    FontMetrics {
+        id: labelMetrics
+        font: K.UiUtils.smallestReadableFont
+    }
 
     required property K.TimelineController timeline
     required property K.TimelineItemModel controller
@@ -114,7 +118,9 @@ Rectangle {
     opacity: clipDragInProgress ? 0.8 : 1.0
     radius: 4
     // Colored name strip across the top, like a lane header for the clip
-    readonly property bool showNameStrip: !hideDecorations && height > 2.4 * labelRect.height
+    // Fixed from the label font so the strip and the label padding do not depend on each other
+    readonly property int nameStripHeight: Math.ceil(labelMetrics.height) + 2
+    readonly property bool showNameStrip: !hideDecorations && height > 2.4 * nameStripHeight
     readonly property color stripColor: selected ? Qt.tint(getColor(), Qt.rgba(timeline.selectionColor.r, timeline.selectionColor.g, timeline.selectionColor.b, 0.55))
                                                  : getColor()
 
@@ -489,7 +495,7 @@ Rectangle {
             anchors.fill: parent
             anchors.leftMargin: clipRoot.parentTrack.isAudio ? clipRoot.xIntegerOffset : itemBorder.border.width + mixContainer.width
             anchors.rightMargin: clipRoot.parentTrack.isAudio ? clipRoot.width - Math.floor(clipRoot.width) : itemBorder.border.width + clipRoot.mixEndDuration * clipRoot.timeScale
-            anchors.topMargin: itemBorder.border.width + (clipRoot.showNameStrip ? labelRect.height : 0)
+            anchors.topMargin: itemBorder.border.width + (clipRoot.showNameStrip ? clipRoot.nameStripHeight : 0)
             anchors.bottomMargin: itemBorder.border.width
 
             //clip: true
@@ -1388,7 +1394,7 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: labelRect.height
+                height: clipRoot.nameStripHeight
                 color: clipRoot.stripColor
                 topLeftRadius: clipRoot.radius - 1
                 topRightRadius: clipRoot.radius - 1

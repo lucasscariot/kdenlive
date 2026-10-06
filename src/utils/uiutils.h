@@ -30,6 +30,10 @@ public:
     [[nodiscard]] qreal getBaseSizeMedium();
 
 public: // STATIC
+    /** @brief The small font for secondary text: the design's text-caption style, else the system's smallest readable font */
+    static QFont smallFont();
+    /** @brief The monospace font for timecode and numbers: the design's text-timecode style, else the system fixed font */
+    static QFont fixedFont();
     /** @returns a rotated version of the icon associated with @param iconName.
      *  It will be of size @param iconSize and @param rotation.
      */

@@ -36,6 +36,11 @@ void headerStrip(QPainter *painter, const QRect &rect);
 /** @brief Wash under a transparent control: none, hover or pressed */
 QColor wash(bool hovered, bool pressed);
 
+/** @brief A Qt style sheet for a small badge (labels and flat buttons) in design tokens:
+    @p fillToken behind @p textToken, radius-sm corners and space-1 / space-2 padding.
+    @p selector is the widget class, for example "QLabel" or "QPushButton". An empty fill means transparent. */
+QString badgeStyleSheet(const QString &selector, const QString &fillToken, const QString &textToken, const QString &hoverFillToken = QString());
+
 /** @brief Make @p widget paint its background with a color token instead of the palette */
 void setBackground(QWidget *widget, const QString &colorToken);
 
