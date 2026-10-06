@@ -3,6 +3,7 @@
     SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 #include "mcpserver.h"
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
@@ -136,6 +137,21 @@ private Q_SLOTS:
         QCOMPARE(send("{}").status, 401);
         server->configure(false, port, {});
         QCOMPARE(server->status(), QString("Disabled"));
+        QVERIFY(server->clientConfiguration().isEmpty());
+    }
+    void folderPickerFileUrl()
+    {
+        const QString media = directory.filePath("media folder");
+        QVERIFY(QDir().mkpath(media));
+        server->configure(true, port, media);
+        const auto session = initialize();
+        QVERIFY(!session.isEmpty());
+        server->configure(true, port, QUrl::fromLocalFile(media).toString(QUrl::FullyEncoded));
+        QVERIFY(server->status().startsWith("Listening"));
+        // Applying the equivalent folder-picker URL must preserve the live connection.
+        QCOMPARE(send(R"({"jsonrpc":"2.0","id":2,"method":"ping"})", session).status, 200);
+        server->configure(true, port, QStringLiteral("https://example.com/media"));
+        QVERIFY(server->status().startsWith("The additional media folder"));
         QVERIFY(server->clientConfiguration().isEmpty());
     }
 };

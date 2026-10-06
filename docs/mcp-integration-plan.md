@@ -73,10 +73,14 @@ Sources: [MCP transport](https://modelcontextprotocol.io/specification/2025-11-2
 - Protocol tests passed with Kdenlive's strict Qt definitions: authentication,
   browser-origin rejection, lifecycle, malformed/oversized requests, port
   conflicts and changes, token rotation, disabling, and session invalidation.
-- The MCP SDK connected directly to the native editor and made 56 tool calls.
+- The MCP SDK connected directly to the native editor and made 60 tool calls.
   The test inserted, moved, trimmed and removed clips; imported, removed and
   replaced media; checked native Undo/Redo, fades, track naming, retry receipts,
   stale revisions, source-file retention, path/symlink rejection, and save/reopen.
+- Applying the folder picker exposed a `file:` URL/path mismatch. The listener
+  now normalizes local file URLs before configuration comparison and validation.
+  A regression test preserves the session when the same folder is reapplied as
+  a URL; the SDK acceptance also imports from a URL-configured folder with spaces.
 - The acceptance editor had the legacy D-Bus editing bridge disabled. The Linux
   application build itself still uses the ordinary desktop session bus.
 - Feature-off and API-on/D-Bus-off CMake configurations passed. These alternative
