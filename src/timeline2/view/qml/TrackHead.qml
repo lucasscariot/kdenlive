@@ -361,7 +361,8 @@ Rectangle {
             color: activePalette.text
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignLeft
-            visible: !trackLabel.visible && trackHeadRoot.width > (trackTarget.width + expandButton.width + trackLed.width + (4 * muteButton.width) + 4)
+            // The editable name below now shares this row, keep this one for debugging layouts only
+            visible: false
         }
         Row {
             id: buttonsRow
@@ -470,12 +471,12 @@ Rectangle {
             }
         }
         Item {
+            // Track name on the first row, between the track tag and the buttons, when there is room for it
             id: nameEditContainer
-            anchors.bottom: trackHeadColumn.bottom
-            anchors.left: trackHeadColumn.left
-            anchors.right: trackHeadColumn.right
-            anchors.margins: 2
-            anchors.rightMargin: 2
+            readonly property bool onTopRow: buttonsRow.x - (trackLed.x + trackLed.width) > 3 * K.UiUtils.baseSizeMedium
+            x: onTopRow ? trackLed.x + trackLed.width + 4 : 2
+            width: onTopRow ? buttonsRow.x - x - 2 : trackHeadColumn.width - 4
+            y: onTopRow ? Math.round((trackLed.height + 2 - height) / 2) : trackHeadColumn.height - height - 2
             height: nameEdit.height
             Rectangle {
                 id: trackLabel
@@ -483,7 +484,7 @@ Rectangle {
                 radius: 2
                 anchors.fill: parent
                 border.color: trackNameMouseArea.containsMouse ? activePalette.highlight : 'transparent'
-                visible: (trackHeadRoot.height >= trackLabel.height + muteButton.height + resizer.height + recLayout.height)
+                visible: nameEditContainer.onTopRow || (trackHeadRoot.height >= trackLabel.height + muteButton.height + resizer.height + recLayout.height)
                 MouseArea {
                     id: trackNameMouseArea
                     anchors.fill: parent
@@ -502,9 +503,11 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 4
+                    width: parent.width - 8
                     elide: Qt.ElideRight
                     font: K.UiUtils.smallestReadableFont
                     color: activePalette.text
+                    opacity: trackHeadRoot.isDisabled ? 0.5 : 0.9
                 }
                 Label {
                     id: placeHolder

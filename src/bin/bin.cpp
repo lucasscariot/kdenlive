@@ -356,7 +356,7 @@ public:
         }
         r1.adjust(decoWidth, 0, 0, -mid);
         QFont ft = option.font;
-        ft.setBold(true);
+        ft.setWeight(QFont::DemiBold);
         QFontMetricsF fm(ft);
         QRect r2 = fm.boundingRect(r1, Qt::AlignLeft | Qt::AlignTop, index.data(AbstractProjectItem::DataName).toString()).toRect();
         editor->setGeometry(r2);
@@ -368,7 +368,7 @@ public:
         QString text = index.data(AbstractProjectItem::DataName).toString();
         QRectF r = option.rect;
         QFont ft = option.font;
-        ft.setBold(true);
+        ft.setWeight(QFont::DemiBold);
         QFontMetricsF fm(ft);
         QStyle *style = option.widget ? option.widget->style() : QApplication::style();
         const int textMargin = style->pixelMetric(QStyle::PM_FocusFrameHMargin) + 1;
@@ -415,7 +415,7 @@ public:
             }
             QRect r = r1;
             QFont font = painter->font();
-            font.setBold(true);
+            font.setWeight(QFont::DemiBold);
             painter->setFont(font);
             if (type == AbstractProjectItem::ClipItem || type == AbstractProjectItem::SubClipItem || type == AbstractProjectItem::SubSequenceItem) {
                 int decoWidth = 0;
@@ -473,7 +473,7 @@ public:
                 r2.adjust(decoWidth, mid, 0, 0);
                 QRectF bounding;
                 painter->drawText(r1, Qt::AlignLeft | Qt::AlignTop, index.data(AbstractProjectItem::DataName).toString(), &bounding);
-                font.setBold(false);
+                font.setWeight(QFont::Normal);
                 painter->setFont(font);
                 QString subText = index.data(AbstractProjectItem::DataDuration).toString();
                 QString tags = index.data(AbstractProjectItem::DataTag).toString();
@@ -494,7 +494,7 @@ public:
                     QColor subTextColor = painter->pen().color();
                     bool selected = opt.state & QStyle::State_Selected;
                     if (!selected) {
-                        subTextColor.setAlphaF(.7);
+                        subTextColor.setAlphaF(.6);
                     }
                     painter->setPen(subTextColor);
                     // Draw usage counter

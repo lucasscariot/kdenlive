@@ -320,6 +320,8 @@ RenderWidget::RenderWidget(bool enableProxy, QWidget *parent)
     m_view.buttonSaveAs->setIconSize(iconSize);
     m_view.m_knsbutton->setIconSize(iconSize);
 
+    // Drawn as the primary action by the Kdenlive style, without making Enter start a render
+    m_view.buttonRender->setProperty("_kdenlive_primary", true);
     m_view.buttonRender->setEnabled(false);
     m_view.buttonGenerateScript->setEnabled(false);
 

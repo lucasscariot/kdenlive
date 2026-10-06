@@ -8,7 +8,7 @@ set(kdenlive_SRCS
   utils/devices.cpp
   utils/flowlayout.cpp
   utils/gentime.cpp
-  utils/legiblestyle.cpp
+  utils/kdenlivestyle.cpp
   utils/qcolorutils.cpp
   utils/thumbnailcache.cpp
   utils/timecode.cpp

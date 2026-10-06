@@ -526,7 +526,8 @@ function getTrackColor(audio, header) {
     readonly property bool autoTrackHeight: root.timeline.autotrackHeight
     readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.2)
     readonly property color frameColor: Qt.rgba(activePalette.shadow.r, activePalette.shadow.g, activePalette.shadow.b, 0.5)
-    property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth())
+    // Wide enough by default for the track name to share the first row with its tag and buttons
+    property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)
     property bool blockAutoScroll: false
     property int duration: root.timeline.duration
     property color audioColor: root.timeline.audioColor

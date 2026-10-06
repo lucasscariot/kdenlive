@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!DOCTYPE kpartgui SYSTEM "kpartgui.dtd">
-<kpartgui name="kdenlive" version="254" translationDomain="kdenlive">
+<kpartgui name="kdenlive" version="256" translationDomain="kdenlive">
   <MenuBar>
     <Menu name="file">
       <Action name="file_new"/>
@@ -352,7 +352,7 @@
       <Action name="copy_debuginfo"/>
     </Menu>
   </MenuBar>
-  <ToolBar name="mainToolBar" noMerge="1" iconText="icononly">
+  <ToolBar name="mainToolBar" noMerge="1" iconText="icononly" hidden="true">
     <text>Main Toolbar</text>
     <Action name="file_new"/>
     <Action name="file_open"/>
@@ -387,10 +387,6 @@
     <Separator/>
     <Action name="audiomixer_button"/>
     <Action name="subtitle_tool"/>
-  </ToolBar>
-  <ToolBar name="extraToolBar">
-    <text>Extra Toolbar</text>
-    <Action name="project_render_button"/>
   </ToolBar>
   <!-- keep this for compatibility with Kdenlive < 25.08.3 -->
   <Menu name="marker_menu" />

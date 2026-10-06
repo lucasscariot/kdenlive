@@ -71,7 +71,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "titler/titlewidget.h"
 #include "transitions/transitionlist/view/transitionlistwidget.hpp"
 #include "transitions/transitionsrepository.hpp"
-#include "utils/legiblestyle.h"
+#include "utils/kdenlivestyle.h"
 #include "widgets/progressbutton.h"
 #include <config-kdenlive.h>
 
@@ -588,6 +588,16 @@ void MainWindow::init()
     // Since not all widgets are added yet, don't use the Save flag now
     setupGUI(KXmlGuiWindow::ToolBar | KXmlGuiWindow::StatusBar | KXmlGuiWindow::Create);
 
+    // Render sits next to the workspace switcher so the menu bar is the only top bar,
+    // unless the user placed the render button in a toolbar
+    if (QWidget *corner = menuBar()->cornerWidget(Qt::TopRightCorner); corner && timelineRender->parentWidget() == nullptr) {
+        if (auto *cornerLayout = qobject_cast<QHBoxLayout *>(corner->layout())) {
+            cornerLayout->addSpacing(8);
+            cornerLayout->addWidget(timelineRender);
+            timelineRender->show();
+        }
+    }
+
     // Remove secondary cut shortcut conflicting with extract action
     QAction *officialCut = actionCollection()->action(KStandardAction::name(KStandardAction::Cut));
     QList<QKeySequence> cutShortcuts = officialCut->shortcuts();
@@ -712,6 +722,15 @@ void MainWindow::init()
     // after the QMenuBar has been initialised
     m_hamburgerMenu->setMenuBar(menuBar());
     m_hamburgerMenu->setShowMenuBarAction(showMenuBarAction);
+    // The main toolbar is hidden by default; it hosts the hamburger menu once the menu bar is gone
+    connect(showMenuBarAction, &QAction::toggled, this, [this](bool menuBarShown) {
+        if (!menuBarShown) {
+            toolBar()->show();
+        }
+    });
+    if (menuBar()->isHidden()) {
+        toolBar()->show();
+    }
 
     // Detect shortcut conflicts bewtween mainwindow and media browser
     pCore->mediaBrowser()->detectShortcutConflicts();
@@ -3755,7 +3774,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *event)
         for (KDDockWidgets::Core::Group *group : KDDockWidgets::DockRegistry::self()->groups()) {
             auto tab_bar = static_cast<KDDockWidgets::QtWidgets::TabBar *>(group->tabBar()->view());
             if (QProxyStyle *style = qobject_cast<QProxyStyle *>(tab_bar->style())) {
-                style->setBaseStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
+                style->setBaseStyle(KdenliveStyle::cloneApplicationStyle());
                 tab_bar->setPalette(qApp->palette());
             }
         }

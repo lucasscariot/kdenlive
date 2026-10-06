@@ -102,9 +102,9 @@ QSize ProgressButton::sizeHint() const
         // The toolbar may size us as icon only, but the primary look shows the bold label
         QFont bold = font();
         bold.setBold(true);
-        const int labelWidth = QFontMetrics(bold).horizontalAdvance(text()) + style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) +
-                               4 * style()->pixelMetric(QStyle::PM_ButtonMargin, nullptr, this);
+        const int labelWidth = QFontMetrics(bold).horizontalAdvance(text()) + style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) + 36;
         size.setWidth(qMax(size.width(), labelWidth));
+        size.setHeight(qMax(size.height(), QFontMetrics(bold).height() + 14));
     }
     return size;
 }
@@ -131,7 +131,7 @@ void ProgressButton::paintEvent(QPaintEvent *event)
         painter.setRenderHint(QPainter::Antialiasing, true);
         painter.setPen(Qt::NoPen);
         painter.setBrush(bg);
-        painter.drawRoundedRect(QRectF(rect()).adjusted(1, 3, -1, -3), 4, 4);
+        painter.drawRoundedRect(QRectF(rect()).adjusted(2, 3, -2, -3), 4, 4);
         // Let the style draw label and menu arrow only, on top of our background
         opt.state &= ~(QStyle::State_MouseOver | QStyle::State_Sunken | QStyle::State_On | QStyle::State_Raised);
         opt.state |= QStyle::State_AutoRaise;

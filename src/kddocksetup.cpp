@@ -7,7 +7,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "kddocksetup.h"
 #include "core.h"
 #include "kdenlivesettings.h"
-#include "utils/legiblestyle.h"
+#include "utils/kdenlivestyle.h"
 
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -82,7 +82,7 @@ private:
     std::function<bool(const QMimeData*)> m_mimeHandler;
 };
 
-/** @brief Flat dock tabs: dimmed inactive labels, subtle hover, accent underline on the current tab */
+/** @brief Disables animations on dock tab bars; drawing comes from the application style */
 class DockTabStyle : public QProxyStyle
 {
 public:
@@ -96,57 +96,15 @@ public:
         }
         return QProxyStyle::styleHint(hint, option, widget, returnData);
     }
-
-    QSize sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &size, const QWidget *widget) const override
-    {
-        QSize s = QProxyStyle::sizeFromContents(type, option, size, widget);
-        if (type == CT_TabBarTab) {
-            s.rwidth() += 8;
-        }
-        return s;
-    }
-
-    void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override
-    {
-        if (element == PE_FrameTabBarBase) {
-            return;
-        }
-        QProxyStyle::drawPrimitive(element, option, painter, widget);
-    }
-
-    void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override
-    {
-        const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option);
-        if (!tab) {
-            QProxyStyle::drawControl(element, option, painter, widget);
-            return;
-        }
-        const bool selected = tab->state & State_Selected;
-        if (element == CE_TabBarTabShape) {
-            const QRect r = tab->rect;
-            if (selected) {
-                painter->fillRect(r, tab->palette.base());
-                const bool atBottom = tab->shape == QTabBar::RoundedSouth || tab->shape == QTabBar::TriangularSouth;
-                const QRect line = atBottom ? QRect(r.left(), r.top(), r.width(), 2) : QRect(r.left(), r.bottom() - 1, r.width(), 2);
-                painter->fillRect(line, tab->palette.highlight());
-            } else if (tab->state & State_MouseOver) {
-                QColor hover = tab->palette.windowText().color();
-                hover.setAlpha(20);
-                painter->fillRect(r, hover);
-            }
-            return;
-        }
-        if (element == CE_TabBarTabLabel && !selected) {
-            QStyleOptionTab dimmed(*tab);
-            QColor text = tab->palette.windowText().color();
-            text.setAlphaF(0.6);
-            dimmed.palette.setColor(QPalette::WindowText, text);
-            QProxyStyle::drawControl(element, &dimmed, painter, widget);
-            return;
-        }
-        QProxyStyle::drawControl(element, option, painter, widget);
-    }
 };
+
+/** @brief Fill the panel header strip behind tabs and title bars */
+static void paintHeaderStrip(QWidget *widget, const QRect &rect)
+{
+    QPainter p(widget);
+    p.fillRect(rect, KdenliveStyle::headerColor(widget->palette()));
+    p.fillRect(QRect(rect.left(), rect.bottom(), rect.width(), 1), KdenliveStyle::overlay(widget->palette(), 0.1));
+}
 
 class KdenliveDockTabBar : public KDDockWidgets::QtWidgets::TabBar
 {
@@ -163,12 +121,13 @@ public:
         // that ends up taking ownership of the style for the entire application!
         if (QProxyStyle *proxy_style = qobject_cast<QProxyStyle *>(style())) {
             proxy_style->baseStyle()->setParent(qApp);
-            proxy_style->setBaseStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
+            proxy_style->setBaseStyle(KdenliveStyle::cloneApplicationStyle());
         }
-        auto *tabStyle = new DockTabStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
+        auto *tabStyle = new DockTabStyle(KdenliveStyle::cloneApplicationStyle());
         tabStyle->setParent(this);
         setStyle(tabStyle);
         setPalette(qApp->palette());
+        setFont(KdenliveStyle::chromeFont(qApp->font()));
 
         connect(this, &QWidget::customContextMenuRequested, []() { Q_EMIT pCore.get()->switchTitleBars(); });
         connect(this, &KDDockWidgets::QtWidgets::TabBar::countChanged, [&]() {
@@ -193,6 +152,13 @@ public:
             }
         });
     }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        paintHeaderStrip(this, rect());
+        KDDockWidgets::QtWidgets::TabBar::paintEvent(event);
+    }
 };
 
 class KdenliveDockGroup : public KDDockWidgets::QtWidgets::Group
@@ -200,9 +166,24 @@ class KdenliveDockGroup : public KDDockWidgets::QtWidgets::Group
 public:
     explicit KdenliveDockGroup(KDDockWidgets::Core::Group *controller, KDDockWidgets::Core::View *parent = nullptr)
         : KDDockWidgets::QtWidgets::Group(controller, KDDockWidgets::QtCommon::View_qt::asQWidget(parent))
+        , m_controller(controller)
     {
     }
-    void paintEvent(QPaintEvent *) override {}
+    void paintEvent(QPaintEvent *) override
+    {
+        // The tab bar may be narrower than the panel, extend its header strip to the full width
+        if (!m_controller->tabBar() || !m_controller->tabBar()->view()) {
+            return;
+        }
+        QWidget *tabBar = KDDockWidgets::QtCommon::View_qt::asQWidget(m_controller->tabBar()->view());
+        if (tabBar && tabBar->isVisible()) {
+            const QRect bar(tabBar->mapTo(this, QPoint(0, 0)), tabBar->size());
+            paintHeaderStrip(this, QRect(0, bar.top(), width(), bar.height()));
+        }
+    }
+
+private:
+    KDDockWidgets::Core::Group *const m_controller;
 };
 
 class KdenliveDockStack : public KDDockWidgets::QtWidgets::Stack
@@ -246,6 +227,26 @@ public:
         });
     }
 
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        paintHeaderStrip(this, rect());
+        QPainter p(this);
+        QFont font = KdenliveStyle::chromeFont(qApp->font());
+        font.setWeight(QFont::DemiBold);
+        p.setFont(font);
+        p.setPen(KdenliveStyle::overlay(palette(), 0.85));
+        // Leave room for the buttons laid out on the right
+        int right = width();
+        for (QWidget *child : findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+            if (child->isVisible() && child->x() > width() / 2) {
+                right = qMin(right, child->x());
+            }
+        }
+        const QRect textRect(10, 0, right - 14, height());
+        p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, p.fontMetrics().elidedText(m_controller->title(), Qt::ElideRight, textRect.width()));
+    }
+
 private:
     KDDockWidgets::Core::TitleBar *const m_controller;
 };
@@ -278,24 +279,15 @@ public:
     void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
-        QColor separatorColor = hovered ? palette().highlight().color() : palette().midlight().color();
-        if (hovered) {
-            separatorColor.setAlpha(128);
-        }
-        QPen pen(separatorColor);
-        pen.setWidth(2);
+        p.fillRect(QWidget::rect(), palette().window());
+        // A hairline at rest, an accent bar while hovered so the drag target is obvious
+        const QColor color = hovered ? palette().highlight().color() : KdenliveStyle::overlay(palette(), 0.1);
+        const int thickness = hovered ? 2 : 1;
+        const QRect r = QWidget::rect();
         if (m_controller->isVertical()) {
-            // Vertical rect
-            p.fillRect(QWidget::rect(), palette().window());
-            p.setPen(pen);
-            p.drawLine(QWidget::rect().x(), QWidget::rect().y() + QWidget::rect().height() / 2, QWidget::rect().right(),
-                       QWidget::rect().y() + QWidget::rect().height() / 2);
+            p.fillRect(QRect(r.x(), r.y() + (r.height() - thickness) / 2, r.width(), thickness), color);
         } else {
-            // Horizontal rect
-            p.fillRect(QWidget::rect(), palette().window());
-            p.setPen(pen);
-            p.drawLine(QWidget::rect().x() + QWidget::rect().width() / 2, QWidget::rect().top(), QWidget::rect().x() + QWidget::rect().width() / 2,
-                       QWidget::rect().bottom());
+            p.fillRect(QRect(r.x() + (r.width() - thickness) / 2, r.y(), thickness, r.height()), color);
         }
     }
 

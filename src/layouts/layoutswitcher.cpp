@@ -6,7 +6,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 
 #include "layouts/layoutswitcher.h"
+#include "utils/kdenlivestyle.h"
 #include <QObject>
+#include <QPainter>
 #include <QPushButton>
 
 LayoutSwitcher::LayoutSwitcher(QWidget *parent)
@@ -14,11 +16,21 @@ LayoutSwitcher::LayoutSwitcher(QWidget *parent)
     , m_buttonGroup(new QButtonGroup(this))
     , m_layout(new QHBoxLayout)
 {
-    m_layout->setSpacing(0);
-    m_layout->setContentsMargins(0, 0, 0, 0);
+    m_layout->setSpacing(2);
+    m_layout->setContentsMargins(2, 2, 2, 2);
     setLayout(m_layout);
     m_buttonGroup->setExclusive(true);
     connect(m_buttonGroup, QOverload<QAbstractButton *>::of(&QButtonGroup::buttonClicked), this, &LayoutSwitcher::buttonClicked);
+}
+
+void LayoutSwitcher::paintEvent(QPaintEvent *)
+{
+    // Track behind the segments
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(KdenliveStyle::overlay(palette(), 0.06));
+    painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 5, 5);
 }
 
 void LayoutSwitcher::buttonClicked(QAbstractButton *button)
@@ -49,6 +61,9 @@ void LayoutSwitcher::setLayouts(const QList<QPair<QString, QString>> &layouts, c
         btn->setCheckable(true);
         btn->setFlat(true);
         btn->setFocusPolicy(Qt::NoFocus);
+        // Lets the application style draw the buttons as one segmented control
+        btn->setProperty("_kdenlive_segmented", true);
+        btn->setFont(KdenliveStyle::chromeFont(btn->font()));
         m_buttonGroup->addButton(btn);
         m_layout->addWidget(btn);
         if (!currentLayout.isEmpty() && internalId == currentLayout) {
