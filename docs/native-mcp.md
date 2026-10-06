@@ -53,6 +53,14 @@ replaced.
 | `desktop_clip_move`, `desktop_clip_trim` | Move clips and trim their edges |
 | `desktop_audio_envelope`, `desktop_track_rename` | Add audio fades/gain and name tracks |
 | `desktop_project_save`, `desktop_undo`, `desktop_redo` | Save and use shared native history |
+| `desktop_project_save_as` | Save a copy and keep editing it |
+| `desktop_project_profile` | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
+| `desktop_clip_reframe` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
+| `desktop_frame_capture` | Return one rendered frame as a PNG image without moving the playhead |
+| `desktop_effect_list`, `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | Search effects and edit them on timeline clips (`clipId`) or bin clips (`binId`) |
+| `desktop_title_read`, `desktop_title_edit` | Read and edit Kdenlive title clips: canvas size, text, position, font size, alignment |
+| `desktop_render`, `desktop_render_status` | Render the active sequence with a preset and follow its progress |
+| `desktop_batch` | Apply up to 200 edits as one Undo step, rolled back on the first failure |
 | `desktop_apply` | Submit any supported operation using the common request envelope |
 
 Read `desktop_state` before editing. Each edit needs its `sessionId`, the
@@ -70,10 +78,15 @@ and 2025-03-26 negotiation. It returns JSON responses, accepts notifications
 with HTTP 202, and returns HTTP 405 for GET. It supports 32 sessions with a
 30-minute idle expiry and enforces HTTP body/header limits through Qt.
 
-This version covers the native live operations above. It does not yet expose
-project creation, track creation, title authoring, arbitrary effects, rendering,
-downloads or the companion's offline project tools. Open/create projects in the
-GUI. Native state describes the active sequence and project bin.
+Save-as and render outputs follow the same folder policy as imports, and
+neither overwrites an existing file. Effect keyframes count frames from the
+`keyframeOrigin` that `desktop_effect_list` reports. A profile change rebuilds
+bin producers: filters that Kdenlive does not list as effects are dropped, so
+save a copy first.
+
+This version does not expose project creation, track creation, downloads or the
+companion's offline project tools. Open/create projects in the GUI. Native state
+describes the active sequence and project bin.
 
 ## Build and install
 
