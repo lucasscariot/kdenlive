@@ -7,16 +7,22 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "kddocksetup.h"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/kdenlivestyle.h"
 
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
+#include <QHoverEvent>
 #include <QMimeData>
 #include <QObject>
 #include <QTabBar>
 
+#include <QAbstractButton>
+#include <QChildEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QProxyStyle>
 #include <QStyleFactory>
+#include <QStyleOptionTab>
 
 #include <functional>
 
@@ -80,6 +86,30 @@ private:
     std::function<bool(const QMimeData*)> m_mimeHandler;
 };
 
+/** @brief Disables animations on dock tab bars; drawing comes from the application style */
+class DockTabStyle : public QProxyStyle
+{
+public:
+    using QProxyStyle::QProxyStyle;
+
+    int styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *returnData) const override
+    {
+        // Same as the KDDockWidgets style we replace: animations glitch while dragging tabs
+        if (hint == QStyle::SH_Widget_Animation_Duration) {
+            return 0;
+        }
+        return QProxyStyle::styleHint(hint, option, widget, returnData);
+    }
+};
+
+/** @brief Fill the panel header strip behind tabs and title bars */
+static void paintHeaderStrip(QWidget *widget, const QRect &rect)
+{
+    QPainter p(widget);
+    p.fillRect(rect, KdenliveStyle::headerColor(widget->palette()));
+    p.fillRect(QRect(rect.left(), rect.bottom(), rect.width(), 1), KdenliveStyle::overlay(widget->palette(), 0.1));
+}
+
 class KdenliveDockTabBar : public KDDockWidgets::QtWidgets::TabBar
 {
 public:
@@ -95,9 +125,13 @@ public:
         // that ends up taking ownership of the style for the entire application!
         if (QProxyStyle *proxy_style = qobject_cast<QProxyStyle *>(style())) {
             proxy_style->baseStyle()->setParent(qApp);
-            proxy_style->setBaseStyle(QStyleFactory::create(qApp->style()->name()));
+            proxy_style->setBaseStyle(KdenliveStyle::cloneApplicationStyle());
         }
+        auto *tabStyle = new DockTabStyle(KdenliveStyle::cloneApplicationStyle());
+        tabStyle->setParent(this);
+        setStyle(tabStyle);
         setPalette(qApp->palette());
+        setFont(KdenliveStyle::chromeFont(qApp->font()));
 
         connect(this, &QWidget::customContextMenuRequested, []() { Q_EMIT pCore.get()->switchTitleBars(); });
         connect(this, &KDDockWidgets::QtWidgets::TabBar::countChanged, [&]() {
@@ -122,6 +156,33 @@ public:
             }
         });
     }
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        paintHeaderStrip(this, rect());
+        KDDockWidgets::QtWidgets::TabBar::paintEvent(event);
+    }
+
+    bool event(QEvent *event) override
+    {
+        // Close buttons only show on the current and hovered tabs, repaint them when the hovered tab changes
+        if (event->type() == QEvent::HoverMove || event->type() == QEvent::HoverLeave) {
+            const int hovered = event->type() == QEvent::HoverLeave ? -1 : tabAt(static_cast<QHoverEvent *>(event)->position().toPoint());
+            if (hovered != m_hoveredTab) {
+                m_hoveredTab = hovered;
+                for (int i = 0; i < count(); ++i) {
+                    if (QWidget *button = tabButton(i, QTabBar::RightSide)) {
+                        button->update();
+                    }
+                }
+            }
+        }
+        return KDDockWidgets::QtWidgets::TabBar::event(event);
+    }
+
+private:
+    int m_hoveredTab{-1};
 };
 
 class KdenliveDockGroup : public KDDockWidgets::QtWidgets::Group
@@ -129,9 +190,24 @@ class KdenliveDockGroup : public KDDockWidgets::QtWidgets::Group
 public:
     explicit KdenliveDockGroup(KDDockWidgets::Core::Group *controller, KDDockWidgets::Core::View *parent = nullptr)
         : KDDockWidgets::QtWidgets::Group(controller, KDDockWidgets::QtCommon::View_qt::asQWidget(parent))
+        , m_controller(controller)
     {
     }
-    void paintEvent(QPaintEvent *) override {}
+    void paintEvent(QPaintEvent *) override
+    {
+        // The tab bar may be narrower than the panel, extend its header strip to the full width
+        if (!m_controller->tabBar() || !m_controller->tabBar()->view()) {
+            return;
+        }
+        QWidget *tabBar = KDDockWidgets::QtCommon::View_qt::asQWidget(m_controller->tabBar()->view());
+        if (tabBar && tabBar->isVisible()) {
+            const QRect bar(tabBar->mapTo(this, QPoint(0, 0)), tabBar->size());
+            paintHeaderStrip(this, QRect(0, bar.top(), width(), bar.height()));
+        }
+    }
+
+private:
+    KDDockWidgets::Core::Group *const m_controller;
 };
 
 class KdenliveDockStack : public KDDockWidgets::QtWidgets::Stack
@@ -142,6 +218,36 @@ public:
     {
     }
     void paintEvent(QPaintEvent *) override {}
+};
+
+/** @brief Repaints KDDockWidgets title bar buttons as flat tool buttons: bare icon, rounded hover background */
+class TitleButtonPainter : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() != QEvent::Paint) {
+            return QObject::eventFilter(watched, event);
+        }
+        auto *button = qobject_cast<QAbstractButton *>(watched);
+        if (!button) {
+            return QObject::eventFilter(watched, event);
+        }
+        QPainter p(button);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        if (button->isEnabled() && (button->underMouse() || button->isDown())) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(KdenliveStyle::overlay(button->palette(), button->isDown() ? 0.18 : 0.1));
+            p.drawRoundedRect(QRectF(button->rect()).adjusted(1, 1, -1, -1), 4, 4);
+        }
+        QRect iconRect(0, 0, 16, 16);
+        iconRect.moveCenter(button->rect().center());
+        button->icon().paint(&p, iconRect, Qt::AlignCenter, button->isEnabled() ? QIcon::Normal : QIcon::Disabled);
+        return true;
+    }
 };
 
 class KdenliveDockTitleBar : public KDDockWidgets::QtWidgets::TitleBar
@@ -175,8 +281,40 @@ public:
         });
     }
 
+protected:
+    void childEvent(QChildEvent *event) override
+    {
+        if (event->type() == QEvent::ChildPolished) {
+            if (auto *button = qobject_cast<QAbstractButton *>(event->child())) {
+                button->setAttribute(Qt::WA_Hover, true);
+                button->installEventFilter(&m_buttonPainter);
+            }
+        }
+        KDDockWidgets::QtWidgets::TitleBar::childEvent(event);
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        paintHeaderStrip(this, rect());
+        QPainter p(this);
+        QFont font = KdenliveStyle::chromeFont(qApp->font());
+        font.setWeight(QFont::DemiBold);
+        p.setFont(font);
+        p.setPen(KdenliveStyle::overlay(palette(), 0.85));
+        // Leave room for the buttons laid out on the right
+        int right = width();
+        for (QWidget *child : findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+            if (child->isVisible() && child->x() > width() / 2) {
+                right = qMin(right, child->x());
+            }
+        }
+        const QRect textRect(10, 0, right - 14, height());
+        p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, p.fontMetrics().elidedText(m_controller->title(), Qt::ElideRight, textRect.width()));
+    }
+
 private:
     KDDockWidgets::Core::TitleBar *const m_controller;
+    TitleButtonPainter m_buttonPainter;
 };
 
 class KdenliveDockSeparator : public KDDockWidgets::QtWidgets::Separator
@@ -207,24 +345,15 @@ public:
     void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
-        QColor separatorColor = hovered ? palette().highlight().color() : palette().midlight().color();
-        if (hovered) {
-            separatorColor.setAlpha(128);
-        }
-        QPen pen(separatorColor);
-        pen.setWidth(2);
+        p.fillRect(QWidget::rect(), palette().window());
+        // A hairline at rest, an accent bar while hovered so the drag target is obvious
+        const QColor color = hovered ? palette().highlight().color() : KdenliveStyle::overlay(palette(), 0.1);
+        const int thickness = hovered ? 2 : 1;
+        const QRect r = QWidget::rect();
         if (m_controller->isVertical()) {
-            // Vertical rect
-            p.fillRect(QWidget::rect(), palette().window());
-            p.setPen(pen);
-            p.drawLine(QWidget::rect().x(), QWidget::rect().y() + QWidget::rect().height() / 2, QWidget::rect().right(),
-                       QWidget::rect().y() + QWidget::rect().height() / 2);
+            p.fillRect(QRect(r.x(), r.y() + (r.height() - thickness) / 2, r.width(), thickness), color);
         } else {
-            // Horizontal rect
-            p.fillRect(QWidget::rect(), palette().window());
-            p.setPen(pen);
-            p.drawLine(QWidget::rect().x() + QWidget::rect().width() / 2, QWidget::rect().top(), QWidget::rect().x() + QWidget::rect().width() / 2,
-                       QWidget::rect().bottom());
+            p.fillRect(QRect(r.x() + (r.width() - thickness) / 2, r.y(), thickness, r.height()), color);
         }
     }
 
@@ -258,4 +387,64 @@ KDDockWidgets::Core::View *CustomWidgetFactory::createSeparator(KDDockWidgets::C
 KDDockWidgets::Core::View *CustomWidgetFactory::createTabBar(KDDockWidgets::Core::TabBar *controller, KDDockWidgets::Core::View *parent) const
 {
     return new KdenliveDockTabBar(controller, parent);
+}
+
+QIcon CustomWidgetFactory::iconForButtonType(KDDockWidgets::TitleBarButtonType type, qreal dpr) const
+{
+    // Line icons in the same weight as the style's chevrons, drawn on a 16px grid
+    const int size = 16;
+    QPixmap pixmap(QSize(size, size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(KdenliveStyle::overlay(qApp->palette(), 0.8), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    auto arrow = [&p](QPointF from, QPointF to, QPointF corner1, QPointF corner2) {
+        p.drawLine(from, to);
+        QPainterPath head;
+        head.moveTo(corner1);
+        head.lineTo(to);
+        head.lineTo(corner2);
+        p.drawPath(head);
+    };
+    switch (type) {
+    case KDDockWidgets::TitleBarButtonType::Close:
+        p.drawLine(QPointF(4.5, 4.5), QPointF(11.5, 11.5));
+        p.drawLine(QPointF(11.5, 4.5), QPointF(4.5, 11.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Float:
+        // Pop out: frame open at the top right with an arrow leaving it
+        p.drawPolyline(QPolygonF({QPointF(7, 3.5), QPointF(3.5, 3.5), QPointF(3.5, 12.5), QPointF(12.5, 12.5), QPointF(12.5, 9)}));
+        arrow(QPointF(7.5, 8.5), QPointF(12.5, 3.5), QPointF(9, 3.5), QPointF(12.5, 7));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Normal:
+        // Dock back: arrow entering the frame
+        p.drawPolyline(QPolygonF({QPointF(7, 3.5), QPointF(3.5, 3.5), QPointF(3.5, 12.5), QPointF(12.5, 12.5), QPointF(12.5, 9)}));
+        arrow(QPointF(12.5, 3.5), QPointF(7.5, 8.5), QPointF(7.5, 5), QPointF(11, 8.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::Maximize:
+        p.drawRoundedRect(QRectF(3.5, 3.5, 9, 9), 1.5, 1.5);
+        break;
+    case KDDockWidgets::TitleBarButtonType::Minimize:
+        p.drawLine(QPointF(4, 11.5), QPointF(12, 11.5));
+        break;
+    case KDDockWidgets::TitleBarButtonType::AutoHide:
+    case KDDockWidgets::TitleBarButtonType::UnautoHide: {
+        // Pin, tilted once the panel auto hides
+        if (type == KDDockWidgets::TitleBarButtonType::UnautoHide) {
+            p.translate(8, 8);
+            p.rotate(45);
+            p.translate(-8, -8);
+        }
+        p.drawRoundedRect(QRectF(6, 2.5, 4, 5), 1, 1);
+        p.drawLine(QPointF(4, 7.5), QPointF(12, 7.5));
+        p.drawLine(QPointF(8, 7.5), QPointF(8, 13.5));
+        break;
+    }
+    default:
+        break;
+    }
+    p.end();
+    return QIcon(pixmap);
 }

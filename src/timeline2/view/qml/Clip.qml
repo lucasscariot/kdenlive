@@ -103,7 +103,7 @@ Rectangle {
     property int draggedX: x
     property double xIntegerOffset: 0
     readonly property bool isLocked: parentTrack && parentTrack.isLocked === true
-    property color borderColor: "#000000"
+    property color borderColor: Qt.rgba(0, 0, 0, 0.55)
     property bool isComposition: false
     readonly property int slipOffset: boundValue(outPoint - maxDuration + 1, trimmingOffset, inPoint)
     readonly property bool trimInProgress: trimInMixArea.pressed || trimInMouseArea.pressed || trimOutMouseArea.pressed
@@ -112,6 +112,11 @@ Rectangle {
     readonly property bool hideDecorations: !K.KdenliveSettings.showClipOverlays || !visible || trimInMouseArea.drag.active || trimOutMouseArea.drag.active || fadeInMouseArea.drag.active || fadeOutMouseArea.drag.active
     width : Math.round(clipDuration * timeScale)
     opacity: clipDragInProgress ? 0.8 : 1.0
+    radius: 4
+    // Colored name strip across the top, like a lane header for the clip
+    readonly property bool showNameStrip: !hideDecorations && height > 2.4 * labelRect.height
+    readonly property color stripColor: selected ? Qt.tint(getColor(), Qt.rgba(timeline.selectionColor.r, timeline.selectionColor.g, timeline.selectionColor.b, 0.55))
+                                                 : getColor()
 
     signal trimmingIn(var clip, real newDuration, bool shiftTrim, bool controlTrim)
     signal trimmedIn(var clip, bool shiftTrim, bool controlTrim)
@@ -474,7 +479,7 @@ Rectangle {
             ClipAudioThumbs {
                 timeScale: clipRoot.timeScale
                 parentClip: clipRoot
-                audioColor: clipRoot.timeline.audioColor
+                audioColor: clipRoot.getColor()
             }
         }
 
@@ -484,7 +489,7 @@ Rectangle {
             anchors.fill: parent
             anchors.leftMargin: clipRoot.parentTrack.isAudio ? clipRoot.xIntegerOffset : itemBorder.border.width + mixContainer.width
             anchors.rightMargin: clipRoot.parentTrack.isAudio ? clipRoot.width - Math.floor(clipRoot.width) : itemBorder.border.width + clipRoot.mixEndDuration * clipRoot.timeScale
-            anchors.topMargin: itemBorder.border.width
+            anchors.topMargin: itemBorder.border.width + (clipRoot.showNameStrip ? labelRect.height : 0)
             anchors.bottomMargin: itemBorder.border.width
 
             //clip: true
@@ -494,6 +499,9 @@ Rectangle {
                     && !(clipRoot.hideClipViews
                          || clipRoot.itemType == K.ClipType.Unknown
                          || clipRoot.itemType === K.ClipType.Color
+                         // titles are mostly transparent, their thumbnails are just black frames at lane height
+                         || clipRoot.itemType === K.ClipType.Text
+                         || clipRoot.itemType === K.ClipType.TextTemplate
                          // not if it is a audio clip, but audio thumbs are disabled
                          || clipRoot.parentTrack.isAudio && !K.KdenliveSettings.audiothumbnails
                          // not if it is a video clip, but video thumbs are disabled
@@ -526,7 +534,8 @@ Rectangle {
 
                 return clipRoot.borderColor
             }
-            border.width: clipRoot.isGrabbed ? 8 : 2
+            border.width: clipRoot.isGrabbed ? 8 : (clipRoot.selected || clipRoot.grouped ? 2 : 1)
+            radius: clipRoot.radius
             Rectangle {
                 id: trimOut
                 anchors.right: itemBorder.right
@@ -1372,6 +1381,18 @@ Rectangle {
                 transform: Scale { xScale: -1; origin.x: fadeOutCanvas.width / 2 }
             }
 
+            Rectangle {
+                // Name strip, spans the whole clip under the scrolling label
+                id: nameStrip
+                visible: clipRoot.showNameStrip
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: labelRect.height
+                color: clipRoot.stripColor
+                topLeftRadius: clipRoot.radius - 1
+                topRightRadius: clipRoot.radius - 1
+            }
             Item {
                 // Clipping container for clip names
                 id: nameContainer
@@ -1414,23 +1435,45 @@ Rectangle {
                 Rectangle {
                     // Clip name background
                     id: labelRect
-                    color: clipRoot.selected ? (clipRoot.isMainItem ? '#FFCC0000' : '#FF800000') : '#66000000'
-                    width: label.width + (2 * itemBorder.border.width)
+                    // Over the name strip the label needs no background of its own
+                    color: clipRoot.showNameStrip ? 'transparent' : clipRoot.selected ? (clipRoot.isMainItem ? '#FFCC0000' : '#FF800000') : '#66000000'
+                    width: label.x + label.width + itemBorder.border.width + 2
                     height: label.height
                     visible: clipRoot.width > K.UiUtils.baseSizeMedium
                     anchors.left: debugCidRect.visible ? debugCidRect.right : parent.left
                     anchors.leftMargin: clipRoot.timeremap ? labelRect.height : 0
+                    Rectangle {
+                        // Speed badge, only for clips not playing at normal speed
+                        id: speedBadge
+                        visible: clipRoot.speed != 1.0
+                        color: Qt.rgba(1, 1, 1, 0.22)
+                        radius: 2
+                        width: visible ? speedLabel.width + 6 : 0
+                        height: labelRect.height - 4
+                        anchors {
+                            left: labelRect.left
+                            leftMargin: visible ? itemBorder.border.width + 2 : 0
+                            verticalCenter: labelRect.verticalCenter
+                        }
+                        Text {
+                            id: speedLabel
+                            anchors.centerIn: parent
+                            text: Math.round(clipRoot.speed * 100) + '%'
+                            font: K.UiUtils.smallestReadableFont
+                            color: "#FFFFFF"
+                        }
+                    }
                     Text {
                         // Clip name text
                         id: label
                         property string clipNameString: (clipRoot.isAudio && clipRoot.multiStream) ? ((clipRoot.audioStream > 10000 ? 'Merged' : clipRoot.aStreamIndex) + '|' + clipRoot.clipName ) : clipRoot.clipName
-                        text: (clipRoot.speed != 1.0 ? ('[' + Math.round(clipRoot.speed*100) + '%] ') : '') + clipNameString
+                        text: clipNameString
                         font: K.UiUtils.smallestReadableFont
-                        topPadding: -2
-                        bottomPadding: -1
+                        topPadding: clipRoot.showNameStrip ? 1 : -2
+                        bottomPadding: clipRoot.showNameStrip ? 1 : -1
                         anchors {
-                            left: labelRect.left
-                            leftMargin: itemBorder.border.width
+                            left: speedBadge.right
+                            leftMargin: itemBorder.border.width + 2
                         }
                         color: "#FFFFFF"
                         //style: Text.Outline

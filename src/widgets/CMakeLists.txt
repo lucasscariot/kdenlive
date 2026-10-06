@@ -14,6 +14,7 @@ set(kdenlive_SRCS
   widgets/pointwidget.cpp
   widgets/positionwidget.cpp
   widgets/precisionspinbox.cpp
+  widgets/panelbar.cpp
   widgets/progressbutton.cpp
   widgets/timecodedisplay.cpp
   widgets/subtitletextedit.cpp

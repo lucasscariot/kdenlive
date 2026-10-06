@@ -18,6 +18,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QProgressDialog>
 #include <QShortcut>
 #include <QString>
+#include <QToolBar>
 #include <QUndoView>
 #include <QUuid>
 
@@ -285,6 +286,7 @@ private:
 
     KDDockWidgets::QtWidgets::DockWidget *m_undoViewDock{nullptr};
     KDDockWidgets::QtWidgets::DockWidget *m_mixerDock{nullptr};
+    QToolBar *m_panelToolBar{nullptr};
     KDDockWidgets::QtWidgets::DockWidget *m_onlineResourcesDock{nullptr};
 
     KSelectAction *m_timeFormatButton;

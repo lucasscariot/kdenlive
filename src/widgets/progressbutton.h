@@ -26,6 +26,10 @@ public:
     int progress() const;
     void setProgress(int);
     void defineDefaultAction(QAction *action, QAction *actionInProgress);
+    /** @brief Draw the button filled with the accent color while idle, for the main call to action */
+    void setPrimary(bool primary);
+
+    QSize sizeHint() const override;
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -41,6 +45,7 @@ private:
     QStyleOptionToolButton m_buttonStyle;
     /** @brief While rendering, replace real action by a fake on so that rendering is not triggered when clicking again. */
     QAction *m_dummyAction;
+    bool m_primary{false};
 
 Q_SIGNALS:
     void progressChanged();

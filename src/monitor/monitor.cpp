@@ -375,6 +375,13 @@ Monitor::Monitor(Kdenlive::MonitorId id, MonitorManager *manager, QWidget *paren
         // connect(m_glMonitor, &VideoWidget::paused, m_monitorManager, &MonitorManager::cleanMixer);
     }
 
+    // Expanding gaps around the transport controls keep them centered under the image
+    auto addFlexibleSpace = [this]() {
+        auto *space = new QWidget(m_toolbar);
+        space->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_toolbar->addWidget(space);
+    };
+    addFlexibleSpace();
     m_markIn = new QAction(QIcon::fromTheme(QStringLiteral("zone-in")), i18n("Set Zone In"), this);
     m_markOut = new QAction(QIcon::fromTheme(QStringLiteral("zone-out")), i18n("Set Zone Out"), this);
     m_toolbar->addAction(m_markIn);
@@ -419,6 +426,7 @@ Monitor::Monitor(Kdenlive::MonitorId id, MonitorManager *manager, QWidget *paren
     QAction *forward = new QAction(QIcon::fromTheme(QStringLiteral("media-seek-forward")), i18n("Forward"), this);
     m_toolbar->addAction(forward);
     connect(forward, &QAction::triggered, this, [this]() { Monitor::slotForward(); });
+    addFlexibleSpace();
 
     m_configMenuAction = new KActionMenu(QIcon::fromTheme(QStringLiteral("application-menu")), i18n("More Options…"), m_toolbar);
     m_configMenuAction->setWhatsThis(xi18nc("@info:whatsthis", "Opens the list of project/clip monitor options (e.g. audio volume, monitor size)."));

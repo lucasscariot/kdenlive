@@ -127,7 +127,9 @@ void MixerWidget::buildUI(Mlt::Tractor *service, const QString &trackName)
     setupConnections();
 
     setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-    setMinimumWidth(3 * m_muteButton->sizeHint().width());
+    // Keep room for the volume value and its unit below the meters
+    const int volumeRowWidth = m_volumeSpin->minimumWidth() + 4 + m_dbLabel->sizeHint().width();
+    setMinimumWidth(qMax(3 * m_muteButton->sizeHint().width(), volumeRowWidth));
     setMaximumWidth(qMax(minimumWidth(), m_audioMeterWidget->maximumWidth() + m_volumeSlider->width() + 1));
     updateGeometry();
 
@@ -187,6 +189,9 @@ void MixerWidget::buildVolumeControls()
     m_volumeSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_volumeSpin->setDecimals(2);
     m_volumeSpin->setAlignment(Qt::AlignCenter);
+    // Without buttons the spinbox sizes itself too tightly and clips its last digit
+    m_volumeSpin->setMinimumWidth(m_volumeSpin->fontMetrics().horizontalAdvance(QStringLiteral("-50.00")) +
+                                  2 * style()->pixelMetric(QStyle::PM_SpinBoxFrameWidth) + 6);
 
     m_dbLabel = new QLabel(i18n("dB"), this);
     m_dbLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);

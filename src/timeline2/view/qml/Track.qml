@@ -60,6 +60,7 @@ Item {
     property alias rootIndex : trackModel.rootIndex
 
     property int itemType: 0
+    readonly property int laneGap: 2
 
     opacity: isDisabled ? 0.4 : 1
 
@@ -201,7 +202,9 @@ Item {
                 active: trackRoot.isClip(itemOnTrack.model.clipType)
                 sourceComponent: Clip {
                     id: clipItem
-                    height: trackRoot.height
+                    // A small gap above and below separates the lanes
+                    y: trackRoot.laneGap
+                    height: trackRoot.height - 2 * trackRoot.laneGap
 
                     enabled: !trackRoot.isItemDragInProgress
                     visible: fakeTid > -1 || (trackRoot.timelineScrollView.lastVisibleFrame > modelStart && trackRoot.timelineScrollView.firstVisibleFrame <= (modelStart + clipDuration))

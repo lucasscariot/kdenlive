@@ -16,6 +16,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 // Required for MacOS definition of MLT_LC_NAME
 #include "lib/localeHandling.h"
 #include "render/renderrequest.h"
+#include "utils/kdenlivestyle.h"
 #include <config-kdenlive.h>
 #include <project/projectmanager.h>
 
@@ -256,6 +257,7 @@ int main(int argc, char *argv[])
 
     // trigger initialisation of proper application style
     KStyleManager::initStyle();
+    KdenliveStyle::installIfFusion();
 
     // Try to detect package type
     LinuxPackageType packageType = getPackageType();

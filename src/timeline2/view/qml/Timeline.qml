@@ -183,7 +183,7 @@ Rectangle {
     function updatePalette() {
         root.color = activePalette.window
         root.textColor = activePalette.text
-        playhead.color = activePalette.windowText
+        playhead.color = root.playheadColor
         ruler.dimmedColor = (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 1.3) : Qt.lighter(activePalette.text, 1.3)
         ruler.dimmedColor2 = (activePalette.text.r + activePalette.text.g + activePalette.text.b > 1.5) ? Qt.darker(activePalette.text, 2.2) : Qt.lighter(activePalette.text, 2.2)
         ruler.repaintRuler()
@@ -524,9 +524,12 @@ function getTrackColor(audio, header) {
     readonly property int collapsedHeight: Math.max(28, K.UiUtils.baseSizeMedium * 1.8)
     readonly property int minHeaderWidth: 6 * collapsedHeight
     readonly property bool autoTrackHeight: root.timeline.autotrackHeight
-    readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.2)
+    // A saturated red stands out from footage and from the blue selection accent
+    readonly property color playheadColor: '#E5483E'
+    readonly property color selectedTrackColor: Qt.rgba(activePalette.highlight.r, activePalette.highlight.g, activePalette.highlight.b, 0.1)
     readonly property color frameColor: Qt.rgba(activePalette.shadow.r, activePalette.shadow.g, activePalette.shadow.b, 0.5)
-    property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth())
+    // Wide enough by default for the track name to share the first row with its tag and buttons
+    property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)
     property bool blockAutoScroll: false
     property int duration: root.timeline.duration
     property color audioColor: root.timeline.audioColor
@@ -1851,7 +1854,7 @@ function getTrackColor(audio, header) {
                             id: playhead
                             height: Math.round(K.UiUtils.baseSizeMedium * .8)
                             width: Math.round(K.UiUtils.baseSizeMedium * 1.2)
-                            color: activePalette.windowText
+                            color: root.playheadColor
                             visible: cursor.visible
                             anchors.bottom: parent.bottom
                             anchors.bottomMargin: ruler.zoneHeight - 1
@@ -1861,7 +1864,7 @@ function getTrackColor(audio, header) {
                         Rectangle {
                             // Vertical line over ruler zone
                             id: rulerCursor
-                            color: root.textColor
+                            color: root.playheadColor
                             width: 1
                             height: ruler.zoneHeight - 1
                             visible: cursor.visible
@@ -2356,7 +2359,7 @@ function getTrackColor(audio, header) {
                         Rectangle {
                             id: cursor
                             visible: root.consumerPosition > -1
-                            color: root.textColor
+                            color: root.playheadColor
                             width: 1
                             opacity: 1
                             height: tracksContainerArea.height
@@ -2586,7 +2589,9 @@ function getTrackColor(audio, header) {
                 width: 1
                 height: tracksContainerArea.height
                 x: Math.round(guideRoot.model.frame * root.timeScale);
+                // Keep guides visible over clips without competing with them
                 color: guideRoot.model.color
+                opacity: 0.45
             }
         }
     }

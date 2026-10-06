@@ -459,8 +459,11 @@ QVariant TimelineItemModel::data(const QModelIndex &index, int role) const
             int height = getTrackById_const(id)->getProperty("kdenlive:trackheight").toInt();
             return (height > 0 ? height : KdenliveSettings::trackheight());
         }
-        case ThumbsFormatRole:
-            return getTrackById_const(id)->getProperty("kdenlive:thumbs_format").toInt();
+        case ThumbsFormatRole: {
+            // Tracks without an explicit choice show a continuous filmstrip
+            const QVariant format = getTrackById_const(id)->getProperty("kdenlive:thumbs_format");
+            return format.toString().isEmpty() ? 1 : format.toInt();
+        }
         case IsCompositeRole: {
         case AudioRecordRole:
             return getTrackById_const(id)->getProperty("kdenlive:audio_rec").toInt();

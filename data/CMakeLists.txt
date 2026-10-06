@@ -28,6 +28,7 @@ install(FILES
   DESTINATION ${KDE_INSTALL_DATADIR}${DATA_INSTALL_PREFIX})
 
 install(FILES kdenlive.notifyrc DESTINATION ${KDE_INSTALL_KNOTIFYRCDIR})
+install(FILES color-schemes/KdenliveDark.colors DESTINATION ${KDE_INSTALL_DATAROOTDIR}/color-schemes)
 
 install(FILES profiles.xml DESTINATION ${KDE_INSTALL_DATADIR}${DATA_INSTALL_PREFIX}/export)
 install(FILES org.kde.kdenlive.appdata.xml DESTINATION ${KDE_INSTALL_METAINFODIR})

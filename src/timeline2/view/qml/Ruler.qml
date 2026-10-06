@@ -168,9 +168,11 @@ Item {
                 // Range marker label (positioned at start)
                 Rectangle {
                     visible: K.KdenliveSettings.showmarkers && width < parent.width
-                    width: rangeLabel.contentWidth + 4 - guidesRepeater.radiusSize
+                    width: rangeLabel.contentWidth + 6 - guidesRepeater.radiusSize
                     height: rulerRoot.guideLabelHeight
-                    color: guideRoot.model.color
+                    // Tinted chip: the category color stays recognizable without overpowering the ruler
+                    property color chipColor: Qt.rgba(guideRoot.model.color.r, guideRoot.model.color.g, guideRoot.model.color.b, 0.45)
+                    color: K.KdenliveSettings.lockedGuides ? chipColor : 'transparent'
                     anchors {
                         top: parent.top
                         left: parent.left
@@ -181,19 +183,24 @@ Item {
                     ToolTip.timeout: 5000
                     Rectangle {
                         visible: !K.KdenliveSettings.lockedGuides
-                        color: guideRoot.model.color
+                        color: parent.chipColor
                         anchors.fill: parent
                         radius: guidesRepeater.radiusSize
                         anchors.rightMargin: -guidesRepeater.radiusSize - 2
+                    }
+                    Rectangle {
+                        width: 2
+                        height: parent.height
+                        color: guideRoot.model.color
                     }
                     Text {
                         id: rangeLabel
                         text: guideRoot.model.comment
                         topPadding: -1
-                        leftPadding: 2
+                        leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#000000'
+                        color: '#F2F2F2'
                     }
                 }
                 
@@ -440,9 +447,10 @@ Item {
                 
                 Rectangle {
                     visible: K.KdenliveSettings.showmarkers && !guideRoot.isRangeMarker
-                    width: mlabel.contentWidth + 4 - guidesRepeater.radiusSize
+                    width: mlabel.contentWidth + 6 - guidesRepeater.radiusSize
                     height: rulerRoot.guideLabelHeight
-                    color: markerBase.color
+                    property color chipColor: Qt.rgba(markerBase.color.r, markerBase.color.g, markerBase.color.b, 0.45)
+                    color: K.KdenliveSettings.lockedGuides ? chipColor : 'transparent'
                     anchors {
                         top: parent.top
                         left: parent.left
@@ -453,10 +461,15 @@ Item {
                     ToolTip.timeout: 5000
                     Rectangle {
                         visible: !K.KdenliveSettings.lockedGuides
-                        color: markerBase.color
+                        color: parent.chipColor
                         anchors.fill: parent
                         radius: guidesRepeater.radiusSize
                         anchors.rightMargin: -guidesRepeater.radiusSize - 2
+                    }
+                    Rectangle {
+                        width: 2
+                        height: parent.height
+                        color: markerBase.color
                     }
                     Rectangle {
                         // Shadow delimiting marker start
@@ -477,10 +490,10 @@ Item {
                         id: mlabel
                         text: guideRoot.model.comment
                         topPadding: -1
-                        leftPadding: 2
+                        leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#000000'
+                        color: '#F2F2F2'
                     }
                     MouseArea {
                         z: 10
@@ -551,6 +564,18 @@ Item {
         }
     }
     
+    // Background band and bottom hairline, slightly darker than the tracks
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        color: Qt.darker(activePalette.window, 1.18)
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, 0.1)
+        }
+    }
     // Ruler marks
     Item {
         id: timecodeContainer
@@ -570,18 +595,22 @@ Item {
             x: Math.round(realPos * rulerRoot.timeline.scaleFactor)
             height: parent.height
             property bool showText: (tickRepeater.offset + index)%rulerRoot.labelMod == 0
+            // Labelled ticks run the full height with the timecode beside them, others are short
             Rectangle {
                 anchors.bottom: parent.bottom
-                height: parent.showText ? K.UiUtils.baseSizeMedium * 0.8 : 4
+                height: parent.showText ? parent.height : 3
                 width: 1
-                color: rulerRoot.dimmedColor2
+                color: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, parent.showText ? 0.22 : 0.16)
             }
             Label {
                 visible: parent.showText
                 anchors.top: parent.top
+                anchors.topMargin: 1
+                leftPadding: 4
                 text: rulerRoot.timeline.timecode(parent.realPos + rulerRoot.timecodeOffset)
                 font: K.UiUtils.smallestReadableFont
                 color: rulerRoot.dimmedColor
+                opacity: 0.85
             }
         }
     }
@@ -636,8 +665,9 @@ Item {
         frameOut: rulerRoot.timeline.zoneOut
         snapping: rulerRoot.snapping
         showZoneLabels: rulerRoot.showZoneLabels
-        color: rulerRoot.timeline.useRuler ? Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.9) :
-        Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.5)
+        // Translucent so the zone reads as a range, not as a solid bar across the ruler
+        color: rulerRoot.timeline.useRuler ? Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.5) :
+        Qt.rgba(activePalette.highlight.r,activePalette.highlight.g,activePalette.highlight.b,0.25)
         anchors.bottom: parent.bottom
         height: rulerRoot.zoneHeight
         onUpdateZone: (start, end, update) => {

@@ -165,6 +165,37 @@ Item {
                 profile: root.controller.profile
             }
         }
+        Column {
+            id: emptyHint
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 2 * K.UiUtils.baseSizeMedium, 28 * K.UiUtils.baseSizeMedium)
+            spacing: Math.round(K.UiUtils.baseSizeMedium / 2)
+            visible: root.controller.clipName === "" && parent.height > 6 * K.UiUtils.baseSizeMedium
+            opacity: 0.55
+            Image {
+                anchors.horizontalCenter: parent.horizontalCenter
+                source: "image://icon/kdenlive-show-video"
+                width: 2 * K.UiUtils.baseSizeMedium
+                height: width
+                sourceSize.width: width
+                sourceSize.height: height
+            }
+            Label {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                text: KI18n.i18n("No clip loaded")
+                color: activePalette.text
+                font.bold: true
+            }
+            Label {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: KI18n.i18n("Double-click a clip in the Project Bin to preview it here")
+                color: activePalette.text
+                font: K.UiUtils.smallestReadableFont
+            }
+        }
         DropArea { //Drop area for effects
             id: effectArea
             anchors.fill: parent
