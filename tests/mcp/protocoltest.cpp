@@ -37,13 +37,18 @@ private:
         if (!probe.listen(QHostAddress::LocalHost)) qFatal("Cannot allocate test port");
         return probe.serverPort();
     }
-    Reply send(QByteArray body, QByteArray session = {}, QByteArray method = "POST", QByteArray authorization = {}, QByteArray origin = {})
+    Reply send(QByteArray body, QByteArray session = {}, QByteArray method = "POST", QByteArray authorization = {}, QByteArray origin = {},
+               QByteArray host = {})
     {
         QNetworkRequest request(QUrl(QStringLiteral("http://127.0.0.1:%1/mcp").arg(port)));
         request.setTransferTimeout(3000);
         request.setRawHeader("Content-Type", "application/json");
         request.setRawHeader("Accept", "application/json, text/event-stream");
-        request.setRawHeader("Authorization", authorization.isNull() ? "Bearer " + token : authorization);
+        if (!authorization.isNull())
+            request.setRawHeader("Authorization", authorization);
+        else if (!token.isEmpty())
+            request.setRawHeader("Authorization", "Bearer " + token);
+        if (!host.isNull()) request.setRawHeader("Host", host);
         if (!session.isEmpty()) request.setRawHeader("Mcp-Session-Id", session);
         if (!origin.isNull()) request.setRawHeader("Origin", origin);
         auto *reply = network.sendCustomRequest(request, method, body);
@@ -71,7 +76,7 @@ private Q_SLOTS:
                 return QJsonObject{{"ok", true}, {"calls", calls}};
             },
             directory.filePath("token"));
-        server->configure(true, port, {});
+        server->configure(true, port, {}, McpAccess::LocalWithToken);
         QVERIFY(server->status().startsWith("Listening"));
         QFile file(directory.filePath("token"));
         QVERIFY(file.open(QIODevice::ReadOnly));
@@ -118,41 +123,84 @@ private Q_SLOTS:
         QVERIFY(!initialize().isEmpty());
         QCOMPARE(calls, 0);
     }
+    void localWithoutToken()
+    {
+        server->configure(true, port, {});
+        QVERIFY(server->status().startsWith("Listening on http://127.0.0.1"));
+        token.clear();
+        const auto session = initialize();
+        QVERIFY(!session.isEmpty());
+        QCOMPARE(send(R"({"jsonrpc":"2.0","id":2,"method":"ping"})", session, "POST", {}, {}, "localhost:" + QByteArray::number(port)).status, 200);
+        // Web pages and DNS rebinding stay blocked without a token.
+        QCOMPARE(send("{}", {}, "POST", {}, "https://example.com").status, 403);
+        QCOMPARE(send("{}", {}, "POST", {}, {}, "attacker.example:" + QByteArray::number(port)).status, 403);
+        QVERIFY(!server->clientConfiguration(McpClientFormat::Generic).contains("Authorization"));
+        QCOMPARE(calls, 0);
+    }
+    void networkRequiresToken()
+    {
+        server->configure(true, port, {}, McpAccess::Network);
+        QVERIFY(server->status().contains("access token required"));
+        QCOMPARE(send("{}", {}, "POST", "Bearer incorrect").status, 401);
+        const auto host = "kdenlive.lan:" + QByteArray::number(port);
+        const auto session =
+            send(
+                R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})",
+                {}, "POST", {}, {}, host)
+                .session;
+        QVERIFY(!session.isEmpty());
+        QCOMPARE(send("{}", {}, "POST", {}, "https://example.com").status, 403);
+    }
+    void clientConfigurations()
+    {
+        const auto url = QStringLiteral("http://127.0.0.1:%1/mcp").arg(port);
+        const auto bearer = QStringLiteral("Bearer ") + QString::fromLatin1(token);
+        const auto generic = QJsonDocument::fromJson(server->clientConfiguration(McpClientFormat::Generic).toUtf8()).object();
+        const auto entry = generic["mcpServers"].toObject()["kdenlive"].toObject();
+        QCOMPARE(entry["type"].toString(), QString("http"));
+        QCOMPARE(entry["url"].toString(), url);
+        QCOMPARE(entry["headers"].toObject()["Authorization"].toString(), bearer);
+        const auto claude = server->clientConfiguration(McpClientFormat::ClaudeCode);
+        QVERIFY(claude.startsWith("claude mcp add --transport http kdenlive " + url));
+        QVERIFY(claude.contains(bearer));
+        QVERIFY(server->clientConfiguration(McpClientFormat::Codex).startsWith("[mcp_servers.kdenlive]\nurl = \"" + url));
+        QVERIFY(server->clientConfiguration(McpClientFormat::Plain).contains("Authorization: " + bearer));
+    }
     void settingsLifecycle()
     {
         const auto first = initialize();
-        server->configure(true, port, {});
+        server->configure(true, port, {}, McpAccess::LocalWithToken);
         QCOMPARE(send(R"({"jsonrpc":"2.0","id":2,"method":"ping"})", first).status, 200);
         QTcpServer occupied;
         QVERIFY(occupied.listen(QHostAddress::LocalHost));
-        server->configure(true, occupied.serverPort(), {});
+        server->configure(true, occupied.serverPort(), {}, McpAccess::LocalWithToken);
         QVERIFY(server->status().startsWith("Cannot listen"));
-        QVERIFY(server->clientConfiguration().isEmpty());
+        QVERIFY(server->clientConfiguration(McpClientFormat::Generic).isEmpty());
         QCOMPARE(send(R"({"jsonrpc":"2.0","id":3,"method":"ping"})", first).status, 0);
         port = freePort();
-        server->configure(true, port, {});
+        server->configure(true, port, {}, McpAccess::LocalWithToken);
         QVERIFY(server->status().startsWith("Listening"));
         QCOMPARE(send(R"({"jsonrpc":"2.0","id":4,"method":"ping"})", first).status, 404);
         server->rotateToken();
         QCOMPARE(send("{}").status, 401);
-        server->configure(false, port, {});
+        server->configure(false, port, {}, McpAccess::LocalWithToken);
         QCOMPARE(server->status(), QString("Disabled"));
-        QVERIFY(server->clientConfiguration().isEmpty());
+        QVERIFY(server->clientConfiguration(McpClientFormat::Generic).isEmpty());
     }
     void folderPickerFileUrl()
     {
         const QString media = directory.filePath("media folder");
         QVERIFY(QDir().mkpath(media));
-        server->configure(true, port, media);
+        server->configure(true, port, media, McpAccess::LocalWithToken);
         const auto session = initialize();
         QVERIFY(!session.isEmpty());
-        server->configure(true, port, QUrl::fromLocalFile(media).toString(QUrl::FullyEncoded));
+        server->configure(true, port, QUrl::fromLocalFile(media).toString(QUrl::FullyEncoded), McpAccess::LocalWithToken);
         QVERIFY(server->status().startsWith("Listening"));
         // Applying the equivalent folder-picker URL must preserve the live connection.
         QCOMPARE(send(R"({"jsonrpc":"2.0","id":2,"method":"ping"})", session).status, 200);
-        server->configure(true, port, QStringLiteral("https://example.com/media"));
+        server->configure(true, port, QStringLiteral("https://example.com/media"), McpAccess::LocalWithToken);
         QVERIFY(server->status().startsWith("The additional media folder"));
-        QVERIFY(server->clientConfiguration().isEmpty());
+        QVERIFY(server->clientConfiguration(McpClientFormat::Generic).isEmpty());
     }
 };
 QTEST_GUILESS_MAIN(ProtocolTest)

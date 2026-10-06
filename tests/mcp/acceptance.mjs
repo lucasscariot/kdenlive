@@ -36,7 +36,7 @@ const probe = createServer();
 await new Promise((done, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', done); });
 const port = probe.address().port;
 await new Promise(done => probe.close(done));
-await writeFile(config, `[startup]\nlastSeenVersionMajor=26\nlastSeenVersionMinor=8\n[env]\nmeltpath=/usr/bin/melt-7\nmltpath=/usr/share/mlt-7/profiles\nffmpegpath=/usr/bin/ffmpeg\nffprobepath=/usr/bin/ffprobe\n[unmanaged]\ndefault_profile=atsc_720p_30\n[MCP API]\nmcpEnabled=true\nmcpPort=${port}\nmcpMediaRoot=${pathToFileURL(extraMedia).href}\n`);
+await writeFile(config, `[startup]\nlastSeenVersionMajor=26\nlastSeenVersionMinor=8\n[env]\nmeltpath=/usr/bin/melt-7\nmltpath=/usr/share/mlt-7/profiles\nffmpegpath=/usr/bin/ffmpeg\nffprobepath=/usr/bin/ffprobe\n[unmanaged]\ndefault_profile=atsc_720p_30\n[MCP API]\nmcpEnabled=true\nmcpRequireToken=true\nmcpPort=${port}\nmcpMediaRoot=${pathToFileURL(extraMedia).href}\n`);
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
 const timings = [];

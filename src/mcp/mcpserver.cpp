@@ -15,6 +15,7 @@
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
 #include <QJsonDocument>
+#include <QNetworkInterface>
 #include <QSaveFile>
 #include <QTcpServer>
 #include <QUrl>
@@ -80,12 +81,47 @@ QString McpServer::status() const
     return m_status;
 }
 
-QString McpServer::clientConfiguration() const
+bool McpServer::tokenRequired() const
+{
+    return m_access != McpAccess::Local;
+}
+
+QString McpServer::endpoint() const
+{
+    QString host = QStringLiteral("127.0.0.1");
+    if (m_access == McpAccess::Network) {
+        // Advertise an address other devices can reach.
+        for (const auto &address : QNetworkInterface::allAddresses()) {
+            if (address.protocol() == QAbstractSocket::IPv4Protocol && !address.isLoopback() && !address.isLinkLocal()) {
+                host = address.toString();
+                break;
+            }
+        }
+    }
+    return QStringLiteral("http://%1:%2/mcp").arg(host).arg(m_port);
+}
+
+QString McpServer::clientConfiguration(McpClientFormat format) const
 {
     if (!m_http) return {};
-    return QStringLiteral("[mcp_servers.kdenlive]\nurl = \"http://127.0.0.1:%1/mcp\"\nhttp_headers = { Authorization = \"Bearer %2\" }\n")
-        .arg(m_port)
-        .arg(QString::fromLatin1(m_token));
+    const QString url = endpoint();
+    const QString authorization = tokenRequired() ? QStringLiteral("Bearer ") + QString::fromLatin1(m_token) : QString();
+    switch (format) {
+    case McpClientFormat::Generic: {
+        QJsonObject server{{"type", "http"}, {"url", url}};
+        if (!authorization.isEmpty()) server.insert("headers", QJsonObject{{"Authorization", authorization}});
+        return QString::fromUtf8(QJsonDocument(QJsonObject{{"mcpServers", QJsonObject{{"kdenlive", server}}}}).toJson(QJsonDocument::Indented));
+    }
+    case McpClientFormat::ClaudeCode:
+        return QStringLiteral("claude mcp add --transport http kdenlive %1").arg(url) +
+               (authorization.isEmpty() ? QString() : QStringLiteral(" --header \"Authorization: %1\"").arg(authorization)) + QLatin1Char('\n');
+    case McpClientFormat::Codex:
+        return QStringLiteral("[mcp_servers.kdenlive]\nurl = \"%1\"\n").arg(url) +
+               (authorization.isEmpty() ? QString() : QStringLiteral("http_headers = { Authorization = \"%1\" }\n").arg(authorization));
+    case McpClientFormat::Plain:
+        return QStringLiteral("URL: %1\n").arg(url) + (authorization.isEmpty() ? QString() : QStringLiteral("Authorization: %1\n").arg(authorization));
+    }
+    return {};
 }
 
 bool McpServer::loadCredential(bool rotate)
@@ -122,16 +158,17 @@ bool McpServer::loadCredential(bool rotate)
     return true;
 }
 
-void McpServer::configure(bool enabled, int port, const QString &mediaRoot)
+void McpServer::configure(bool enabled, int port, const QString &mediaRoot, McpAccess access)
 {
     // KUrlRequester may persist a file URL even when its KConfig entry is a Path.
     const QUrl mediaUrl(mediaRoot);
     const QString localRoot = mediaUrl.isLocalFile() ? mediaUrl.toLocalFile() : mediaRoot;
-    if (m_enabled == enabled && m_port == port && m_mediaRoot == localRoot && (m_http || !enabled)) return;
+    if (m_enabled == enabled && m_port == port && m_mediaRoot == localRoot && m_access == access && (m_http || !enabled)) return;
     stop();
     m_enabled = enabled;
     m_port = port;
     m_mediaRoot = localRoot;
+    m_access = access;
     if (!enabled) return;
     if (port < 1024 || port > 65535) {
         setStatus(QStringLiteral("MCP port must be between 1024 and 65535."));
@@ -141,7 +178,8 @@ void McpServer::configure(bool enabled, int port, const QString &mediaRoot)
         setStatus(QStringLiteral("The additional media folder must be an existing absolute directory."));
         return;
     }
-    if (!loadCredential()) return;
+    m_token.clear();
+    if (tokenRequired() && !loadCredential()) return;
     auto http = std::make_unique<QHttpServer>();
     QHttpServerConfiguration limits;
     limits.setMaximumBodySize(128 * 1024);
@@ -155,12 +193,16 @@ void McpServer::configure(bool enabled, int port, const QString &mediaRoot)
     http->route(QStringLiteral("/mcp"), QHttpServerRequest::Method::AnyKnown, this, [this](const QHttpServerRequest &request) { return respond(request); });
     auto *tcp = new QTcpServer(http.get());
     tcp->setMaxPendingConnections(16);
-    if (!tcp->listen(QHostAddress::LocalHost, quint16(port)) || !http->bind(tcp)) {
+    const QHostAddress address = access == McpAccess::Network ? QHostAddress(QHostAddress::Any) : QHostAddress(QHostAddress::LocalHost);
+    if (!tcp->listen(address, quint16(port)) || !http->bind(tcp)) {
         setStatus(QStringLiteral("Cannot listen on port %1: %2").arg(port).arg(tcp->errorString()));
         return;
     }
     m_http = std::move(http);
-    setStatus(QStringLiteral("Listening on http://127.0.0.1:%1/mcp").arg(port));
+    if (access == McpAccess::Network)
+        setStatus(QStringLiteral("Listening on all network interfaces at %1 (access token required, unencrypted)").arg(endpoint()));
+    else
+        setStatus(QStringLiteral("Listening on %1%2").arg(endpoint(), tokenRequired() ? QStringLiteral(" (access token required)") : QString()));
 }
 
 void McpServer::stop()
@@ -175,16 +217,19 @@ void McpServer::rotateToken()
 {
     const bool enabled = m_enabled;
     stop();
-    if (loadCredential(true)) configure(enabled, m_port, m_mediaRoot);
+    if (loadCredential(true)) configure(enabled, m_port, m_mediaRoot, m_access);
 }
 
 QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
 {
     const QJsonValue nullId(QJsonValue::Null);
-    const QByteArray expectedHost = "127.0.0.1:" + QByteArray::number(m_port);
-    if (request.value("Host").toLower() != expectedHost || request.headers().contains("Origin"))
-        return response({{"error", "Only direct localhost clients are allowed."}}, Status::Forbidden);
-    if (!authenticated(request.value("Authorization"), m_token)) {
+    // Browsers always send Origin. Without a token, the Host check also defeats DNS rebinding.
+    const QByteArray host = request.value("Host").toLower();
+    const QByteArray port = ':' + QByteArray::number(m_port);
+    const bool localHost = host == "127.0.0.1" + port || host == "localhost" + port;
+    if (request.headers().contains("Origin") || (m_access != McpAccess::Network && !localHost))
+        return response({{"error", "Only direct MCP clients are allowed."}}, Status::Forbidden);
+    if (tokenRequired() && !authenticated(request.value("Authorization"), m_token)) {
         auto reply = response({{"error", "A valid MCP bearer token is required."}}, Status::Unauthorized);
         auto headers = reply.headers();
         headers.append("WWW-Authenticate", "Bearer realm=\"Kdenlive\"");

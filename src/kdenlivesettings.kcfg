@@ -1711,6 +1711,14 @@
             <min>1024</min>
             <max>65535</max>
         </entry>
+        <entry name="mcpNetwork" type="Bool">
+            <label>Accept MCP connections from other devices on the network</label>
+            <default>false</default>
+        </entry>
+        <entry name="mcpRequireToken" type="Bool">
+            <label>Require an access token for local MCP connections</label>
+            <default>false</default>
+        </entry>
         <entry name="mcpMediaRoot" type="Path">
             <label>Additional folder allowed for media imports</label>
             <default></default>

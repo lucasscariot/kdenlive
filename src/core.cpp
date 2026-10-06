@@ -505,7 +505,12 @@ void Core::initGUI(const QString &MltPath, const QUrl &Url, const QStringList &c
         [engine](const QString &name, const QJsonObject &arguments, const QString &root) { return McpTools::call(*engine, name, arguments, root); }, credential,
         this);
     connect(m_mcpServer, &McpServer::statusChanged, this, &Core::mcpStatusChanged);
-    const auto configureMcp = [this] { m_mcpServer->configure(KdenliveSettings::mcpEnabled(), KdenliveSettings::mcpPort(), KdenliveSettings::mcpMediaRoot()); };
+    const auto configureMcp = [this] {
+        const auto access = KdenliveSettings::mcpNetwork()        ? McpAccess::Network
+                            : KdenliveSettings::mcpRequireToken() ? McpAccess::LocalWithToken
+                                                                  : McpAccess::Local;
+        m_mcpServer->configure(KdenliveSettings::mcpEnabled(), KdenliveSettings::mcpPort(), KdenliveSettings::mcpMediaRoot(), access);
+    };
     connect(m_mainWindow, &MainWindow::configurationChanged, this, configureMcp);
     configureMcp();
 #else
@@ -535,10 +540,12 @@ QString Core::mcpStatus() const
     return i18n("MCP API is not included in this build.");
 }
 
-QString Core::mcpClientConfiguration() const
+QString Core::mcpClientConfiguration(McpClientFormat format) const
 {
 #ifdef KDENLIVE_MCP_API
-    if (m_mcpServer) return m_mcpServer->clientConfiguration();
+    if (m_mcpServer) return m_mcpServer->clientConfiguration(format);
+#else
+    Q_UNUSED(format)
 #endif
     return {};
 }

@@ -12,6 +12,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "filefilter.h"
 #include "kdenlivesettings.h"
 #include "mainwindow.h"
+#include "mcp/mcpserver.h"
 #include "monitor/monitor.h"
 #include "pluginssettings.h"
 #include "profiles/profilemodel.hpp"
@@ -202,18 +203,38 @@ void KdenliveSettingsDialog::initMcpPage()
     if (!pCore->mcpAvailable()) return;
     auto *page = new QWidget;
     auto *layout = new QFormLayout(page);
-    auto *explanation = new QLabel(i18n("Connect an MCP client directly to this Kdenlive instance. The API listens on this computer only. Open and save a "
-                                        "project before editing; changes appear in the timeline and share Undo history."),
+    auto *explanation = new QLabel(i18n("Connect an MCP client, such as Claude Code, Codex or Cursor, to this Kdenlive instance. Open and save a project "
+                                        "before editing; changes appear in the timeline and share Undo history."),
                                    page);
     explanation->setWordWrap(true);
     layout->addRow(explanation);
-    auto *enabled = new QCheckBox(i18n("Enable local MCP API"), page);
+    auto *enabled = new QCheckBox(i18n("Enable MCP API"), page);
     enabled->setObjectName(QStringLiteral("kcfg_mcpEnabled"));
     layout->addRow(enabled);
     auto *port = new QSpinBox(page);
     port->setObjectName(QStringLiteral("kcfg_mcpPort"));
     port->setRange(1024, 65535);
     layout->addRow(i18n("Port:"), port);
+    auto *network = new QCheckBox(i18n("Accept connections from other devices on the network"), page);
+    network->setObjectName(QStringLiteral("kcfg_mcpNetwork"));
+    layout->addRow(network);
+    auto *networkWarning = new QLabel(i18n("Traffic is not encrypted and anyone with the access token can edit your project. Only use this on trusted "
+                                           "networks; for remote access, use an SSH tunnel or an HTTPS reverse proxy."),
+                                      page);
+    networkWarning->setWordWrap(true);
+    layout->addRow(networkWarning);
+    auto *requireToken = new QCheckBox(i18n("Require access token"), page);
+    requireToken->setObjectName(QStringLiteral("kcfg_mcpRequireToken"));
+    requireToken->setToolTip(i18n("Local connections are already limited to this computer and reject web pages. The token also blocks other users "
+                                  "and programs on it. Network connections always require the token."));
+    layout->addRow(requireToken);
+    const auto updateAccess = [network, networkWarning, requireToken] {
+        networkWarning->setVisible(network->isChecked());
+        if (network->isChecked()) requireToken->setChecked(true);
+        requireToken->setEnabled(!network->isChecked());
+    };
+    connect(network, &QCheckBox::toggled, page, updateAccess);
+    updateAccess();
     auto *mediaRoot = new KUrlRequester(page);
     mediaRoot->setObjectName(QStringLiteral("kcfg_mcpMediaRoot"));
     mediaRoot->setMode(KFile::Directory | KFile::ExistingOnly | KFile::LocalOnly);
@@ -228,18 +249,30 @@ void KdenliveSettingsDialog::initMcpPage()
     status->setWordWrap(true);
     status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addRow(i18n("Status:"), status);
-    auto *copy = new QPushButton(i18n("Copy Codex Configuration"), page);
-    copy->setEnabled(!pCore->mcpClientConfiguration().isEmpty());
-    layout->addRow(copy);
+    auto *format = new QComboBox(page);
+    format->addItem(i18n("Generic JSON (mcpServers)"), int(McpClientFormat::Generic));
+    format->addItem(i18n("Claude Code command"), int(McpClientFormat::ClaudeCode));
+    format->addItem(i18n("Codex (config.toml)"), int(McpClientFormat::Codex));
+    format->addItem(i18n("URL and header"), int(McpClientFormat::Plain));
+    auto *copy = new QPushButton(QIcon::fromTheme(QStringLiteral("edit-copy")), i18n("Copy"), page);
+    copy->setToolTip(i18n("Copy the connection settings of the running server, including the access token when one is required."));
+    auto *clientRow = new QHBoxLayout;
+    clientRow->addWidget(format, 1);
+    clientRow->addWidget(copy);
+    layout->addRow(i18n("Client configuration:"), clientRow);
+    const auto currentFormat = [format] { return McpClientFormat(format->currentData().toInt()); };
+    copy->setEnabled(!pCore->mcpClientConfiguration(currentFormat()).isEmpty());
     auto *rotate = new QPushButton(i18n("Regenerate Access Token"), page);
     rotate->setToolTip(i18n("Existing clients must use the new configuration after token regeneration."));
     layout->addRow(rotate);
-    connect(pCore.get(), &Core::mcpStatusChanged, page, [status, copy](const QString &value) {
+    rotate->setEnabled(requireToken->isChecked());
+    connect(requireToken, &QCheckBox::toggled, rotate, &QPushButton::setEnabled);
+    connect(pCore.get(), &Core::mcpStatusChanged, page, [status, copy, currentFormat](const QString &value) {
         status->setText(value);
-        copy->setEnabled(!pCore->mcpClientConfiguration().isEmpty());
+        copy->setEnabled(!pCore->mcpClientConfiguration(currentFormat()).isEmpty());
     });
-    connect(copy, &QPushButton::clicked, page, [] {
-        const auto configuration = pCore->mcpClientConfiguration();
+    connect(copy, &QPushButton::clicked, page, [currentFormat] {
+        const auto configuration = pCore->mcpClientConfiguration(currentFormat());
         if (!configuration.isEmpty()) QGuiApplication::clipboard()->setText(configuration);
     });
     connect(rotate, &QPushButton::clicked, page, [] { pCore->rotateMcpToken(); });
