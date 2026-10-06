@@ -2,7 +2,7 @@
 // npm ci --prefix tests/mcp
 // KDENLIVE_BINARY=/path/to/install/bin/kdenlive node tests/mcp/acceptance.mjs
 // Set LD_LIBRARY_PATH for any privately installed Qt HTTP modules.
-// Requires ffmpeg. Uses only a generated disposable project, with D-Bus disabled.
+// Requires ffmpeg and a desktop session. Edits a disposable project with the legacy D-Bus editing bridge disabled.
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -40,7 +40,6 @@ let editor, log, client, transport, state;
 const timings = [];
 const env = {
   ...process.env, KDENLIVE_MCP_BRIDGE: '0',
-  DBUS_SESSION_BUS_ADDRESS: `unix:path=${temporary}/no-session-bus`,
   XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'), XDG_CACHE_HOME: join(root, 'cache'),
   XDG_DATA_DIRS: `${resolve(dirname(binary), '../share')}:/usr/local/share:/usr/share`, TMPDIR: temporary,
   QT_QPA_PLATFORM: 'offscreen', QT_QPA_PLATFORMTHEME: '', QT_STYLE_OVERRIDE: 'Fusion', QT_QUICK_BACKEND: 'software',

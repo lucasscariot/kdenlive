@@ -6,8 +6,8 @@ MCP client directly without running the companion TypeScript server.
 - [x] Ground: trace the live editing engine, application lifecycle, and settings.
 - [x] Sketch: compare native MCP transport and settings designs.
 - [x] Agree: select the design autonomously; no approval checkpoint requested.
-- [ ] Implement: protocol, settings, native tools, acceptance checks, installation.
-- [ ] Scrap review: reconsider the design if implementation exposes an ownership problem.
+- [x] Implement: protocol, settings, native tools, acceptance checks, installation.
+- [x] Scrap review: retain one editing engine and a thin HTTP transport.
 
 Design comparison stages: frame, independent candidates, cross-judge, pick,
 graft, verify. The rubric is a direct SDK connection, one native editing engine,
@@ -66,3 +66,30 @@ save/reopen, auth, malformed requests, path containment, port changes and shutdo
 Sources: [MCP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
 [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
 [Qt HTTP limits](https://doc.qt.io/qt-6.11/qhttpserverconfiguration.html).
+
+## Verification, 2026-10-06
+
+- Full editor build and user installation passed with Qt 6.11.2.
+- Protocol tests passed with Kdenlive's strict Qt definitions: authentication,
+  browser-origin rejection, lifecycle, malformed/oversized requests, port
+  conflicts and changes, token rotation, disabling, and session invalidation.
+- The MCP SDK connected directly to the native editor and made 56 tool calls.
+  The test inserted, moved, trimmed and removed clips; imported, removed and
+  replaced media; checked native Undo/Redo, fades, track naming, retry receipts,
+  stale revisions, source-file retention, path/symlink rejection, and save/reopen.
+- The acceptance editor had the legacy D-Bus editing bridge disabled. The Linux
+  application build itself still uses the ordinary desktop session bus.
+- Feature-off and API-on/D-Bus-off CMake configurations passed. These alternative
+  configurations were not separately compiled in full.
+- The installed copy resolved both optional Qt libraries from its private
+  installation. A direct HTTP client verified the user's reopened film against
+  its pre-upgrade snapshot. Timeline content and effects matched, with no unsaved
+  changes. The settings page displayed the enabled endpoint and configured port.
+- Codex parsed the new connection as `streamable_http` with authorization.
+  Existing client sessions must reconnect to replace their cached tool catalog.
+
+The review found one ownership correction: path policy must run after receipt
+lookup, so retrying an already applied replacement still succeeds after its
+temporary source bin item has been removed. `LiveBridge::applyAuthorized` keeps
+that ordering inside the single editing engine. The HTTP layer contains no
+timeline mutation logic. The SDK is a test dependency only.
