@@ -4,12 +4,16 @@
 */
 #include "livebridge.h"
 
+#include "bin/bin.h"
+#include "bin/clipcreator.hpp"
 #include "bin/projectclip.h"
 #include "bin/projectitemmodel.h"
 #include "core.h"
 #include "doc/docundostack.hpp"
 #include "doc/kdenlivedoc.h"
+#include "effects/effectstack/model/effectstackmodel.hpp"
 #include "mainwindow.h"
+#include "project/projectmanager.h"
 #include "timeline2/model/timelineitemmodel.hpp"
 #include "timeline2/view/timelinewidget.h"
 
@@ -17,6 +21,7 @@
 #include <QCryptographicHash>
 #include <QDBusConnection>
 #include <QDBusError>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -73,7 +78,8 @@ QString LiveBridge::capabilities() const
     return json({{"ok", true},
                  {"protocolVersion", 1},
                  {"transport", "session-dbus"},
-                 {"operations", QJsonArray{"insert", "move", "trim", "undo", "redo"}},
+                 {"operations", QJsonArray{"import", "remove_asset", "remove_clip", "replace_media", "audio_envelope", "rename_track", "save", "insert", "move",
+                                           "trim", "undo", "redo"}},
                  {"insertModes", QJsonArray{"video", "audio"}},
                  {"frameRanges", "sourceOut is exclusive; frames use project FPS"},
                  {"stateScope", "active sequence tracks, clips and project bin; not a full project interchange format"},
@@ -164,6 +170,7 @@ QJsonObject LiveBridge::snapshot() const
                                      {"sourceIn", range.first},
                                      {"sourceOut", range.second + 1},
                                      {"speed", m_timeline->getClipSpeed(id)},
+                                     {"effectCount", m_timeline->getClipEffectStackModel(id)->rowCount()},
                                      {"grouped", m_timeline->isInGroup(id)}});
         }
         tracks.append(QJsonObject{{"id", trackId},
@@ -175,9 +182,17 @@ QJsonObject LiveBridge::snapshot() const
     QJsonArray bin;
     for (const auto &id : pCore->projectItemModel()->getAllClipIds()) {
         auto clip = pCore->projectItemModel()->getClipByBinID(id);
-        if (clip)
-            bin.append(QJsonObject{
-                {"id", id}, {"name", clip->clipName()}, {"url", clip->url()}, {"ready", clip->statusReady()}, {"duration", qint64(clip->frameDuration())}});
+        if (clip) {
+            const bool ready = clip->statusReady();
+            // A loading producer holds its write lock until its GUI-thread completion.
+            // Reading its duration here would prevent that completion from running.
+            bin.append(QJsonObject{{"id", id},
+                                   {"name", clip->clipName()},
+                                   {"url", clip->url()},
+                                   {"ready", ready},
+                                   {"inUse", clip->isIncludedInTimeline()},
+                                   {"duration", ready ? QJsonValue(qint64(clip->frameDuration())) : QJsonValue::Null}});
+        }
     }
     auto stack = m_document->commandStack();
     auto &profile = pCore->getProjectProfile();
@@ -260,6 +275,132 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
     const QString type = command.value(QStringLiteral("type")).toString();
     const auto invalid = [] { return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("Invalid command fields or frame range.")); };
     auto stack = m_document->commandStack();
+    if (type == QLatin1String("remove_asset")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId")})) return invalid();
+        const QString id = command.value(QStringLiteral("binId")).toString();
+        if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(id).hasMatch()) return invalid();
+        auto clip = pCore->projectItemModel()->getClipByBinID(id);
+        if (!clip || !clip->statusReady()) return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is missing or still loading."));
+        if (clip->clipType() == ClipType::Timeline)
+            return error(QStringLiteral("SEQUENCE_PROTECTED"), QStringLiteral("This command removes media assets, not sequences."));
+        if (clip->isIncludedInTimeline())
+            return error(QStringLiteral("ASSET_IN_USE"), QStringLiteral("Remove timeline instances first. The asset is still used in a sequence."));
+        Fun undo = [] { return true; };
+        Fun redo = [] { return true; };
+        if (!pCore->projectItemModel()->requestBinClipDeletion(clip, undo, redo))
+            return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native asset removal was rejected."));
+        pCore->pushUndo(undo, redo, QStringLiteral("Remove media asset"));
+        return {{"ok", true}};
+    }
+    if (type == QLatin1String("remove_clip")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId")}) || !integer(command, QStringLiteral("clipId"))) return invalid();
+        const int id = command.value(QStringLiteral("clipId")).toInt();
+        if (!m_timeline->isClip(id)) return error(QStringLiteral("UNKNOWN_CLIP"), QStringLiteral("Timeline clip does not exist."));
+        if (m_timeline->isInGroup(id)) return error(QStringLiteral("GROUPED_CLIP"), QStringLiteral("Ungroup the clip before removing it individually."));
+        const int track = m_timeline->getClipTrackId(id);
+        if (m_timeline->data(m_timeline->makeTrackIndexFromID(track), TimelineModel::IsLockedRole).toBool())
+            return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Track is locked."));
+        if (!m_timeline->requestItemDeletion(id, true)) return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native clip removal was rejected."));
+        return {{"ok", true}};
+    }
+    if (type == QLatin1String("rename_track")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("trackId"), QStringLiteral("name")}) || !integer(command, QStringLiteral("trackId")) ||
+            !command.value(QStringLiteral("name")).isString())
+            return invalid();
+        const int id = command.value(QStringLiteral("trackId")).toInt();
+        const QString name = command.value(QStringLiteral("name")).toString();
+        if (!m_timeline->isTrack(id)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
+        if (name.trimmed().isEmpty() || name.size() > 256) return invalid();
+        m_timeline->setTrackName(id, name);
+        return {{"ok", true}};
+    }
+    if (type == QLatin1String("audio_envelope")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("fadeIn"), QStringLiteral("fadeOut"), QStringLiteral("gainDb")}) ||
+            !integer(command, QStringLiteral("clipId")) || !integer(command, QStringLiteral("fadeIn")) || !integer(command, QStringLiteral("fadeOut")))
+            return invalid();
+        const int id = command.value(QStringLiteral("clipId")).toInt();
+        if (!m_timeline->isClip(id)) return error(QStringLiteral("UNKNOWN_CLIP"), QStringLiteral("Timeline clip does not exist."));
+        const int trackId = m_timeline->getClipTrackId(id);
+        if (!m_timeline->isAudioTrack(trackId))
+            return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Audio envelope requires a clip on an audio track."));
+        if (m_timeline->data(m_timeline->makeTrackIndexFromID(trackId), TimelineModel::IsLockedRole).toBool())
+            return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Track is locked."));
+        const auto gain = command.value(QStringLiteral("gainDb"));
+        if (!gain.isDouble() || !std::isfinite(gain.toDouble()) || gain.toDouble() < -60 || gain.toDouble() > 0) return invalid();
+        const int fadeIn = command.value(QStringLiteral("fadeIn")).toInt();
+        const int fadeOut = command.value(QStringLiteral("fadeOut")).toInt();
+        if (qint64(fadeIn) + fadeOut >= m_timeline->getClipPlaytime(id)) return invalid();
+        auto effects = m_timeline->getClipEffectStackModel(id);
+        if (effects->hasFilter(QStringLiteral("volume")))
+            return error(QStringLiteral("EFFECT_EXISTS"), QStringLiteral("Clip already has a volume effect; undo it before adding a new envelope."));
+        const auto range = m_timeline->getClipInOut(id);
+        const QString gainText = QString::number(gain.toDouble(), 'g', 15);
+        QStringList levels;
+        if (fadeIn > 0) levels << QStringLiteral("%1=-60").arg(range.first);
+        levels << QStringLiteral("%1=%2").arg(range.first + fadeIn).arg(gainText);
+        if (fadeOut > 0) {
+            levels << QStringLiteral("%1=%2").arg(range.second - fadeOut).arg(gainText);
+            levels << QStringLiteral("%1=-60").arg(range.second);
+        }
+        if (!effects->appendEffect(QStringLiteral("volume"), false, {{QStringLiteral("level"), levels.join(QLatin1Char(';'))}}))
+            return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native audio envelope was rejected."));
+        return {{"ok", true}, {"clipId", id}};
+    }
+    if (type == QLatin1String("import")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("path")})) return invalid();
+        const QFileInfo file(command.value(QStringLiteral("path")).toString());
+        if (!file.isAbsolute() || !file.isFile() || !file.isReadable())
+            return error(QStringLiteral("INVALID_MEDIA"), QStringLiteral("Import requires a readable absolute local file path."));
+        auto model = pCore->projectItemModel();
+        const QString path = file.canonicalFilePath();
+        if (path == QFileInfo(m_document->url().toLocalFile()).canonicalFilePath())
+            return error(QStringLiteral("INVALID_MEDIA"), QStringLiteral("A project cannot import itself."));
+        const auto existing = model->getClipByUrl(QFileInfo(path));
+        if (!existing.isEmpty()) return {{"ok", true}, {"binId", existing.first()}, {"existing", true}};
+        Fun undo = [] { return true; };
+        Fun redo = [] { return true; };
+        const QString id = ClipCreator::createClipFromFile(path, QStringLiteral("-1"), model, undo, redo);
+        if (id == QLatin1String("-1")) return error(QStringLiteral("IMPORT_REJECTED"), QStringLiteral("Native media import rejected the file."));
+        pCore->pushUndo(undo, redo, QStringLiteral("Import media"));
+        return {{"ok", true}, {"binId", id}, {"existing", false}};
+    }
+    if (type == QLatin1String("replace_media")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("replacementBinId")})) return invalid();
+        const auto binId = command.value(QStringLiteral("binId")).toString();
+        const auto replacementId = command.value(QStringLiteral("replacementBinId")).toString();
+        if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() ||
+            !QRegularExpression(QStringLiteral("^[0-9]+$")).match(replacementId).hasMatch())
+            return invalid();
+        auto original = pCore->projectItemModel()->getClipByBinID(binId);
+        auto replacement = pCore->projectItemModel()->getClipByBinID(replacementId);
+        if (!original || !replacement || !original->statusReady() || !replacement->statusReady())
+            return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Both bin clips must be loaded before replacement."));
+        const QFileInfo file(replacement->url());
+        if (!file.isAbsolute() || !file.isFile() || !file.isReadable() || !original->hasLimitedDuration() || !replacement->hasLimitedDuration() ||
+            original->hasAudio() != replacement->hasAudio() || original->hasVideo() != replacement->hasVideo())
+            return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Replacement requires local media with matching audio/video streams."));
+        // Native Replace Clip otherwise prompts for shorter media. Reject before invoking it.
+        if (replacement->frameDuration() < original->frameDuration())
+            return error(QStringLiteral("MEDIA_TOO_SHORT"), QStringLiteral("Replacement must cover the original media duration."));
+        if (binId == replacementId || original->url() == replacement->url()) return {{"ok", true}, {"binId", binId}};
+        const int before = stack->index();
+        pCore->bin()->replaceSingleClip(binId, file.canonicalFilePath());
+        if (stack->index() == before) return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native media replacement was rejected."));
+        return {{"ok", true}, {"binId", binId}};
+    }
+    if (type == QLatin1String("save")) {
+        if (!keys(command, {QStringLiteral("type")})) return invalid();
+        const QFileInfo file(m_document->url().toLocalFile());
+        if (!m_document->url().isLocalFile() || !file.isFile() || !file.isWritable())
+            return error(QStringLiteral("SAVE_REQUIRED"), QStringLiteral("Save the project to a writable local file first."));
+        for (const auto &id : pCore->projectItemModel()->getAllClipIds()) {
+            auto clip = pCore->projectItemModel()->getClipByBinID(id);
+            if (clip && !clip->statusReady())
+                return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Wait for bin media to finish loading before saving."));
+        }
+        if (!pCore->projectManager()->saveFile()) return error(QStringLiteral("SAVE_FAILED"), QStringLiteral("Native project save failed."));
+        return {{"ok", true}};
+    }
     if (type == QLatin1String("undo") || type == QLatin1String("redo")) {
         if (!keys(command, {QStringLiteral("type")})) return invalid();
         const bool undo = type == QLatin1String("undo");
@@ -326,5 +467,5 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         }
         return {{"ok", true}, {"clipId", id}};
     }
-    return error(QStringLiteral("UNSUPPORTED_COMMAND"), QStringLiteral("Use insert, move, trim, undo or redo."));
+    return error(QStringLiteral("UNSUPPORTED_COMMAND"), QStringLiteral("Read capabilities() for supported commands."));
 }
