@@ -172,6 +172,9 @@ DocOpenResult KdenliveDoc::Open(const QUrl &url, const QString &projectFolder, Q
         return result;
     }
 
+    // Set default directory to project to ensure working relative paths
+    QDir::setCurrent(url.adjusted(QUrl::RemoveFilename).toLocalFile());
+
     QDomDocument domDoc{};
     QString domErrorMessage;
     if (recoverCorruption) {
@@ -1028,6 +1031,9 @@ void KdenliveDoc::setUrl(const QUrl &url)
     m_url = url;
     if (url.isEmpty()) {
         setModified(true);
+    } else {
+        // Set default directory to project to ensure working relative paths
+        QDir::setCurrent(url.adjusted(QUrl::RemoveFilename).toLocalFile());
     }
 }
 

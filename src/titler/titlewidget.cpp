@@ -2606,7 +2606,7 @@ void TitleWidget::showMissingItems()
                     if (m_remplacementPatterns.contains(currentUrl)) {
                         if (items.at(i)->type() == QGraphicsSvgItem::Type) {
                             auto *gi = static_cast<MySvgItem *>(items.at(i));
-                            QSvgRenderer *renderer = new QSvgRenderer(m_remplacementPatterns.value(currentUrl), this);
+                            QSvgRenderer *renderer = new QSvgRenderer(m_remplacementPatterns.value(currentUrl), gi);
                             gi->setSharedRenderer(renderer);
 
                         } else if (items.at(i)->type() == IMAGEITEM) {
