@@ -6,21 +6,41 @@ Node runtime or D-Bus bridge is required for live editing.
 ## Enable and connect
 
 1. Open **Settings → Configure Kdenlive → MCP API**.
-2. Enable the local API, choose a port, and click Apply. The default is 8765.
+2. Enable the API, choose a port, and click Apply. The default is 8765.
 3. Check that the status says `Listening on http://127.0.0.1:8765/mcp`.
-4. Click **Copy Codex configuration**, add it to your Codex configuration, and
-   reconnect the client. It includes the private authorization header.
+4. Pick your client's format under **Client configuration** and click **Copy**:
+   generic `mcpServers` JSON (Claude Desktop, Cursor and most clients), a
+   `claude mcp add` command for Claude Code, a Codex `config.toml` entry, or the
+   bare URL and header. Add it to your client and reconnect.
 5. Open and save a project in Kdenlive. MCP edits act on its visible sequence.
 
 Import files from the project's folder or set an additional media folder here.
 The API resolves symlinks before checking these folders. Existing project media
 stays usable. Removing a bin asset never deletes the original file.
 
-The server binds only to IPv4 localhost. It rejects browser origins and requires
-a random bearer token stored in the application's config directory as `mcp-token`
-with owner-only permissions. Regenerating the token disconnects clients; copy the
-new configuration afterwards. Changing ports or disabling the API also ends MCP
-connections. A busy port is reported in settings rather than silently replaced.
+## Access and security
+
+By default the server binds only to IPv4 localhost and needs no token. It
+rejects any request carrying an `Origin` header, so web pages cannot call it,
+and any `Host` other than `127.0.0.1` or `localhost`, which defeats DNS
+rebinding.
+
+**Require access token** additionally blocks other users and programs on the
+same computer. The random bearer token is stored in the application's config
+directory as `mcp-token` with owner-only permissions, and copied configurations
+include it.
+
+**Accept connections from other devices on the network** binds to all
+interfaces, always requires the token and accepts any `Host`. The status shows
+the LAN address that copied configurations use. Traffic is plain HTTP, so the
+token and project data are visible on the network: use it only on trusted
+networks. For remote access, use an SSH tunnel to the localhost port or an HTTPS
+reverse proxy instead.
+
+Regenerating the token disconnects clients; copy the new configuration
+afterwards. Changing the port or access settings, or disabling the API, also
+ends MCP connections. A busy port is reported in settings rather than silently
+replaced.
 
 ## Available tools
 
@@ -86,7 +106,7 @@ engine but does not need the legacy adapter enabled.
 
 The protocol tests can also build separately with `cmake -S tests/mcp -B
 mcp-test-build`. They cover authentication, origin rejection, JSON-RPC lifecycle,
-request limits, token rotation, port conflicts, reconfiguration and shutdown.
+request limits, optional and network token checks, client configuration formats, token rotation, port conflicts, reconfiguration and shutdown.
 
 The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable editor
 and exercises native operations through HTTP. Node and the MCP SDK are test-only

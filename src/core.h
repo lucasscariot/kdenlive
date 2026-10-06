@@ -37,6 +37,7 @@ class KdenliveDoc;
 class LibraryWidget;
 class MainWindow;
 class McpServer;
+enum class McpClientFormat;
 class MediaCapture;
 class MediaBrowser;
 class MixerManager;
@@ -81,7 +82,7 @@ class /*KDENLIVECORE_EXPORT*/ Core : public QObject
 public:
     bool mcpAvailable() const;
     QString mcpStatus() const;
-    QString mcpClientConfiguration() const;
+    QString mcpClientConfiguration(McpClientFormat format) const;
     void rotateMcpToken();
     friend class KdenliveDoc;
     friend class ProjectManager;
