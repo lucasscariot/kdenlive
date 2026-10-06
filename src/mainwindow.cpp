@@ -71,6 +71,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "titler/titlewidget.h"
 #include "transitions/transitionlist/view/transitionlistwidget.hpp"
 #include "transitions/transitionsrepository.hpp"
+#include "utils/legiblestyle.h"
 #include "widgets/progressbutton.h"
 #include <config-kdenlive.h>
 
@@ -569,6 +570,7 @@ void MainWindow::init()
 
     // Render button
     ProgressButton *timelineRender = new ProgressButton(i18n("Render…"), 100, this);
+    timelineRender->setPrimary(true);
     auto *tlrMenu = new QMenu(this);
     timelineRender->setMenu(tlrMenu);
     connect(this, &MainWindow::setRenderProgress, timelineRender, &ProgressButton::setProgress);
@@ -3753,7 +3755,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *event)
         for (KDDockWidgets::Core::Group *group : KDDockWidgets::DockRegistry::self()->groups()) {
             auto tab_bar = static_cast<KDDockWidgets::QtWidgets::TabBar *>(group->tabBar()->view());
             if (QProxyStyle *style = qobject_cast<QProxyStyle *>(tab_bar->style())) {
-                style->setBaseStyle(QStyleFactory::create(qApp->style()->name()));
+                style->setBaseStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
                 tab_bar->setPalette(qApp->palette());
             }
         }

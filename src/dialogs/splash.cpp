@@ -149,7 +149,14 @@ void Splash::setReady()
 
 void Splash::switchPalette(bool dark)
 {
-    KColorSchemeManager::instance()->activateSchemeId(dark ? QStringLiteral("BreezeDark") : QString());
+    KColorSchemeManager *manager = KColorSchemeManager::instance();
+    if (!dark) {
+        manager->activateSchemeId(QString());
+        return;
+    }
+    // Prefer the scheme shipped with Kdenlive, tuned for video editing; it may be missing from custom installs
+    const QString kdenliveDark = QStringLiteral("KdenliveDark");
+    manager->activateSchemeId(manager->indexForSchemeId(kdenliveDark).isValid() ? kdenliveDark : QStringLiteral("BreezeDark"));
 }
 
 void Splash::showProgressMessage(const QString &message, int)

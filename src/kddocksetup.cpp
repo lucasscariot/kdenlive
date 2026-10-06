@@ -7,6 +7,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "kddocksetup.h"
 #include "core.h"
 #include "kdenlivesettings.h"
+#include "utils/legiblestyle.h"
 
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -17,6 +18,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QPainter>
 #include <QProxyStyle>
 #include <QStyleFactory>
+#include <QStyleOptionTab>
 
 #include <functional>
 
@@ -80,6 +82,72 @@ private:
     std::function<bool(const QMimeData*)> m_mimeHandler;
 };
 
+/** @brief Flat dock tabs: dimmed inactive labels, subtle hover, accent underline on the current tab */
+class DockTabStyle : public QProxyStyle
+{
+public:
+    using QProxyStyle::QProxyStyle;
+
+    int styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *returnData) const override
+    {
+        // Same as the KDDockWidgets style we replace: animations glitch while dragging tabs
+        if (hint == QStyle::SH_Widget_Animation_Duration) {
+            return 0;
+        }
+        return QProxyStyle::styleHint(hint, option, widget, returnData);
+    }
+
+    QSize sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &size, const QWidget *widget) const override
+    {
+        QSize s = QProxyStyle::sizeFromContents(type, option, size, widget);
+        if (type == CT_TabBarTab) {
+            s.rwidth() += 8;
+        }
+        return s;
+    }
+
+    void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override
+    {
+        if (element == PE_FrameTabBarBase) {
+            return;
+        }
+        QProxyStyle::drawPrimitive(element, option, painter, widget);
+    }
+
+    void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override
+    {
+        const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option);
+        if (!tab) {
+            QProxyStyle::drawControl(element, option, painter, widget);
+            return;
+        }
+        const bool selected = tab->state & State_Selected;
+        if (element == CE_TabBarTabShape) {
+            const QRect r = tab->rect;
+            if (selected) {
+                painter->fillRect(r, tab->palette.base());
+                const bool atBottom = tab->shape == QTabBar::RoundedSouth || tab->shape == QTabBar::TriangularSouth;
+                const QRect line = atBottom ? QRect(r.left(), r.top(), r.width(), 2) : QRect(r.left(), r.bottom() - 1, r.width(), 2);
+                painter->fillRect(line, tab->palette.highlight());
+            } else if (tab->state & State_MouseOver) {
+                QColor hover = tab->palette.windowText().color();
+                hover.setAlpha(20);
+                painter->fillRect(r, hover);
+            }
+            return;
+        }
+        if (element == CE_TabBarTabLabel && !selected) {
+            QStyleOptionTab dimmed(*tab);
+            QColor text = tab->palette.windowText().color();
+            text.setAlphaF(0.6);
+            dimmed.palette.setColor(QPalette::WindowText, text);
+            QProxyStyle::drawControl(element, &dimmed, painter, widget);
+            return;
+        }
+        QProxyStyle::drawControl(element, option, painter, widget);
+    }
+};
+
 class KdenliveDockTabBar : public KDDockWidgets::QtWidgets::TabBar
 {
 public:
@@ -95,8 +163,11 @@ public:
         // that ends up taking ownership of the style for the entire application!
         if (QProxyStyle *proxy_style = qobject_cast<QProxyStyle *>(style())) {
             proxy_style->baseStyle()->setParent(qApp);
-            proxy_style->setBaseStyle(QStyleFactory::create(qApp->style()->name()));
+            proxy_style->setBaseStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
         }
+        auto *tabStyle = new DockTabStyle(QStyleFactory::create(LegibleFusionStyle::factoryKey(qApp->style())));
+        tabStyle->setParent(this);
+        setStyle(tabStyle);
         setPalette(qApp->palette());
 
         connect(this, &QWidget::customContextMenuRequested, []() { Q_EMIT pCore.get()->switchTitleBars(); });

@@ -266,12 +266,15 @@ Rectangle {
         Label {
             id: trackLed
             property color bgColor: Qt.darker(trackHeadRoot.color, 0.55)
+            property color borderColor: 'transparent'
             anchors.left: expandButton.right
             font: K.UiUtils.smallestReadableFont
             text: trackHeadRoot.trackTag
             color: activePalette.text
             background: Rectangle {
                 color: trackLed.bgColor
+                border.color: trackLed.borderColor
+                radius: 3
             }
             width: trackHeadRoot.trackTagWidth
             height: trackHeadRoot.collapsedHeight - 2
@@ -298,22 +301,26 @@ Rectangle {
                     name: 'locked'
                     when: trackHeadRoot.isLocked
                     PropertyChanges {
-                        trackLed.bgColor: 'red'
+                        trackLed.bgColor: Qt.rgba(timeline.lockedColor.r, timeline.lockedColor.g, timeline.lockedColor.b, 0.3)
+                        trackLed.borderColor: timeline.lockedColor
                     }
                 },
                 State {
                     name: 'active'
                     when: trackHeadRoot.isActive
                     PropertyChanges {
-                        trackLed.bgColor: timeline.targetColor
-                        trackLed.color: timeline.targetTextColor
+                        trackLed.bgColor: Qt.rgba(timeline.targetColor.r, timeline.targetColor.g, timeline.targetColor.b, 0.25)
+                        trackLed.borderColor: timeline.targetColor
+                        trackLed.color: activePalette.text
                     }
                 },
                 State {
                     name: 'inactive'
                     when: !trackHeadRoot.isLocked && !trackHeadRoot.isActive
                     PropertyChanges {
-                        trackLed.bgColor: Qt.darker(trackHeadRoot.color, 0.55)
+                        trackLed.bgColor: 'transparent'
+                        trackLed.borderColor: Qt.rgba(activePalette.text.r, activePalette.text.g, activePalette.text.b, 0.25)
+                        trackLed.opacity: 0.7
                     }
                 }
             ]
@@ -368,6 +375,7 @@ Rectangle {
                 enabled: trackHeadRoot.effectNames != ''
                 checkable: true
                 checked: enabled && trackHeadRoot.isStackEnabled
+                opacity: hovered || checked ? 1 : 0.5
                 onClicked: {
                     trackHeadRoot.timeline.showTrackAsset(trackHeadRoot.trackId)
                     trackHeadRoot.controller.setTrackStackEnabled(trackHeadRoot.trackId, !trackHeadRoot.isStackEnabled)
@@ -389,6 +397,7 @@ Rectangle {
                                    : (trackHeadRoot.isDisabled ? "kdenlive-hide-video" : "kdenlive-show-video")
                 width: trackHeadRoot.collapsedHeight
                 height: trackHeadRoot.collapsedHeight
+                opacity: hovered || trackHeadRoot.isDisabled ? 1 : 0.5
                 onClicked: trackHeadRoot.timeline.hideTrack(trackHeadRoot.trackId, trackHeadRoot.isDisabled, modifier & Qt.ShiftModifier)
                 MouseArea {
                     // Used to pass modifier state to expand button
@@ -420,6 +429,7 @@ Rectangle {
                 height: trackHeadRoot.collapsedHeight
                 focusPolicy: Qt.NoFocus
                 icon.name: trackHeadRoot.isLocked ? "lock" : "unlock"
+                opacity: hovered || trackHeadRoot.isLocked ? 1 : 0.5
                 onClicked: trackHeadRoot.controller.setTrackLockedState(trackHeadRoot.trackId, !trackHeadRoot.isLocked)
                 ToolTip {
                     visible: lockButton.hovered

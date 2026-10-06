@@ -10,6 +10,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <KLocalizedString>
 #include <QAction>
 #include <QPainter>
+#include <QStylePainter>
 
 ProgressButton::ProgressButton(const QString &text, double max, QWidget *parent)
     : QToolButton(parent)
@@ -87,6 +88,27 @@ void ProgressButton::setProgress(int progress)
     }
 }
 
+void ProgressButton::setPrimary(bool primary)
+{
+    m_primary = primary;
+    updateGeometry();
+    update();
+}
+
+QSize ProgressButton::sizeHint() const
+{
+    QSize size = QToolButton::sizeHint();
+    if (m_primary) {
+        // The toolbar may size us as icon only, but the primary look shows the bold label
+        QFont bold = font();
+        bold.setBold(true);
+        const int labelWidth = QFontMetrics(bold).horizontalAdvance(text()) + style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) +
+                               4 * style()->pixelMetric(QStyle::PM_ButtonMargin, nullptr, this);
+        size.setWidth(qMax(size.width(), labelWidth));
+    }
+    return size;
+}
+
 int ProgressButton::progress() const
 {
     return m_progress;
@@ -94,6 +116,35 @@ int ProgressButton::progress() const
 
 void ProgressButton::paintEvent(QPaintEvent *event)
 {
+    if (m_primary && m_progress >= m_iconSize) {
+        QStylePainter painter(this);
+        QStyleOptionToolButton opt;
+        initStyleOption(&opt);
+        QColor bg = palette().highlight().color();
+        if (!isEnabled()) {
+            bg.setAlphaF(0.35);
+        } else if (opt.state & QStyle::State_Sunken) {
+            bg = bg.darker(115);
+        } else if (opt.state & QStyle::State_MouseOver) {
+            bg = bg.lighter(112);
+        }
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(bg);
+        painter.drawRoundedRect(QRectF(rect()).adjusted(1, 3, -1, -3), 4, 4);
+        // Let the style draw label and menu arrow only, on top of our background
+        opt.state &= ~(QStyle::State_MouseOver | QStyle::State_Sunken | QStyle::State_On | QStyle::State_Raised);
+        opt.state |= QStyle::State_AutoRaise;
+        opt.toolButtonStyle = Qt::ToolButtonTextOnly;
+        opt.font.setBold(true);
+        painter.setFont(opt.font);
+        const QColor fg = palette().highlightedText().color();
+        opt.palette.setColor(QPalette::ButtonText, fg);
+        opt.palette.setColor(QPalette::WindowText, fg);
+        opt.palette.setColor(QPalette::Text, fg);
+        painter.drawComplexControl(QStyle::CC_ToolButton, opt);
+        return;
+    }
     QToolButton::paintEvent(event);
     if (m_progress < m_iconSize) {
         QPainter painter(this);

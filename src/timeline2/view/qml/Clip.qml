@@ -1415,22 +1415,43 @@ Rectangle {
                     // Clip name background
                     id: labelRect
                     color: clipRoot.selected ? (clipRoot.isMainItem ? '#FFCC0000' : '#FF800000') : '#66000000'
-                    width: label.width + (2 * itemBorder.border.width)
+                    width: label.x + label.width + itemBorder.border.width + 2
                     height: label.height
                     visible: clipRoot.width > K.UiUtils.baseSizeMedium
                     anchors.left: debugCidRect.visible ? debugCidRect.right : parent.left
                     anchors.leftMargin: clipRoot.timeremap ? labelRect.height : 0
+                    Rectangle {
+                        // Speed badge, only for clips not playing at normal speed
+                        id: speedBadge
+                        visible: clipRoot.speed != 1.0
+                        color: Qt.rgba(1, 1, 1, 0.22)
+                        radius: 2
+                        width: visible ? speedLabel.width + 6 : 0
+                        height: labelRect.height - 4
+                        anchors {
+                            left: labelRect.left
+                            leftMargin: visible ? itemBorder.border.width + 2 : 0
+                            verticalCenter: labelRect.verticalCenter
+                        }
+                        Text {
+                            id: speedLabel
+                            anchors.centerIn: parent
+                            text: Math.round(clipRoot.speed * 100) + '%'
+                            font: K.UiUtils.smallestReadableFont
+                            color: "#FFFFFF"
+                        }
+                    }
                     Text {
                         // Clip name text
                         id: label
                         property string clipNameString: (clipRoot.isAudio && clipRoot.multiStream) ? ((clipRoot.audioStream > 10000 ? 'Merged' : clipRoot.aStreamIndex) + '|' + clipRoot.clipName ) : clipRoot.clipName
-                        text: (clipRoot.speed != 1.0 ? ('[' + Math.round(clipRoot.speed*100) + '%] ') : '') + clipNameString
+                        text: clipNameString
                         font: K.UiUtils.smallestReadableFont
                         topPadding: -2
                         bottomPadding: -1
                         anchors {
-                            left: labelRect.left
-                            leftMargin: itemBorder.border.width
+                            left: speedBadge.right
+                            leftMargin: itemBorder.border.width + 2
                         }
                         color: "#FFFFFF"
                         //style: Text.Outline

@@ -168,9 +168,11 @@ Item {
                 // Range marker label (positioned at start)
                 Rectangle {
                     visible: K.KdenliveSettings.showmarkers && width < parent.width
-                    width: rangeLabel.contentWidth + 4 - guidesRepeater.radiusSize
+                    width: rangeLabel.contentWidth + 6 - guidesRepeater.radiusSize
                     height: rulerRoot.guideLabelHeight
-                    color: guideRoot.model.color
+                    // Tinted chip: the category color stays recognizable without overpowering the ruler
+                    property color chipColor: Qt.rgba(guideRoot.model.color.r, guideRoot.model.color.g, guideRoot.model.color.b, 0.45)
+                    color: K.KdenliveSettings.lockedGuides ? chipColor : 'transparent'
                     anchors {
                         top: parent.top
                         left: parent.left
@@ -181,19 +183,24 @@ Item {
                     ToolTip.timeout: 5000
                     Rectangle {
                         visible: !K.KdenliveSettings.lockedGuides
-                        color: guideRoot.model.color
+                        color: parent.chipColor
                         anchors.fill: parent
                         radius: guidesRepeater.radiusSize
                         anchors.rightMargin: -guidesRepeater.radiusSize - 2
+                    }
+                    Rectangle {
+                        width: 2
+                        height: parent.height
+                        color: guideRoot.model.color
                     }
                     Text {
                         id: rangeLabel
                         text: guideRoot.model.comment
                         topPadding: -1
-                        leftPadding: 2
+                        leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#000000'
+                        color: '#F2F2F2'
                     }
                 }
                 
@@ -440,9 +447,10 @@ Item {
                 
                 Rectangle {
                     visible: K.KdenliveSettings.showmarkers && !guideRoot.isRangeMarker
-                    width: mlabel.contentWidth + 4 - guidesRepeater.radiusSize
+                    width: mlabel.contentWidth + 6 - guidesRepeater.radiusSize
                     height: rulerRoot.guideLabelHeight
-                    color: markerBase.color
+                    property color chipColor: Qt.rgba(markerBase.color.r, markerBase.color.g, markerBase.color.b, 0.45)
+                    color: K.KdenliveSettings.lockedGuides ? chipColor : 'transparent'
                     anchors {
                         top: parent.top
                         left: parent.left
@@ -453,10 +461,15 @@ Item {
                     ToolTip.timeout: 5000
                     Rectangle {
                         visible: !K.KdenliveSettings.lockedGuides
-                        color: markerBase.color
+                        color: parent.chipColor
                         anchors.fill: parent
                         radius: guidesRepeater.radiusSize
                         anchors.rightMargin: -guidesRepeater.radiusSize - 2
+                    }
+                    Rectangle {
+                        width: 2
+                        height: parent.height
+                        color: markerBase.color
                     }
                     Rectangle {
                         // Shadow delimiting marker start
@@ -477,10 +490,10 @@ Item {
                         id: mlabel
                         text: guideRoot.model.comment
                         topPadding: -1
-                        leftPadding: 2
+                        leftPadding: 4
                         rightPadding: 2
                         font: K.UiUtils.smallestReadableFont
-                        color: '#000000'
+                        color: '#F2F2F2'
                     }
                     MouseArea {
                         z: 10
