@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Kdenlive contributors
+# SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+set -euo pipefail
+
+launcher=$(readlink -f -- "${BASH_SOURCE[0]}")
+live_prefix=$(cd -- "$(dirname -- "$launcher")/.." && pwd)
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/kdenlive-live"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/kdenlive-live"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}/kdenlive-live"
+export XDG_DATA_DIRS="$live_prefix/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+# The native HTTP API is controlled in Settings. Legacy D-Bus stays opt-in.
+export KDENLIVE_MCP_BRIDGE="${KDENLIVE_MCP_BRIDGE:-0}"
+# Optional Qt HTTP libraries are bundled here by install-user.sh.
+export LD_LIBRARY_PATH="$live_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
+exec "$live_prefix/bin/kdenlive" --desktopfile org.kde.kdenlive.live \
+  --config "$XDG_CONFIG_HOME/kdenliverc" "$@"

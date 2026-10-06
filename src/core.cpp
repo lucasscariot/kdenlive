@@ -16,6 +16,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "capture/mediacapture.h"
 #include "config-kdenlive.h"
 #include "core.h"
+#ifdef KDENLIVE_LIVE_BRIDGE
+#include "livebridge.h"
+#endif
 #include "dialogs/proxytest.h"
 #include "dialogs/splash.hpp"
 #include "dialogs/subtitleedit.h"
@@ -25,6 +28,10 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "doc/kdenlivedoc.h"
 #include "kdenlive_debug.h"
 #include "kdenlivesettings.h"
+#ifdef KDENLIVE_MCP_API
+#include "mcp/mcpserver.h"
+#include "mcp/mcptools.h"
+#endif
 #include "library/librarywidget.h"
 #include "mainwindow.h"
 #include "mltconnection.h"
@@ -93,6 +100,9 @@ void Core::updateHideBarsTimer(bool inhibit)
 
 void Core::prepareShutdown()
 {
+#ifdef KDENLIVE_MCP_API
+    if (m_mcpServer) m_mcpServer->stop();
+#endif
     m_guiConstructed = false;
     // m_mainWindow->getCurrentTimeline()->controller()->prepareClose();
     projectItemModel()->blockSignals(true);
@@ -486,11 +496,58 @@ void Core::initGUI(const QString &MltPath, const QUrl &Url, const QStringList &c
     connect(this, &Core::displayBinMessage, this, &Core::displayBinMessagePrivate);
     connect(this, &Core::displayBinLogMessage, this, &Core::displayBinLogMessagePrivate);
 
+#ifdef KDENLIVE_LIVE_BRIDGE
+#ifdef KDENLIVE_MCP_API
+    auto *engine = new LiveBridge(this);
+    const QString credential = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + QStringLiteral("/mcp-token");
+    m_mcpServer = new McpServer(
+        McpTools::definitions(),
+        [engine](const QString &name, const QJsonObject &arguments, const QString &root) { return McpTools::call(*engine, name, arguments, root); }, credential,
+        this);
+    connect(m_mcpServer, &McpServer::statusChanged, this, &Core::mcpStatusChanged);
+    const auto configureMcp = [this] { m_mcpServer->configure(KdenliveSettings::mcpEnabled(), KdenliveSettings::mcpPort(), KdenliveSettings::mcpMediaRoot()); };
+    connect(m_mainWindow, &MainWindow::configurationChanged, this, configureMcp);
+    configureMcp();
+#else
+    if (qEnvironmentVariableIntValue("KDENLIVE_MCP_BRIDGE") == 1) {
+        new LiveBridge(this);
+    }
+#endif
+#endif
+
     if (m_splash && (m_splash->hasEventLoop() || m_splash->welcomeDisplayed())) {
         Q_EMIT mainWindowReady();
     } else if (m_splash == nullptr || !m_splash->welcomeDisplayed()) {
         QMetaObject::invokeMethod(pCore->projectManager(), "slotLoadOnOpen", Qt::QueuedConnection);
     }
+}
+
+bool Core::mcpAvailable() const
+{
+    return m_mcpServer != nullptr;
+}
+
+QString Core::mcpStatus() const
+{
+#ifdef KDENLIVE_MCP_API
+    if (m_mcpServer) return m_mcpServer->status();
+#endif
+    return i18n("MCP API is not included in this build.");
+}
+
+QString Core::mcpClientConfiguration() const
+{
+#ifdef KDENLIVE_MCP_API
+    if (m_mcpServer) return m_mcpServer->clientConfiguration();
+#endif
+    return {};
+}
+
+void Core::rotateMcpToken()
+{
+#ifdef KDENLIVE_MCP_API
+    if (m_mcpServer) m_mcpServer->rotateToken();
+#endif
 }
 
 void Core::cleanRestart(bool cleanAndRestart)

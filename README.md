@@ -2,6 +2,12 @@
 
 # Kdenlive
 
+This fork includes an optional MCP HTTP server inside the editor. Enable it in
+Settings → Configure Kdenlive → MCP API and connect your MCP client directly.
+See the [native MCP build and setup guide](docs/native-mcp.md).
+The [legacy D-Bus bridge](docs/live-bridge.md) is also available as a build option.
+It is based on Kdenlive 26.08.1 and is an experimental community fork.
+
 Kdenlive is a powerful, free and open-source video editor that brings professional-grade video editing capabilities to everyone. Whether you're creating a simple family video or working on a complex project, Kdenlive provides the tools you need to bring your vision to life.
 
 For more information about Kdenlive's features, tutorials, and community, please visit our [official website](https://kdenlive.org).

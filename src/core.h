@@ -36,6 +36,7 @@ class EffectStackModel;
 class KdenliveDoc;
 class LibraryWidget;
 class MainWindow;
+class McpServer;
 class MediaCapture;
 class MediaBrowser;
 class MixerManager;
@@ -78,6 +79,10 @@ class /*KDENLIVECORE_EXPORT*/ Core : public QObject
     Q_PROPERTY(MediaCapture *audioCapture READ audioCapture CONSTANT)
 
 public:
+    bool mcpAvailable() const;
+    QString mcpStatus() const;
+    QString mcpClientConfiguration() const;
+    void rotateMcpToken();
     friend class KdenliveDoc;
     friend class ProjectManager;
     Core(const Core &) = delete;
@@ -387,6 +392,7 @@ public:
     const QStringList getLumasForProfile();
 
 private:
+    McpServer *m_mcpServer{nullptr};
     explicit Core(LinuxPackageType packageType, bool debugMode = false);
     static std::unique_ptr<Core> m_self;
 
@@ -493,6 +499,7 @@ private Q_SLOTS:
     void gotAudioDeviceMessage(const QString &message, KMessageWidget::MessageType mType);
 
 Q_SIGNALS:
+    void mcpStatusChanged(const QString &status);
     void coreIsReady();
     void updateLibraryPath();
     // void updateMonitorProfile();
