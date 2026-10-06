@@ -201,6 +201,12 @@ void KdenliveStyle::installIfFusion()
 {
     if (QApplication::style()->name().compare(QLatin1String("fusion"), Qt::CaseInsensitive) == 0) {
         QApplication::setStyle(new KdenliveStyle(QStyleFactory::create(QStringLiteral("fusion"))));
+        // Editing interfaces are dense: slightly smaller text leaves more room for the footage
+        QFont font = QApplication::font();
+        if (font.pointSizeF() > 0) {
+            font.setPointSizeF(font.pointSizeF() * 0.9);
+            QApplication::setFont(font);
+        }
     }
 }
 
@@ -294,6 +300,9 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
         break;
     case CT_ToolButton:
         s += QSize(4, 4);
+        if (widget && widget->property("_kdenlive_panel_toggle").toBool()) {
+            s.rwidth() += 12;
+        }
         break;
     case CT_ComboBox:
     case CT_LineEdit:
@@ -566,6 +575,17 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
     switch (element) {
     case CE_PushButtonBevel:
         if (const auto *button = qstyleoption_cast<const QStyleOptionButton *>(option)) {
+            if (widget && widget->property("_kdenlive_pagebar").toBool()) {
+                // Page bar: an accent underline marks the current page, hover gets a soft fill
+                const QRect r = option->rect;
+                if ((option->state & State_MouseOver) && (option->state & State_Enabled)) {
+                    drawRoundedPanel(painter, r.adjusted(0, 2, 0, -2), overlay(option->palette, 0.07), Qt::transparent);
+                }
+                if (option->state & State_On) {
+                    painter->fillRect(QRect(r.left() + 10, r.bottom() - 1, r.width() - 20, 2), option->palette.highlight());
+                }
+                return;
+            }
             if (widget && widget->property("_kdenlive_segmented").toBool()) {
                 // Segmented control: the current segment is raised, the others only react to hover
                 if (option->state & State_On) {
@@ -589,7 +609,7 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
         break;
     case CE_PushButtonLabel:
         if (const auto *button = qstyleoption_cast<const QStyleOptionButton *>(option)) {
-            if (widget && widget->property("_kdenlive_segmented").toBool() && !(option->state & State_On)) {
+            if (widget && (widget->property("_kdenlive_segmented").toBool() || widget->property("_kdenlive_pagebar").toBool()) && !(option->state & State_On)) {
                 QStyleOptionButton dimmed(*button);
                 dimmed.palette.setColor(QPalette::ButtonText, withAlpha(option->palette.color(QPalette::ButtonText), 0.65));
                 QProxyStyle::drawControl(element, &dimmed, painter, widget);
@@ -718,6 +738,21 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
             }
             if ((tool->state & State_Sunken) && (tool->activeSubControls & (SC_ToolButton | SC_ToolButtonMenu))) {
                 flags |= State_Sunken;
+            }
+            const bool panelToggle = widget && widget->property("_kdenlive_panel_toggle").toBool();
+            if (panelToggle) {
+                // Quiet panel toggles: a soft fill when on or hovered, never the accent
+                const bool on = tool->state & State_On;
+                const bool hover = enabled && (tool->state & State_MouseOver);
+                if (hover || (tool->state & State_Sunken)) {
+                    drawRoundedPanel(painter, tool->rect, overlay(option->palette, tool->state & State_Sunken ? 0.16 : 0.07), Qt::transparent);
+                }
+                QStyleOptionToolButton label(*tool);
+                label.state &= ~(State_Sunken | State_On);
+                label.palette.setColor(QPalette::ButtonText, withAlpha(option->palette.color(QPalette::ButtonText), on ? 1.0 : 0.55));
+                label.rect = tool->rect.adjusted(6, 0, -6, 0);
+                proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
+                return;
             }
             QStyleOption panel(*tool);
             // One panel for button and menu part, so split buttons read as a single control

@@ -72,6 +72,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "transitions/transitionlist/view/transitionlistwidget.hpp"
 #include "transitions/transitionsrepository.hpp"
 #include "utils/kdenlivestyle.h"
+#include "widgets/panelbar.h"
 #include "widgets/progressbutton.h"
 #include <config-kdenlive.h>
 
@@ -173,6 +174,36 @@ MainWindow::MainWindow(QWidget *parent)
     mainDockWindow = new KDDockWidgets::QtWidgets::MainWindow(QStringLiteral("KdenliveKDDock"));
     mainDockWindow->setCenterWidgetMargins(QMargins(1, 1, 1, 1));
 }
+
+namespace {
+/** @brief Keeps a child widget centered over its parent, like the page bar over the status bar */
+class CenteredOverlay : public QObject
+{
+public:
+    CenteredOverlay(QWidget *child, QWidget *parent)
+        : QObject(child)
+        , m_child(child)
+    {
+        parent->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::LayoutRequest) {
+            auto *parent = static_cast<QWidget *>(watched);
+            QRect r(QPoint(0, 0), m_child->sizeHint());
+            r.moveCenter(parent->rect().center());
+            m_child->setGeometry(r);
+            m_child->raise();
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QWidget *m_child;
+};
+} // namespace
 
 void MainWindow::init()
 {
@@ -591,14 +622,38 @@ void MainWindow::init()
     // Since not all widgets are added yet, don't use the Save flag now
     setupGUI(KXmlGuiWindow::ToolBar | KXmlGuiWindow::StatusBar | KXmlGuiWindow::Create);
 
-    // Render sits next to the workspace switcher so the menu bar is the only top bar,
-    // unless the user placed the render button in a toolbar
-    if (QWidget *corner = menuBar()->cornerWidget(Qt::TopRightCorner); corner && timelineRender->parentWidget() == nullptr) {
-        if (auto *cornerLayout = qobject_cast<QHBoxLayout *>(corner->layout())) {
-            cornerLayout->addSpacing(8);
-            cornerLayout->addWidget(timelineRender);
-            timelineRender->show();
+    // Resolve style frame: panel toggles and the project name on top, workspace pages at the bottom
+    {
+        // Workspace switcher (built by the layout manager as the menu bar corner widget) becomes the page bar
+        if (QWidget *pages = menuBar()->cornerWidget(Qt::TopRightCorner)) {
+            menuBar()->setCornerWidget(nullptr, Qt::TopRightCorner);
+            pages->setParent(statusBar());
+            new CenteredOverlay(pages, statusBar());
+            const int pageBarHeight = pages->sizeHint().height() + 6;
+            statusBar()->setMinimumHeight(pageBarHeight);
+            statusBar()->setMaximumHeight(qMax(statusBar()->maximumHeight(), pageBarHeight));
+            pages->show();
         }
+
+        auto *panelBar = new PanelBar(this, this);
+        panelBar->addPanelToggle(QStringLiteral("project_bin"), i18n("Project Bin"), QIcon::fromTheme(QStringLiteral("folder-videos")), false);
+        panelBar->addPanelToggle(QStringLiteral("transition_list"), i18n("Compositions"), QIcon::fromTheme(QStringLiteral("composite-track-on")), false);
+        panelBar->addPanelToggle(QStringLiteral("effect_list"), i18n("Effects"), QIcon::fromTheme(QStringLiteral("tools-wizard")), false);
+        panelBar->addPanelToggle(QStringLiteral("library"), i18n("Library"), QIcon::fromTheme(QStringLiteral("view-list-icons")), false);
+        panelBar->addPanelToggle(QStringLiteral("mixer"), i18n("Mixer"), QIcon::fromTheme(QStringLiteral("view-media-equalizer")), true);
+        panelBar->addPanelToggle(QStringLiteral("effect_stack"), i18n("Effect Stack"), QIcon::fromTheme(QStringLiteral("document-properties")), true);
+        // The render button lives here unless the user placed it in a toolbar
+        if (timelineRender->parentWidget() == nullptr) {
+            panelBar->addTrailingWidget(timelineRender);
+        }
+        m_panelToolBar = new QToolBar(i18n("Panels"), this);
+        m_panelToolBar->setObjectName(QStringLiteral("panelToolBar"));
+        m_panelToolBar->setMovable(false);
+        m_panelToolBar->setFloatable(false);
+        // Hosts the menus once the menu bar is hidden
+        m_panelToolBar->addAction(m_hamburgerMenu);
+        m_panelToolBar->addWidget(panelBar);
+        addToolBar(Qt::TopToolBarArea, m_panelToolBar);
     }
 
     // Remove secondary cut shortcut conflicting with extract action
@@ -725,15 +780,6 @@ void MainWindow::init()
     // after the QMenuBar has been initialised
     m_hamburgerMenu->setMenuBar(menuBar());
     m_hamburgerMenu->setShowMenuBarAction(showMenuBarAction);
-    // The main toolbar is hidden by default; it hosts the hamburger menu once the menu bar is gone
-    connect(showMenuBarAction, &QAction::toggled, this, [this](bool menuBarShown) {
-        if (!menuBarShown) {
-            toolBar()->show();
-        }
-    });
-    if (menuBar()->isHidden()) {
-        toolBar()->show();
-    }
 
     // Detect shortcut conflicts bewtween mainwindow and media browser
     pCore->mediaBrowser()->detectShortcutConflicts();
@@ -777,7 +823,15 @@ void MainWindow::finishUiSetup()
 {
     pCore->restoreLayout();
     Q_EMIT pCore->closeSplash();
+    // The panel bar's menu button replaces the menu bar unless the user chose to show it
+    KConfigGroup windowGroup(KSharedConfig::openConfig(), QStringLiteral("MainWindow"));
+    if (!windowGroup.hasKey("MenuBar")) {
+        windowGroup.writeEntry("MenuBar", QStringLiteral("Disabled"));
+    }
     setAutoSaveSettings();
+    if (QAction *showMenuBarAction = actionCollection()->action(KStandardAction::name(KStandardAction::ShowMenubar))) {
+        showMenuBarAction->setChecked(!menuBar()->isHidden());
+    }
     QObject::disconnect(pCore.get(), &Core::GUISetupDone, this, nullptr);
     // This should connect only after splash is done
     connect(pCore.get(), &Core::loadingMessageNewStage, this, [&](const QString &message, int max = -1) {
@@ -3388,7 +3442,7 @@ void MainWindow::slotUpdateCompositeAction(bool enable)
 
 void MainWindow::showMenuBar(bool show)
 {
-    if (!show && toolBar()->isHidden()) {
+    if (!show && toolBar()->isHidden() && (!m_panelToolBar || m_panelToolBar->isHidden())) {
         KMessageBox::information(this, i18n("This will hide the menu bar completely. You can show it again by typing Ctrl+M."), i18n("Hide menu bar"),
                                  QStringLiteral("show-menubar-warning"));
     }

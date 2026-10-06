@@ -21,29 +21,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 2,
-            "mainWindowUniqueName": "KdenliveKDDock"
-          }
-        ],
-        "tabIndex": 1,
-        "wasFloating": false
-      },
-      "uniqueName": "clip_properties"
-    },
-    {
-      "lastCloseReason": 0,
-      "lastPosition": {
-        "lastFloatingGeometry": {
-          "height": 0,
-          "width": 0,
-          "x": 0,
-          "y": 0
-        },
-        "lastOverlayedGeometries": [],
-        "placeholders": [
-          {
-            "isFloatingWindow": false,
-            "itemIndex": 11,
+            "itemIndex": 10,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -87,7 +65,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 3,
+            "itemIndex": 2,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -109,7 +87,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 12,
+            "itemIndex": 11,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -131,7 +109,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 4,
+            "itemIndex": 3,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -153,7 +131,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 12,
+            "itemIndex": 11,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -263,7 +241,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 4,
+            "itemIndex": 3,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -271,6 +249,28 @@
         "wasFloating": false
       },
       "uniqueName": "projectmonitor"
+    },
+    {
+      "lastCloseReason": 0,
+      "lastPosition": {
+        "lastFloatingGeometry": {
+          "height": 0,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "lastOverlayedGeometries": [],
+        "placeholders": [
+          {
+            "isFloatingWindow": false,
+            "itemIndex": 2,
+            "mainWindowUniqueName": "KdenliveKDDock"
+          }
+        ],
+        "tabIndex": 1,
+        "wasFloating": false
+      },
+      "uniqueName": "clip_properties"
     },
     {
       "lastCloseReason": 2,
@@ -285,7 +285,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 4,
+            "itemIndex": 3,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -307,7 +307,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 9,
+            "itemIndex": 8,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -329,7 +329,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 10,
+            "itemIndex": 9,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -351,7 +351,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 12,
+            "itemIndex": 11,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -408,10 +408,10 @@
       "lastCloseReason": 2,
       "lastPosition": {
         "lastFloatingGeometry": {
-          "height": 660,
-          "width": 678,
-          "x": 12,
-          "y": 70
+          "height": 283,
+          "width": 226,
+          "x": 5,
+          "y": 48
         },
         "lastOverlayedGeometries": [],
         "placeholders": [
@@ -439,7 +439,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 12,
+            "itemIndex": 11,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -461,7 +461,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 6,
+            "itemIndex": 5,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -483,7 +483,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 5,
+            "itemIndex": 4,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -505,7 +505,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 7,
+            "itemIndex": 6,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -527,7 +527,7 @@
         "placeholders": [
           {
             "isFloatingWindow": false,
-            "itemIndex": 8,
+            "itemIndex": 7,
             "mainWindowUniqueName": "KdenliveKDDock"
           }
         ],
@@ -538,7 +538,6 @@
     }
   ],
   "closedDockWidgets": [
-    "clip_properties",
     "library",
     "subtitles",
     "textedit",
@@ -546,6 +545,8 @@
     "markers",
     "screengrab",
     "audiospectrum",
+    "clipmonitor",
+    "clip_properties",
     "notes_widget",
     "media_browser",
     "onlineresources",
@@ -571,42 +572,49 @@
       "isVisible": true,
       "multiSplitterLayout": {
         "frames": {
-          "13767": {
+          "4884": {
             "currentTabIndex": 0,
             "dockWidgets": [
-              "timeline"
+              "projectmonitor",
+              "textedit",
+              "notes_widget",
+              "clipmonitor"
             ],
             "geometry": {
-              "height": 610,
-              "width": 1524,
-              "x": 0,
-              "y": 439
+              "height": 465,
+              "width": 794,
+              "x": 740,
+              "y": 0
             },
-            "id": "13767",
+            "id": "4884",
             "isNull": false,
             "mainWindowUniqueName": "KdenliveKDDock",
-            "objectName": "timeline",
-            "options": 0
+            "objectName": "projectmonitor",
+            "options": 1
           },
-          "13799": {
+          "4981": {
             "currentTabIndex": 0,
             "dockWidgets": [
-              "clipmonitor",
+              "project_bin",
+              "transition_list",
+              "effect_list",
+              "clip_properties",
+              "undo_history",
               "library"
             ],
             "geometry": {
-              "height": 439,
-              "width": 660,
-              "x": 594,
+              "height": 465,
+              "width": 740,
+              "x": 0,
               "y": 0
             },
-            "id": "13799",
+            "id": "4981",
             "isNull": false,
             "mainWindowUniqueName": "KdenliveKDDock",
-            "objectName": "clipmonitor",
-            "options": 0
+            "objectName": "project_bin",
+            "options": 1
           },
-          "13862": {
+          "5181": {
             "currentTabIndex": 0,
             "dockWidgets": [
               "mixer",
@@ -615,56 +623,33 @@
               "subtitles"
             ],
             "geometry": {
-              "height": 610,
-              "width": 390,
-              "x": 1524,
-              "y": 439
+              "height": 312,
+              "width": 313,
+              "x": 1221,
+              "y": 465
             },
-            "id": "13862",
+            "id": "5181",
             "isNull": false,
             "mainWindowUniqueName": "KdenliveKDDock",
             "objectName": "mixer",
-            "options": 0
+            "options": 1
           },
-          "13999": {
+          "5400": {
             "currentTabIndex": 0,
             "dockWidgets": [
-              "project_bin",
-              "transition_list",
-              "effect_list",
-              "clip_properties",
-              "undo_history"
+              "timeline"
             ],
             "geometry": {
-              "height": 439,
-              "width": 594,
+              "height": 312,
+              "width": 1221,
               "x": 0,
-              "y": 0
+              "y": 465
             },
-            "id": "13999",
+            "id": "5400",
             "isNull": false,
             "mainWindowUniqueName": "KdenliveKDDock",
-            "objectName": "project_bin",
-            "options": 0
-          },
-          "14179": {
-            "currentTabIndex": 0,
-            "dockWidgets": [
-              "projectmonitor",
-              "textedit",
-              "notes_widget"
-            ],
-            "geometry": {
-              "height": 439,
-              "width": 660,
-              "x": 1254,
-              "y": 0
-            },
-            "id": "14179",
-            "isNull": false,
-            "mainWindowUniqueName": "KdenliveKDDock",
-            "objectName": "projectmonitor",
-            "options": 0
+            "objectName": "timeline",
+            "options": 1
           }
         },
         "layout": {
@@ -716,69 +701,47 @@
                       }
                     },
                     {
-                      "guestId": "13999",
+                      "guestId": "4981",
                       "isContainer": false,
                       "isVisible": true,
                       "sizingInfo": {
                         "geometry": {
-                          "height": 439,
-                          "width": 594,
+                          "height": 465,
+                          "width": 740,
                           "x": 0,
                           "y": 0
                         },
                         "maxSizeHint": {
-                          "height": 524317,
-                          "width": 524327
+                          "height": 524319,
+                          "width": 524291
                         },
                         "minSize": {
-                          "height": 267,
-                          "width": 141
+                          "height": 225,
+                          "width": 272
                         },
-                        "percentageWithinParent": 0.3103448275862069
+                        "percentageWithinParent": 0.48239895697522817
                       }
                     },
                     {
-                      "guestId": "13799",
+                      "guestId": "4884",
                       "isContainer": false,
                       "isVisible": true,
                       "sizingInfo": {
                         "geometry": {
-                          "height": 439,
-                          "width": 660,
-                          "x": 594,
+                          "height": 465,
+                          "width": 794,
+                          "x": 740,
                           "y": 0
                         },
                         "maxSizeHint": {
-                          "height": 524317,
-                          "width": 524293
+                          "height": 524319,
+                          "width": 524291
                         },
                         "minSize": {
-                          "height": 230,
-                          "width": 326
+                          "height": 368,
+                          "width": 468
                         },
-                        "percentageWithinParent": 0.3448275862068966
-                      }
-                    },
-                    {
-                      "guestId": "14179",
-                      "isContainer": false,
-                      "isVisible": true,
-                      "sizingInfo": {
-                        "geometry": {
-                          "height": 439,
-                          "width": 660,
-                          "x": 1254,
-                          "y": 0
-                        },
-                        "maxSizeHint": {
-                          "height": 524317,
-                          "width": 524293
-                        },
-                        "minSize": {
-                          "height": 295,
-                          "width": 394
-                        },
-                        "percentageWithinParent": 0.3448275862068966
+                        "percentageWithinParent": 0.5176010430247718
                       }
                     },
                     {
@@ -913,66 +876,66 @@
                   "orientation": 1,
                   "sizingInfo": {
                     "geometry": {
-                      "height": 439,
-                      "width": 1914,
+                      "height": 465,
+                      "width": 1534,
                       "x": 0,
                       "y": 0
                     },
                     "maxSizeHint": {
-                      "height": 524317,
-                      "width": 1572913
+                      "height": 524319,
+                      "width": 1572873
                     },
                     "minSize": {
-                      "height": 295,
-                      "width": 861
+                      "height": 368,
+                      "width": 1064
                     },
-                    "percentageWithinParent": 0.4184938036224976
+                    "percentageWithinParent": 0.5984555984555985
                   }
                 },
                 {
                   "children": [
                     {
-                      "guestId": "13767",
+                      "guestId": "5400",
                       "isContainer": false,
                       "isVisible": true,
                       "sizingInfo": {
                         "geometry": {
-                          "height": 610,
-                          "width": 1524,
+                          "height": 312,
+                          "width": 1221,
                           "x": 0,
                           "y": 0
                         },
                         "maxSizeHint": {
-                          "height": 524287,
-                          "width": 524287
+                          "height": 524302,
+                          "width": 524342
                         },
                         "minSize": {
-                          "height": 90,
-                          "width": 80
+                          "height": 105,
+                          "width": 135
                         },
-                        "percentageWithinParent": 0.7962382445141066
+                        "percentageWithinParent": 0.7960526315789473
                       }
                     },
                     {
-                      "guestId": "13862",
+                      "guestId": "5181",
                       "isContainer": false,
                       "isVisible": true,
                       "sizingInfo": {
                         "geometry": {
-                          "height": 610,
-                          "width": 390,
-                          "x": 1524,
+                          "height": 312,
+                          "width": 313,
+                          "x": 1221,
                           "y": 0
                         },
                         "maxSizeHint": {
-                          "height": 524317,
-                          "width": 524293
+                          "height": 524319,
+                          "width": 524291
                         },
                         "minSize": {
-                          "height": 229,
-                          "width": 264
+                          "height": 246,
+                          "width": 195
                         },
-                        "percentageWithinParent": 0.20376175548589343
+                        "percentageWithinParent": 0.20394736842105263
                       }
                     }
                   ],
@@ -981,20 +944,20 @@
                   "orientation": 1,
                   "sizingInfo": {
                     "geometry": {
-                      "height": 610,
-                      "width": 1914,
+                      "height": 312,
+                      "width": 1534,
                       "x": 0,
-                      "y": 439
+                      "y": 465
                     },
                     "maxSizeHint": {
-                      "height": 524287,
-                      "width": 1048580
+                      "height": 524302,
+                      "width": 1048633
                     },
                     "minSize": {
-                      "height": 229,
-                      "width": 344
+                      "height": 246,
+                      "width": 330
                     },
-                    "percentageWithinParent": 0.5815061963775023
+                    "percentageWithinParent": 0.4015444015444015
                   }
                 }
               ],
@@ -1003,18 +966,18 @@
               "orientation": 2,
               "sizingInfo": {
                 "geometry": {
-                  "height": 1049,
-                  "width": 1914,
+                  "height": 777,
+                  "width": 1534,
                   "x": 0,
                   "y": 0
                 },
                 "maxSizeHint": {
-                  "height": 1048631,
-                  "width": 1048580
+                  "height": 1048621,
+                  "width": 1048633
                 },
                 "minSize": {
-                  "height": 524,
-                  "width": 861
+                  "height": 614,
+                  "width": 1064
                 },
                 "percentageWithinParent": 1.0
               }
@@ -1025,8 +988,8 @@
           "orientation": 1,
           "sizingInfo": {
             "geometry": {
-              "height": 1049,
-              "width": 1914,
+              "height": 777,
+              "width": 1534,
               "x": 0,
               "y": 0
             },
