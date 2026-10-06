@@ -75,7 +75,7 @@ LayoutManagement::LayoutManagement(QObject *parent)
     auto *l1 = new QHBoxLayout;
     l1->addStretch();
     // space between the corner widget and the menu bar
-    l1->setContentsMargins(6, 3, 6, 3);
+    l1->setContentsMargins(6, 3, 8, 3);
     // space between the autosave label and the layout switcher
     l1->setSpacing(0);
 

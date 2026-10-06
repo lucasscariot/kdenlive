@@ -25,9 +25,13 @@ public:
     int styleHint(StyleHint hint, const QStyleOption *option = nullptr, const QWidget *widget = nullptr, QStyleHintReturn *returnData = nullptr) const override;
     QSize sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &size, const QWidget *widget) const override;
     QRect subControlRect(ComplexControl control, const QStyleOptionComplex *option, SubControl subControl, const QWidget *widget = nullptr) const override;
+    QRect subElementRect(SubElement element, const QStyleOption *option, const QWidget *widget = nullptr) const override;
     void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget = nullptr) const override;
     void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget = nullptr) const override;
     void drawComplexControl(ComplexControl control, const QStyleOptionComplex *option, QPainter *painter, const QWidget *widget = nullptr) const override;
+    void polish(QWidget *widget) override;
+    void unpolish(QWidget *widget) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     /** @brief Install this style if the application uses Fusion */
     static void installIfFusion();
@@ -37,6 +41,8 @@ public:
     static QColor headerColor(const QPalette &palette);
     /** @brief The smaller font used for panel chrome, so content stays dominant */
     static QFont chromeFont(const QFont &base);
+    /** @brief Background of dialogs, slightly raised above the main window so they read as a separate layer */
+    static QColor elevatedColor(const QPalette &palette);
     /** @brief Text color at the given opacity, for hover overlays and hairlines */
     static QColor overlay(const QPalette &palette, qreal alpha);
 };

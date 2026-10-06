@@ -11,6 +11,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
+#include <QHoverEvent>
 #include <QMimeData>
 #include <QObject>
 #include <QTabBar>
@@ -159,6 +160,26 @@ protected:
         paintHeaderStrip(this, rect());
         KDDockWidgets::QtWidgets::TabBar::paintEvent(event);
     }
+
+    bool event(QEvent *event) override
+    {
+        // Close buttons only show on the current and hovered tabs, repaint them when the hovered tab changes
+        if (event->type() == QEvent::HoverMove || event->type() == QEvent::HoverLeave) {
+            const int hovered = event->type() == QEvent::HoverLeave ? -1 : tabAt(static_cast<QHoverEvent *>(event)->position().toPoint());
+            if (hovered != m_hoveredTab) {
+                m_hoveredTab = hovered;
+                for (int i = 0; i < count(); ++i) {
+                    if (QWidget *button = tabButton(i, QTabBar::RightSide)) {
+                        button->update();
+                    }
+                }
+            }
+        }
+        return KDDockWidgets::QtWidgets::TabBar::event(event);
+    }
+
+private:
+    int m_hoveredTab{-1};
 };
 
 class KdenliveDockGroup : public KDDockWidgets::QtWidgets::Group

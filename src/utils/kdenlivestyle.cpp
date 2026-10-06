@@ -8,10 +8,15 @@
 #include <KColorScheme>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QCursor>
+#include <QDialog>
+#include <QEvent>
+#include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyleFactory>
 #include <QStyleOption>
+#include <QTabBar>
 #include <QWidget>
 
 #include <tuple>
@@ -135,6 +140,46 @@ QColor KdenliveStyle::overlay(const QPalette &palette, qreal alpha)
     return withAlpha(palette.color(QPalette::WindowText), alpha);
 }
 
+QColor KdenliveStyle::elevatedColor(const QPalette &palette)
+{
+    const QColor window = palette.color(QPalette::Window);
+    const QColor text = palette.color(QPalette::WindowText);
+    const qreal mix = 0.07;
+    return QColor::fromRgbF(window.redF() + (text.redF() - window.redF()) * mix, window.greenF() + (text.greenF() - window.greenF()) * mix,
+                            window.blueF() + (text.blueF() - window.blueF()) * mix);
+}
+
+void KdenliveStyle::polish(QWidget *widget)
+{
+    QProxyStyle::polish(widget);
+    if (qobject_cast<QDialog *>(widget)) {
+        widget->installEventFilter(this);
+    }
+}
+
+void KdenliveStyle::unpolish(QWidget *widget)
+{
+    if (qobject_cast<QDialog *>(widget)) {
+        widget->removeEventFilter(this);
+    }
+    QProxyStyle::unpolish(widget);
+}
+
+bool KdenliveStyle::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Paint) {
+        auto *dialog = qobject_cast<QDialog *>(watched);
+        if (dialog && dialog->isWindow()) {
+            // Dialogs float over the main window without a shadow of their own: a raised surface and a hairline border separate them
+            QPainter painter(dialog);
+            painter.fillRect(dialog->rect(), elevatedColor(dialog->palette()));
+            painter.setPen(overlay(dialog->palette(), 0.24));
+            painter.drawRect(dialog->rect().adjusted(0, 0, -1, -1));
+        }
+    }
+    return QProxyStyle::eventFilter(watched, event);
+}
+
 QColor KdenliveStyle::headerColor(const QPalette &palette)
 {
     KColorScheme scheme(palette.currentColorGroup(), KColorScheme::Header);
@@ -214,6 +259,12 @@ int KdenliveStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, c
         return 4;
     case PM_HeaderMargin:
         return 6;
+    case PM_TabCloseIndicatorWidth:
+    case PM_TabCloseIndicatorHeight:
+        return 16;
+    case PM_MenuButtonIndicator:
+        // Wide enough to aim at the menu part of split buttons
+        return 18;
     case PM_LayoutHorizontalSpacing:
     case PM_LayoutVerticalSpacing:
         return 6;
@@ -256,6 +307,25 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
         break;
     }
     return s;
+}
+
+QRect KdenliveStyle::subElementRect(SubElement element, const QStyleOption *option, const QWidget *widget) const
+{
+    if (element == SE_TabBarTearIndicatorLeft || element == SE_TabBarTearIndicatorRight) {
+        // Wide fade where tabs are cut by the scroll buttons
+        if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
+            const bool vertical = tab->shape == QTabBar::RoundedWest || tab->shape == QTabBar::RoundedEast || tab->shape == QTabBar::TriangularWest ||
+                                  tab->shape == QTabBar::TriangularEast;
+            const int fade = 28;
+            const QRect r = tab->rect;
+            if (!vertical) {
+                return element == SE_TabBarTearIndicatorLeft ? QRect(r.left(), r.top(), fade, r.height())
+                                                             : QRect(r.right() - fade + 1, r.top(), fade, r.height());
+            }
+            return element == SE_TabBarTearIndicatorLeft ? QRect(r.left(), r.top(), r.width(), fade) : QRect(r.left(), r.bottom() - fade + 1, r.width(), fade);
+        }
+    }
+    return QProxyStyle::subElementRect(element, option, widget);
 }
 
 QRect KdenliveStyle::subControlRect(ComplexControl control, const QStyleOptionComplex *option, SubControl subControl, const QWidget *widget) const
@@ -443,6 +513,46 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
     }
     case PE_IndicatorButtonDropDown:
         return;
+    case PE_IndicatorTabTearLeft:
+    case PE_IndicatorTabTearRight: {
+        // Fade the cut tab into the header instead of clipping it hard
+        const QRect r = option->rect;
+        const QColor header = headerColor(option->palette);
+        QColor clear = header;
+        clear.setAlpha(0);
+        QLinearGradient gradient(r.topLeft(), r.topRight());
+        gradient.setColorAt(element == PE_IndicatorTabTearLeft ? 0 : 1, header);
+        gradient.setColorAt(element == PE_IndicatorTabTearLeft ? 1 : 0, clear);
+        painter->fillRect(r, gradient);
+        return;
+    }
+    case PE_IndicatorTabClose: {
+        const bool hover = enabled && (option->state & (State_MouseOver | State_Raised));
+        const bool current = option->state & State_Selected;
+        if (!hover && !current && widget) {
+            // Only the current tab and the hovered one show their close button
+            if (const auto *bar = qobject_cast<const QTabBar *>(widget->parentWidget())) {
+                const int hovered = bar->tabAt(bar->mapFromGlobal(QCursor::pos()));
+                if (hovered < 0 || (bar->tabButton(hovered, QTabBar::RightSide) != widget && bar->tabButton(hovered, QTabBar::LeftSide) != widget)) {
+                    return;
+                }
+            }
+        }
+        QRect box(0, 0, 16, 16);
+        box.moveCenter(option->rect.center());
+        if (hover) {
+            drawRoundedPanel(painter, box, overlay(option->palette, option->state & State_Sunken ? 0.2 : 0.12), Qt::transparent, 3);
+        }
+        const QColor color = overlay(option->palette, hover ? 0.9 : current ? 0.6 : 0.35);
+        const QRectF cross = QRectF(box).adjusted(5, 5, -5, -5);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap));
+        painter->drawLine(cross.topLeft(), cross.bottomRight());
+        painter->drawLine(cross.topRight(), cross.bottomLeft());
+        painter->restore();
+        return;
+    }
     default:
         break;
     }
@@ -572,6 +682,20 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
     switch (control) {
     case CC_ToolButton:
         if (const auto *tool = qstyleoption_cast<const QStyleOptionToolButton *>(option)) {
+            if (widget && qobject_cast<const QTabBar *>(widget->parentWidget()) && tool->arrowType != Qt::NoArrow) {
+                // Tab bar scroll buttons sit on top of the tabs: give them the header background and a bare chevron
+                painter->fillRect(tool->rect, headerColor(option->palette));
+                if (enabled && (tool->state & (State_MouseOver | State_Sunken))) {
+                    drawRoundedPanel(painter, tool->rect.adjusted(1, 4, -1, -4), overlay(option->palette, tool->state & State_Sunken ? 0.16 : 0.1),
+                                     Qt::transparent, 3);
+                }
+                const Direction direction = tool->arrowType == Qt::LeftArrow    ? Direction::Left
+                                            : tool->arrowType == Qt::RightArrow ? Direction::Right
+                                            : tool->arrowType == Qt::UpArrow    ? Direction::Up
+                                                                                : Direction::Down;
+                drawChevron(painter, tool->rect, direction, overlay(option->palette, enabled ? 0.8 : 0.25));
+                return;
+            }
             const QRect button = proxy()->subControlRect(control, tool, SC_ToolButton, widget);
             const QRect menu = proxy()->subControlRect(control, tool, SC_ToolButtonMenu, widget);
             State flags = tool->state & ~State_Sunken;

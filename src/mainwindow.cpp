@@ -156,6 +156,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto flags = KDDockWidgets::Config::self().flags();
     flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
     flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
+    flags |= KDDockWidgets::Config::Flag_TabsHaveCloseButton;
     flags |= KDDockWidgets::Config::Flag_TitleBarShowAutoHide;
 
     KDDockWidgets::Config::self().setFlags(flags);

@@ -10,7 +10,8 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <KLocalizedString>
 #include <QAction>
 #include <QPainter>
-#include <QStylePainter>
+#include <QPainterPath>
+#include <QStyleOptionToolButton>
 
 ProgressButton::ProgressButton(const QString &text, double max, QWidget *parent)
     : QToolButton(parent)
@@ -102,9 +103,10 @@ QSize ProgressButton::sizeHint() const
         // The toolbar may size us as icon only, but the primary look shows the bold label
         QFont bold = font();
         bold.setBold(true);
-        const int labelWidth = QFontMetrics(bold).horizontalAdvance(text()) + style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) + 36;
-        size.setWidth(qMax(size.width(), labelWidth));
-        size.setHeight(qMax(size.height(), QFontMetrics(bold).height() + 14));
+        const QFontMetrics metrics(bold);
+        const int menuWidth = popupMode() == MenuButtonPopup ? style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) + 6 : 0;
+        size.setWidth(metrics.horizontalAdvance(text()) + 2 * 14 + menuWidth);
+        size.setHeight(metrics.height() + 14);
     }
     return size;
 }
@@ -117,9 +119,13 @@ int ProgressButton::progress() const
 void ProgressButton::paintEvent(QPaintEvent *event)
 {
     if (m_primary && m_progress >= m_iconSize) {
-        QStylePainter painter(this);
+        QPainter painter(this);
         QStyleOptionToolButton opt;
         initStyleOption(&opt);
+        const bool hasMenu = popupMode() == MenuButtonPopup;
+        // Use the style's menu area, so the drawn segment matches where clicks open the menu
+        const QRect menuRect = hasMenu ? style()->subControlRect(QStyle::CC_ToolButton, &opt, QStyle::SC_ToolButtonMenu, this) : QRect();
+        const QRectF body = QRectF(rect()).adjusted(0.5, 2.5, -0.5, -2.5);
         QColor bg = palette().highlight().color();
         if (!isEnabled()) {
             bg.setAlphaF(0.35);
@@ -131,18 +137,32 @@ void ProgressButton::paintEvent(QPaintEvent *event)
         painter.setRenderHint(QPainter::Antialiasing, true);
         painter.setPen(Qt::NoPen);
         painter.setBrush(bg);
-        painter.drawRoundedRect(QRectF(rect()).adjusted(2, 3, -2, -3), 4, 4);
-        // Let the style draw label and menu arrow only, on top of our background
-        opt.state &= ~(QStyle::State_MouseOver | QStyle::State_Sunken | QStyle::State_On | QStyle::State_Raised);
-        opt.state |= QStyle::State_AutoRaise;
-        opt.toolButtonStyle = Qt::ToolButtonTextOnly;
-        opt.font.setBold(true);
-        painter.setFont(opt.font);
+        painter.drawRoundedRect(body, 4, 4);
+
         const QColor fg = palette().highlightedText().color();
-        opt.palette.setColor(QPalette::ButtonText, fg);
-        opt.palette.setColor(QPalette::WindowText, fg);
-        opt.palette.setColor(QPalette::Text, fg);
-        painter.drawComplexControl(QStyle::CC_ToolButton, opt);
+        QFont bold = font();
+        bold.setBold(true);
+        painter.setFont(bold);
+        painter.setPen(fg);
+        QRectF label = body;
+        if (hasMenu) {
+            label.setRight(menuRect.left());
+            // Divider and chevron for the menu segment
+            QColor divider = fg;
+            divider.setAlphaF(0.35);
+            painter.setPen(QPen(divider, 1));
+            painter.drawLine(QPointF(menuRect.left() + 0.5, body.top() + 6), QPointF(menuRect.left() + 0.5, body.bottom() - 6));
+            const QPointF c = QRectF(menuRect).center() + QPointF(0.5, 0.5);
+            QPainterPath chevron;
+            chevron.moveTo(c.x() - 3.5, c.y() - 1.75);
+            chevron.lineTo(c.x(), c.y() + 1.75);
+            chevron.lineTo(c.x() + 3.5, c.y() - 1.75);
+            painter.setPen(QPen(fg, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPath(chevron);
+            painter.setPen(fg);
+        }
+        painter.drawText(label, Qt::AlignCenter, text());
         return;
     }
     QToolButton::paintEvent(event);
