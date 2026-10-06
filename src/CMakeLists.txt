@@ -86,6 +86,11 @@ if(CRASH_AUTO_TEST)
     list(APPEND kdenlive_SRCS logger.cpp)
 endif()
 
+if(KDENLIVE_LIVE_BRIDGE)
+    list(APPEND kdenlive_SRCS livebridge.cpp)
+    set_property(SOURCE core.cpp APPEND PROPERTY COMPILE_DEFINITIONS KDENLIVE_LIVE_BRIDGE)
+endif()
+
 ecm_qt_declare_logging_category(kdenlive_SRCS
     HEADER kdenlive_debug.h
     IDENTIFIER KDENLIVE_LOG
@@ -375,4 +380,3 @@ add_dependencies(kdenlive all_qmllint)
 
 ecm_finalize_qml_module(kdenliveLib
     DESTINATION ${KDE_INSTALL_QMLDIR})
-

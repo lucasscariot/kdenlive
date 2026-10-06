@@ -16,6 +16,9 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "capture/mediacapture.h"
 #include "config-kdenlive.h"
 #include "core.h"
+#ifdef KDENLIVE_LIVE_BRIDGE
+#include "livebridge.h"
+#endif
 #include "dialogs/proxytest.h"
 #include "dialogs/splash.hpp"
 #include "dialogs/subtitleedit.h"
@@ -484,6 +487,12 @@ void Core::initGUI(const QString &MltPath, const QUrl &Url, const QStringList &c
     }
     connect(this, &Core::displayBinMessage, this, &Core::displayBinMessagePrivate);
     connect(this, &Core::displayBinLogMessage, this, &Core::displayBinLogMessagePrivate);
+
+#ifdef KDENLIVE_LIVE_BRIDGE
+    if (qEnvironmentVariableIntValue("KDENLIVE_MCP_BRIDGE") == 1) {
+        new LiveBridge(this);
+    }
+#endif
 
     if (m_splash && (m_splash->hasEventLoop() || m_splash->welcomeDisplayed())) {
         Q_EMIT mainWindowReady();
