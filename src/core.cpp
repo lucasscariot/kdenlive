@@ -575,9 +575,7 @@ void Core::restoreLayout()
         Q_EMIT loadLayoutFromData(KdenliveSettings::kdockLayout().toUtf8(), true);
     }
     m_mainWindow->show();
-    if (!KdenliveSettings::showtitlebars()) {
-        Q_EMIT pCore->hideBars(true);
-    }
+    Q_EMIT pCore->hideBars(!KdenliveSettings::showtitlebars());
 }
 
 void Core::buildDocks()

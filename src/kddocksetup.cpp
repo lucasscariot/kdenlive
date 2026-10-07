@@ -132,6 +132,7 @@ public:
         tabStyle->setParent(this);
         setStyle(tabStyle);
         setPalette(qApp->palette());
+        setMaximumHeight(0);
         setFont(DesignTokens::font(QStringLiteral("text-caption")));
 
         connect(this, &QWidget::customContextMenuRequested, []() { Q_EMIT pCore.get()->switchTitleBars(); });
@@ -158,12 +159,12 @@ public:
         });
     }
 
+    // Panes have no visible tabs: switching happens from the panel top bar
+    QSize sizeHint() const override { return {KDDockWidgets::QtWidgets::TabBar::sizeHint().width(), 0}; }
+    QSize minimumSizeHint() const override { return {0, 0}; }
+
 protected:
-    void paintEvent(QPaintEvent *event) override
-    {
-        paintHeaderStrip(this, rect());
-        KDDockWidgets::QtWidgets::TabBar::paintEvent(event);
-    }
+    void paintEvent(QPaintEvent *) override {}
 
     bool event(QEvent *event) override
     {
@@ -257,6 +258,8 @@ public:
         : KDDockWidgets::QtWidgets::TitleBar(controller, parent)
         , m_controller(controller)
     {
+        // Panes have no title bar; panes cannot float either, since dragging is disabled
+        setMaximumHeight(0);
         connect(pCore.get(), &Core::hideBars, this, [this](bool hide) {
             if (hide) {
 #if defined(Q_OS_WIN)

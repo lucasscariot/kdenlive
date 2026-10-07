@@ -241,9 +241,8 @@ bool LayoutManagement::slotLoadLayout(LayoutInfo layout, bool onlyIfNoPrevious)
     }
     m_firstLayoutLoaded = true;
     m_layoutSwitcher->setCurrentLayout(layout.internalId);
-    if (!KdenliveSettings::showtitlebars()) {
-        Q_EMIT pCore->hideBars(!KdenliveSettings::showtitlebars());
-    }
+    // Also lets the panel bar resync its toggles with the panes of this layout
+    Q_EMIT pCore->hideBars(!KdenliveSettings::showtitlebars());
     return true;
 }
 
@@ -275,7 +274,7 @@ bool LayoutManagement::slotLoadLayoutFromData(const QString &layoutData, bool on
     // Loaded a layout from Kdenlive settings or document
     m_currentLayoutId.clear();
     m_layoutSwitcher->setCurrentLayout(QString());
-    if (!KdenliveSettings::showtitlebars() && m_firstLayoutLoaded) {
+    if (m_firstLayoutLoaded) {
         Q_EMIT pCore->hideBars(!KdenliveSettings::showtitlebars());
     }
     m_firstLayoutLoaded = true;
