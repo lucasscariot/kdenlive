@@ -14,6 +14,7 @@
 #include <QEvent>
 #include <QIcon>
 #include <QLinearGradient>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyleFactory>
@@ -99,6 +100,18 @@ bool isPrimaryButton(const QStyleOptionButton *button, const QWidget *widget)
     return (button->features & QStyleOptionButton::DefaultButton) && !button->text.isEmpty();
 }
 
+/** @brief Menu row metrics: control-sm rows, space-3 side padding, an icon-md column */
+struct MenuMetrics
+{
+    int rowHeight = DesignTokens::size(QStringLiteral("control-sm"));
+    int padding = DesignTokens::space(3);
+    int iconColumn = DesignTokens::size(QStringLiteral("icon-md")) + DesignTokens::space(3);
+    int shortcutGap = DesignTokens::space(5);
+    int arrowColumn = DesignTokens::space(4);
+    int inset = DesignTokens::space(1);
+    int separatorHeight = DesignTokens::space(3) + 1;
+};
+
 /** @brief Height of a pill tab, centered in its tab rectangle */
 QRect pillRect(const QRect &tabRect)
 {
@@ -111,6 +124,11 @@ QRect pillRect(const QRect &tabRect)
 void KdenliveStyle::polish(QWidget *widget)
 {
     QProxyStyle::polish(widget);
+    if (qobject_cast<QMenu *>(widget)) {
+        // Rounded popups need a transparent window behind the panel's corners
+        widget->setAttribute(Qt::WA_TranslucentBackground, true);
+        widget->setFont(DesignTokens::font(QStringLiteral("text-body")));
+    }
     if (qobject_cast<QDialog *>(widget)) {
         widget->installEventFilter(this);
     }
@@ -118,6 +136,9 @@ void KdenliveStyle::polish(QWidget *widget)
 
 void KdenliveStyle::unpolish(QWidget *widget)
 {
+    if (qobject_cast<QMenu *>(widget)) {
+        widget->setAttribute(Qt::WA_TranslucentBackground, false);
+    }
     if (qobject_cast<QDialog *>(widget)) {
         widget->removeEventFilter(this);
     }
@@ -187,10 +208,15 @@ int KdenliveStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, c
         return DesignTokens::space(3) + DesignTokens::space(2);
     case PM_ToolBarItemSpacing:
     case PM_ToolBarItemMargin:
-    case PM_MenuHMargin:
-    case PM_MenuVMargin:
     case PM_MenuBarHMargin:
         return DesignTokens::space(2);
+    case PM_MenuHMargin:
+    case PM_MenuVMargin:
+        return DesignTokens::space(1);
+    case PM_MenuPanelWidth:
+        return 1;
+    case PM_SubMenuOverlap:
+        return -DesignTokens::space(1);
     case PM_MenuBarItemSpacing:
     case PM_MenuBarVMargin:
         return DesignTokens::space(1);
@@ -238,6 +264,12 @@ int KdenliveStyle::styleHint(StyleHint hint, const QStyleOption *option, const Q
         return 0;
     case SH_ToolBox_SelectedPageTitleBold:
         return 1;
+    case SH_UnderlineShortcut:
+        return 0;
+    case SH_Menu_SubMenuPopupDelay:
+        return 120;
+    case SH_Menu_Scrollable:
+        return 1;
     default:
         return QProxyStyle::styleHint(hint, option, widget, returnData);
     }
@@ -277,9 +309,22 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
         break;
     case CT_MenuItem:
         if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option)) {
-            if (item->menuItemType != QStyleOptionMenuItem::Separator) {
-                s.setHeight(qMax(s.height(), size("control-sm") + DesignTokens::space(1)));
+            const MenuMetrics m;
+            if (item->menuItemType == QStyleOptionMenuItem::Separator) {
+                // A section title carries text, a plain separator does not
+                return QSize(s.width(), item->text.isEmpty() ? m.separatorHeight : m.rowHeight + DesignTokens::space(2));
             }
+            const QString label = item->text.section(QLatin1Char('\t'), 0, 0);
+            const QString shortcut = item->text.section(QLatin1Char('\t'), 1);
+            const QFontMetrics labelMetrics(DesignTokens::font(QStringLiteral("text-body")));
+            int width = 2 * (m.padding + m.inset) + m.iconColumn + labelMetrics.horizontalAdvance(label);
+            if (!shortcut.isEmpty()) {
+                width += m.shortcutGap + labelMetrics.horizontalAdvance(shortcut);
+            }
+            if (item->menuItemType == QStyleOptionMenuItem::SubMenu) {
+                width += m.arrowColumn;
+            }
+            return QSize(width, m.rowHeight + DesignTokens::space(1));
         }
         break;
     default:
@@ -465,10 +510,15 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
         DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-sm"));
         return;
     case PE_PanelMenu:
-    case PE_FrameMenu:
+        if (qobject_cast<const QMenu *>(widget)) {
+            // Rounded popover panel; the window behind it is transparent
+            DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-lg"));
+            return;
+        }
         painter->fillRect(option->rect, token("surface-raised"));
-        painter->setPen(token("border-control"));
-        painter->drawRect(option->rect.adjusted(0, 0, -1, -1));
+        return;
+    case PE_FrameMenu:
+        // The border belongs to the rounded panel
         return;
     case PE_IndicatorArrowDown:
     case PE_IndicatorArrowUp:
@@ -605,27 +655,89 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
             return;
         }
         break;
+    case CE_MenuEmptyArea:
+        return;
     case CE_MenuItem:
         if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option)) {
-            QStyleOptionMenuItem menuItem(*item);
+            const MenuMetrics m;
+            const QRect row = item->rect.adjusted(m.inset, 0, -m.inset, 0);
             if (item->menuItemType == QStyleOptionMenuItem::Separator) {
-                const QRect r = item->rect;
-                painter->fillRect(QRect(r.left() + DesignTokens::space(3), r.center().y(), r.width() - 2 * DesignTokens::space(3), 1), token("separator"));
+                if (item->text.isEmpty()) {
+                    painter->fillRect(QRect(row.left() + m.padding, row.center().y(), row.width() - 2 * m.padding, 1), token("separator"));
+                } else {
+                    // Section title: caption in secondary ink
+                    painter->save();
+                    painter->setFont(DesignTokens::font(QStringLiteral("text-caption")));
+                    painter->setPen(token("ink-secondary"));
+                    painter->drawText(row.adjusted(m.padding, DesignTokens::space(2), -m.padding, 0), Qt::AlignLeft | Qt::AlignVCenter, item->text);
+                    painter->restore();
+                }
                 return;
             }
-            // A rounded accent row instead of Fusion's full width highlight
-            if ((item->state & State_Selected) && enabled) {
-                DesignPaint::panel(painter, item->rect.adjusted(DesignTokens::space(2), 1, -DesignTokens::space(2), -1), token("accent-fill"), Qt::transparent,
-                                   radius("radius-sm"));
+            const bool selected = (item->state & State_Selected) && enabled;
+            if (selected) {
+                DesignPaint::panel(painter, row.adjusted(0, 1, 0, -1), token("accent-fill"), Qt::transparent, radius("radius-sm"));
             }
-            menuItem.palette.setColor(QPalette::Highlight, Qt::transparent);
-            menuItem.palette.setColor(QPalette::HighlightedText, token("on-accent"));
-            menuItem.palette.setColor(QPalette::Text, token("ink"));
-            menuItem.palette.setColor(QPalette::WindowText, token("ink"));
-            menuItem.palette.setColor(QPalette::ButtonText, token("ink"));
-            menuItem.palette.setColor(QPalette::Window, token("surface-raised"));
-            menuItem.palette.setColor(QPalette::Button, token("surface-raised"));
-            QProxyStyle::drawControl(element, &menuItem, painter, widget);
+            const QColor ink = !enabled ? token("ink-tertiary") : (selected ? token("on-accent") : token("ink"));
+            const QColor secondaryInk = !enabled ? token("ink-tertiary") : (selected ? token("on-accent") : token("ink-tertiary"));
+            QRect content = row.adjusted(m.padding, 0, -m.padding, 0);
+
+            // Icon column: the icon, or a check mark for checked items without one
+            const int iconSize = DesignTokens::size(QStringLiteral("icon-md"));
+            QRect iconRect(content.left(), content.top() + (content.height() - iconSize) / 2, iconSize, iconSize);
+            const bool checked = item->checkType != QStyleOptionMenuItem::NotCheckable && item->checked;
+            if (!item->icon.isNull()) {
+                if (checked) {
+                    DesignPaint::panel(painter, iconRect.adjusted(-2, -2, 2, 2),
+                                       selected ? DesignPaint::withAlpha(token("on-accent"), 0.25) : token("accent-soft"), Qt::transparent,
+                                       radius("radius-xs"));
+                }
+                item->icon.paint(painter, iconRect, Qt::AlignCenter, enabled ? QIcon::Normal : QIcon::Disabled, checked ? QIcon::On : QIcon::Off);
+            } else if (checked) {
+                painter->save();
+                painter->setRenderHint(QPainter::Antialiasing, true);
+                const QColor checkInk = selected ? token("on-accent") : (enabled ? token("accent") : token("ink-tertiary"));
+                if (item->checkType == QStyleOptionMenuItem::Exclusive) {
+                    QRectF dot(0, 0, 6, 6);
+                    dot.moveCenter(QRectF(iconRect).center());
+                    painter->setPen(Qt::NoPen);
+                    painter->setBrush(checkInk);
+                    painter->drawEllipse(dot);
+                } else {
+                    painter->setPen(QPen(checkInk, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                    const QRectF r(iconRect.adjusted(2, 2, -2, -2));
+                    QPainterPath check;
+                    check.moveTo(r.left() + r.width() * 0.15, r.top() + r.height() * 0.55);
+                    check.lineTo(r.left() + r.width() * 0.4, r.top() + r.height() * 0.8);
+                    check.lineTo(r.left() + r.width() * 0.88, r.top() + r.height() * 0.25);
+                    painter->drawPath(check);
+                }
+                painter->restore();
+            }
+            content.setLeft(content.left() + m.iconColumn);
+
+            // Submenu chevron on the right
+            if (item->menuItemType == QStyleOptionMenuItem::SubMenu) {
+                const QRect arrow(content.right() - m.arrowColumn + 1, content.top(), m.arrowColumn, content.height());
+                DesignPaint::chevron(painter, arrow, Direction::Right, secondaryInk);
+                content.setRight(arrow.left() - DesignTokens::space(2));
+            }
+
+            // Label on the left, shortcut right aligned in tertiary ink
+            const QString label = item->text.section(QLatin1Char('\t'), 0, 0);
+            const QString shortcut = item->text.section(QLatin1Char('\t'), 1);
+            painter->save();
+            painter->setFont(DesignTokens::font(QStringLiteral("text-body")));
+            const int textFlags = Qt::AlignVCenter | Qt::TextSingleLine | Qt::TextHideMnemonic;
+            if (!shortcut.isEmpty()) {
+                painter->setPen(secondaryInk);
+                painter->drawText(content, textFlags | Qt::AlignRight, shortcut);
+                content.setRight(content.right() - painter->fontMetrics().horizontalAdvance(shortcut) - m.shortcutGap);
+            }
+            painter->setPen(ink);
+            painter->drawText(content, textFlags | Qt::AlignLeft,
+                              painter->fontMetrics().elidedText(label, Qt::ElideRight, content.width(), Qt::TextHideMnemonic));
+            painter->restore();
             return;
         }
         break;
