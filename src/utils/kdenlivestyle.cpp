@@ -869,9 +869,9 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
             }
 
             if (hasFlag(widget, "_kdenlive_panel_toggle")) {
-                // Quiet panel toggles: a wash on hover, a brighter label when on, never the accent
+                // Panel toggles: the visible pane keeps a soft fill and bright label, never the accent
                 const bool on = tool->state & State_On;
-                const QColor fill = DesignPaint::wash(hover, pressed);
+                const QColor fill = on ? token("fill-pressed") : DesignPaint::wash(hover, pressed);
                 if (fill.alpha() > 0) {
                     DesignPaint::panel(painter, tool->rect, fill, Qt::transparent, radius("radius-md"));
                 }

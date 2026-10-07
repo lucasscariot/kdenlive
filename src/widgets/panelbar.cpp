@@ -4,6 +4,7 @@
 */
 
 #include "panelbar.h"
+#include "core.h"
 #include "utils/designtokens.h"
 
 #include <KLocalizedString>
@@ -11,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QRegularExpression>
+#include <QTimer>
 #include <QToolButton>
 #include <kddockwidgets/core/DockRegistry.h>
 #include <kddockwidgets/core/DockWidget.h>
@@ -54,6 +56,8 @@ PanelBar::PanelBar(QWidget *window, QWidget *parent)
 
     m_window->installEventFilter(this);
     updateTitle();
+    // Layout restores do not report which stacked pane became visible, they all end with hideBars
+    connect(pCore.get(), &Core::hideBars, this, [this]() { QTimer::singleShot(0, this, &PanelBar::refreshToggles); });
 }
 
 void PanelBar::addPanelToggle(const QString &dockName, const QString &label, const QIcon &icon, bool rightSide)
@@ -78,16 +82,20 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
         QSignalBlocker blocker(button);
         button->setChecked(dock->isOpen() && dock->isCurrentTab());
     };
-    connect(button, &QToolButton::clicked, this, [dock, refresh]() {
+    m_refreshers.append(refresh);
+    connect(button, &QToolButton::clicked, this, [this, dock]() {
         if (!dock->isOpen()) {
             dock->open();
             dock->setAsCurrentTab();
         } else if (!dock->isCurrentTab()) {
             dock->setAsCurrentTab();
-        } else {
+        } else if (!dock->isTabbed()) {
+            // A pane of its own hides to give its space back, like the Inspector in Resolve;
+            // stacked panes have no empty state, so the active one stays
             dock->close();
         }
-        refresh();
+        // Raising one pane hides the other panes stacked with it
+        refreshToggles();
     });
     if (view) {
         connect(view, &KDDockWidgets::QtWidgets::DockWidget::isOpenChanged, button, refresh);
@@ -95,6 +103,13 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
     }
     refresh();
     (rightSide ? m_right : m_left)->addWidget(button);
+}
+
+void PanelBar::refreshToggles()
+{
+    for (const auto &refresh : std::as_const(m_refreshers)) {
+        refresh();
+    }
 }
 
 void PanelBar::addTrailingWidget(QWidget *widget)

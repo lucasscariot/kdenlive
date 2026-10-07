@@ -7,6 +7,8 @@
 
 #include <QWidget>
 
+#include <functional>
+
 class QHBoxLayout;
 class QLabel;
 class QToolButton;
@@ -26,6 +28,8 @@ public:
     void addPanelToggle(const QString &dockName, const QString &label, const QIcon &icon, bool rightSide);
     /** @brief Add a widget after the right side toggles, like the render button */
     void addTrailingWidget(QWidget *widget);
+    /** @brief Sync every toggle with the visible panes, after a layout was restored or loaded */
+    void refreshToggles();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -38,6 +42,7 @@ private:
     QWidget *m_titleBox;
     QLabel *m_title;
     QLabel *m_state;
+    QList<std::function<void()>> m_refreshers;
     void updateTitle();
     void placeTitle();
 };

@@ -156,15 +156,14 @@ MainWindow::MainWindow(QWidget *parent)
     kdenliveCategoryMap.insert(QStringLiteral("navandplayback"), category);
     category = new KActionCategory(i18n("Bin Tags"), actionCollection());
     kdenliveCategoryMap.insert(QStringLiteral("bintags"), category);
+    // Opinionated, page based layout like DaVinci Resolve: panes have no tabs or title bars, cannot be dragged,
+    // floated or closed from the pane itself. Pages (the bottom bar) arrange them; the top bar switches them.
     auto flags = KDDockWidgets::Config::self().flags();
     flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
-    flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
-    flags |= KDDockWidgets::Config::Flag_TabsHaveCloseButton;
-    // Single panels get the same pill tab bar as tabbed groups instead of a different title bar
-    flags |= KDDockWidgets::Config::Flag_AlwaysShowTabs;
-    flags |= KDDockWidgets::Config::Flag_TitleBarShowAutoHide;
-
+    flags |= KDDockWidgets::Config::Flag_DisableDoubleClick;
     KDDockWidgets::Config::self().setFlags(flags);
+    KDDockWidgets::Config::self().setDragAboutToStartFunc([](KDDockWidgets::Core::Draggable *) { return false; });
+    KDDockWidgets::Config::self().setDropIndicatorsInhibited(true);
     KDDockWidgets::Core::FloatingWindow::s_windowFlagsOverride = Qt::Tool;
 
     // Increase the separator size, just for demo
@@ -642,6 +641,9 @@ void MainWindow::init()
         panelBar->addPanelToggle(QStringLiteral("transition_list"), i18n("Compositions"), QIcon::fromTheme(QStringLiteral("composite-track-on")), false);
         panelBar->addPanelToggle(QStringLiteral("effect_list"), i18n("Effects"), QIcon::fromTheme(QStringLiteral("tools-wizard")), false);
         panelBar->addPanelToggle(QStringLiteral("library"), i18n("Library"), QIcon::fromTheme(QStringLiteral("view-list-icons")), false);
+        panelBar->addPanelToggle(QStringLiteral("clip_properties"), i18n("Properties"), QIcon::fromTheme(QStringLiteral("help-hint")), false);
+        panelBar->addPanelToggle(QStringLiteral("clipmonitor"), i18n("Source"), QIcon::fromTheme(QStringLiteral("video-x-generic")), true);
+        panelBar->addPanelToggle(QStringLiteral("projectmonitor"), i18n("Timeline"), QIcon::fromTheme(QStringLiteral("view-preview")), true);
         panelBar->addPanelToggle(QStringLiteral("mixer"), i18n("Mixer"), QIcon::fromTheme(QStringLiteral("view-media-equalizer")), true);
         panelBar->addPanelToggle(QStringLiteral("effect_stack"), i18n("Effect Stack"), QIcon::fromTheme(QStringLiteral("document-properties")), true);
         // The render button lives here unless the user placed it in a toolbar
