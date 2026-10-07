@@ -8,7 +8,9 @@
 #include "designtokens.h"
 
 #include <QAbstractItemView>
+#include <QAbstractSpinBox>
 #include <QApplication>
+#include <QComboBox>
 #include <QCursor>
 #include <QDialog>
 #include <QEvent>
@@ -111,6 +113,16 @@ struct MenuMetrics
     int arrowColumn = DesignTokens::space(4);
     int inset = DesignTokens::space(1);
     int separatorHeight = DesignTokens::space(3) + 1;
+};
+
+/** @brief Inner geometry shared by every input and button, so all controls align on the spacing scale */
+struct ControlMetrics
+{
+    int textInset = DesignTokens::space(3);
+    int labelPadding = DesignTokens::space(4);
+    int arrowColumn = DesignTokens::size(QStringLiteral("icon-md")) + DesignTokens::space(3);
+    int menuColumn = DesignTokens::size(QStringLiteral("icon-md")) + 2 * DesignTokens::space(2);
+    int spinButtonColumn = DesignTokens::size(QStringLiteral("icon-md"));
 };
 
 /** @brief Height of a pill tab, centered in its tab rectangle */
@@ -249,6 +261,10 @@ int KdenliveStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, c
     case PM_MenuButtonIndicator:
         // Wide enough to aim at the menu part of split buttons
         return size("icon-md") + DesignTokens::space(1);
+    case PM_DefaultFrameWidth:
+    case PM_SpinBoxFrameWidth:
+    case PM_ComboBoxFrameWidth:
+        return 1;
     case PM_SmallIconSize:
     case PM_ToolBarIconSize:
     case PM_ButtonIconSize:
@@ -286,7 +302,9 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
     case CT_ToolButton:
         s = s.expandedTo(QSize(size("control-sm"), size("control-sm")));
         if (hasFlag(widget, "_kdenlive_panel_toggle")) {
+            // Same height as the primary button beside them
             s.rwidth() += 2 * DesignTokens::space(3);
+            s.setHeight(size("control-md"));
         } else if (hasFlag(widget, "_kdenlive_primary")) {
             s.setHeight(qMax(s.height(), size("control-md")));
         }
@@ -336,6 +354,13 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
 
 QRect KdenliveStyle::subElementRect(SubElement element, const QStyleOption *option, const QWidget *widget) const
 {
+    if (element == SE_LineEditContents) {
+        // Text starts space-3 inside the field, like every other input
+        const ControlMetrics m;
+        const auto *frame = qstyleoption_cast<const QStyleOptionFrame *>(option);
+        const int inset = frame && frame->lineWidth > 0 ? m.textInset : 0;
+        return option->rect.adjusted(inset, 1, -inset, -1);
+    }
     if (element == SE_TabBarTearIndicatorLeft || element == SE_TabBarTearIndicatorRight) {
         // Wide fade where tabs are cut by the scroll buttons
         if (const auto *tab = qstyleoption_cast<const QStyleOptionTab *>(option)) {
@@ -355,6 +380,60 @@ QRect KdenliveStyle::subElementRect(SubElement element, const QStyleOption *opti
 
 QRect KdenliveStyle::subControlRect(ComplexControl control, const QStyleOptionComplex *option, SubControl subControl, const QWidget *widget) const
 {
+    const ControlMetrics m;
+    const QRect r = option->rect;
+    if (control == CC_ComboBox) {
+        // Label inset space-3, chevron in a fixed column on the right
+        switch (subControl) {
+        case SC_ComboBoxFrame:
+            return r;
+        case SC_ComboBoxArrow:
+            return visualRect(option->direction, r, QRect(r.right() - m.arrowColumn + 1, r.top(), m.arrowColumn, r.height()));
+        case SC_ComboBoxEditField:
+            return visualRect(option->direction, r, QRect(r.left() + m.textInset, r.top() + 1, r.width() - m.textInset - m.arrowColumn, r.height() - 2));
+        case SC_ComboBoxListBoxPopup:
+            return r;
+        default:
+            break;
+        }
+    }
+    if (control == CC_SpinBox) {
+        if (const auto *spin = qstyleoption_cast<const QStyleOptionSpinBox *>(option)) {
+            const bool buttons = spin->buttonSymbols != QAbstractSpinBox::NoButtons;
+            const int column = buttons ? m.spinButtonColumn : 0;
+            const QRect buttonArea(r.right() - column - DesignTokens::space(1) + 1, r.top() + 1, column, r.height() - 2);
+            switch (subControl) {
+            case SC_SpinBoxFrame:
+                return r;
+            case SC_SpinBoxUp:
+                return buttons ? visualRect(option->direction, r, QRect(buttonArea.left(), buttonArea.top(), column, buttonArea.height() / 2)) : QRect();
+            case SC_SpinBoxDown:
+                return buttons ? visualRect(option->direction, r,
+                                            QRect(buttonArea.left(), buttonArea.top() + buttonArea.height() / 2, column,
+                                                  buttonArea.height() - buttonArea.height() / 2))
+                               : QRect();
+            case SC_SpinBoxEditField: {
+                const int right = buttons ? buttonArea.left() - DesignTokens::space(1) : r.right() - m.textInset;
+                return visualRect(option->direction, r, QRect(r.left() + m.textInset, r.top() + 1, right - r.left() - m.textInset + 1, r.height() - 2));
+            }
+            default:
+                break;
+            }
+        }
+    }
+    if (control == CC_ToolButton && widget && widget->property("_kdenlive_primary").toBool()) {
+        if (const auto *tool = qstyleoption_cast<const QStyleOptionToolButton *>(option)) {
+            // Split primary button: the menu part is a fixed column, so drawing and hit areas match
+            const bool split = tool->subControls & SC_ToolButtonMenu;
+            const QRect menu(r.right() - m.menuColumn + 1, r.top(), m.menuColumn, r.height());
+            if (subControl == SC_ToolButtonMenu) {
+                return split ? visualRect(option->direction, r, menu) : QRect();
+            }
+            if (subControl == SC_ToolButton) {
+                return split ? visualRect(option->direction, r, QRect(r.left(), r.top(), r.width() - m.menuColumn, r.height())) : r;
+            }
+        }
+    }
     if (control == CC_ScrollBar) {
         // Slim scroll bars without arrow buttons: the groove is the whole widget
         if (const auto *bar = qstyleoption_cast<const QStyleOptionSlider *>(option)) {
@@ -418,6 +497,10 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
         if (const auto *frame = qstyleoption_cast<const QStyleOptionFrame *>(option)) {
             if (frame->lineWidth > 0) {
                 drawInput(painter, option, option->rect);
+                return;
+            }
+            // The text field inside a spin box or combo box shows its parent's surface, so the control reads as one
+            if (widget && (qobject_cast<const QAbstractSpinBox *>(widget->parentWidget()) || qobject_cast<const QComboBox *>(widget->parentWidget()))) {
                 return;
             }
         }
@@ -903,7 +986,10 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
                 QStyleOptionToolButton label(*tool);
                 label.state &= ~(State_Sunken | State_On);
                 label.palette.setColor(QPalette::ButtonText, on ? token("ink") : token("ink-secondary"));
-                label.rect = tool->rect.adjusted(DesignTokens::space(3), 0, -DesignTokens::space(3), 0);
+                // Center icon and text as one group, so equal width toggles stay balanced
+                const int iconWidth = tool->icon.isNull() ? 0 : tool->iconSize.width() + DesignTokens::space(2);
+                const int contentWidth = qMin(tool->rect.width(), iconWidth + tool->fontMetrics.horizontalAdvance(tool->text) + 2);
+                label.rect = QRect(tool->rect.left() + (tool->rect.width() - contentWidth) / 2, tool->rect.top(), contentWidth, tool->rect.height());
                 proxy()->drawControl(CE_ToolButtonLabel, &label, painter, widget);
                 return;
             }

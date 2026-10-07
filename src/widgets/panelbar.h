@@ -43,6 +43,9 @@ private:
     QLabel *m_title;
     QLabel *m_state;
     QList<std::function<void()>> m_refreshers;
+    QList<QToolButton *> m_toggles;
+    /** @brief Give every toggle the width of the widest, so the selected fill never changes size */
+    void equalizeToggles();
     void updateTitle();
     void placeTitle();
 };
