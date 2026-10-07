@@ -6,6 +6,8 @@
 #pragma once
 
 #include <QColor>
+#include <QIcon>
+#include <QPixmap>
 #include <QRectF>
 
 class QPainter;
@@ -32,6 +34,9 @@ void chevron(QPainter *painter, const QRectF &rect, Direction direction, const Q
 
 /** @brief The header strip behind tabs and title bars: surface-sidebar with a separator hairline below */
 void headerStrip(QPainter *painter, const QRect &rect);
+
+/** @brief @p icon rendered at @p size and recolored to @p color, for icons on accent fills or in an active state */
+QPixmap tinted(const QIcon &icon, const QSize &size, const QColor &color, qreal devicePixelRatio, QIcon::Mode mode = QIcon::Normal);
 
 /** @brief Wash under a transparent control: none, hover or pressed */
 QColor wash(bool hovered, bool pressed);

@@ -628,11 +628,11 @@ void MainWindow::setupActions()
     addAction(QStringLiteral("project_settings"), i18n("Project Settings…"), this, SLOT(slotEditProjectSettings()),
               QIcon::fromTheme(QStringLiteral("configure")));
 
-    addAction(QStringLiteral("project_render"), i18n("Render…"), this, SLOT(slotRenderProject()), QIcon::fromTheme(QStringLiteral("media-record")),
+    addAction(QStringLiteral("project_render"), i18n("Render…"), this, SLOT(slotRenderProject()), QIcon::fromTheme(QStringLiteral("document-export")),
               Qt::CTRL | Qt::Key_Return);
 
     addAction(QStringLiteral("stop_project_render"), i18n("Stop Render"), this, SLOT(slotStopRenderProject()),
-              QIcon::fromTheme(QStringLiteral("media-record")));
+              QIcon::fromTheme(QStringLiteral("media-playback-stop")));
 
     addAction(QStringLiteral("project_clean"), i18n("Remove Unused Media"), this, SLOT(slotCleanProject()), QIcon::fromTheme(QStringLiteral("edit-clear-all")));
 
