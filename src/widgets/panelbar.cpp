@@ -4,8 +4,10 @@
 */
 
 #include "panelbar.h"
+
 #include "core.h"
 #include "utils/designtokens.h"
+#include <algorithm>
 
 #include <KLocalizedString>
 #include <QEvent>
@@ -109,13 +111,39 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
 
 void PanelBar::equalizeToggles()
 {
-    int width = 0;
+    // Prefer equal width labelled toggles, then natural widths, then icons only, whichever fits the bar
+    QList<int> natural;
     for (QToolButton *toggle : std::as_const(m_toggles)) {
-        width = qMax(width, toggle->sizeHint().width());
+        QToolButton probe;
+        probe.setFont(toggle->font());
+        probe.setText(toggle->text());
+        probe.setIcon(toggle->icon());
+        probe.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        probe.setProperty("_kdenlive_panel_toggle", true);
+        natural.append(probe.sizeHint().width());
     }
-    for (QToolButton *toggle : std::as_const(m_toggles)) {
-        toggle->setFixedWidth(width);
+    int fixedWidth = m_titleBox->sizeHint().width() + 2 * DesignTokens::space(4) + 2 * DesignTokens::space(3);
+    for (int i = 0; i < m_right->count(); ++i) {
+        if (QWidget *w = m_right->itemAt(i)->widget(); w && !m_toggles.contains(qobject_cast<QToolButton *>(w))) {
+            fixedWidth += w->sizeHint().width() + DesignTokens::space(3);
+        }
     }
+    const int gap = DesignTokens::space(1);
+    const int widest = natural.isEmpty() ? 0 : *std::max_element(natural.cbegin(), natural.cend());
+    int naturalTotal = 0;
+    for (int w : std::as_const(natural)) {
+        naturalTotal += w + gap;
+    }
+    const int available = width() > 0 ? width() : QWIDGETSIZE_MAX;
+    const bool equal = fixedWidth + m_toggles.size() * (widest + gap) <= available;
+    const bool labelled = equal || fixedWidth + naturalTotal <= available;
+    const int iconOnly = DesignTokens::size(QStringLiteral("control-md")) + DesignTokens::space(2);
+    for (int i = 0; i < m_toggles.size(); ++i) {
+        QToolButton *toggle = m_toggles.at(i);
+        toggle->setToolButtonStyle(labelled ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonIconOnly);
+        toggle->setFixedWidth(equal ? widest : (labelled ? natural.at(i) : iconOnly));
+    }
+    m_compact = !labelled;
 }
 
 void PanelBar::refreshToggles()
@@ -132,9 +160,23 @@ void PanelBar::addTrailingWidget(QWidget *widget)
     widget->show();
 }
 
+QSize PanelBar::minimumSizeHint() const
+{
+    int width = 2 * DesignTokens::space(3);
+    const int iconOnly = DesignTokens::size(QStringLiteral("control-md")) + DesignTokens::space(2);
+    width += m_toggles.size() * (iconOnly + DesignTokens::space(1));
+    for (int i = 0; i < m_right->count(); ++i) {
+        if (QWidget *w = m_right->itemAt(i)->widget(); w && !m_toggles.contains(qobject_cast<QToolButton *>(w))) {
+            width += w->sizeHint().width() + DesignTokens::space(3);
+        }
+    }
+    return {width, QWidget::minimumSizeHint().height()};
+}
+
 void PanelBar::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
+    equalizeToggles();
     placeTitle();
 }
 

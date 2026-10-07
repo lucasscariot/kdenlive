@@ -657,6 +657,8 @@ void MainWindow::init()
         // Hosts the menus once the menu bar is hidden
         m_panelToolBar->addAction(m_hamburgerMenu);
         m_panelToolBar->addWidget(panelBar);
+        // Its own row: sharing one with another toolbar would push the whole bar into an overflow menu
+        addToolBarBreak(Qt::TopToolBarArea);
         addToolBar(Qt::TopToolBarArea, m_panelToolBar);
     }
 
@@ -833,6 +835,12 @@ void MainWindow::finishUiSetup()
         windowGroup.writeEntry("MenuBar", QStringLiteral("Disabled"));
     }
     setAutoSaveSettings();
+    // The panel bar replaces the main toolbar (its menu button holds the file actions): hide the main
+    // toolbar once when upgrading; showing it again afterwards is the user's choice and is kept
+    if (!windowGroup.readEntry("PanelBarIntroduced", false)) {
+        toolBar()->hide();
+        windowGroup.writeEntry("PanelBarIntroduced", true);
+    }
     if (QAction *showMenuBarAction = actionCollection()->action(KStandardAction::name(KStandardAction::ShowMenubar))) {
         showMenuBarAction->setChecked(!menuBar()->isHidden());
     }

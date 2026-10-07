@@ -31,6 +31,9 @@ public:
     /** @brief Sync every toggle with the visible panes, after a layout was restored or loaded */
     void refreshToggles();
 
+    /** @brief The compact size, icons only, so a toolbar never moves the bar into its overflow menu */
+    QSize minimumSizeHint() const override;
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -44,8 +47,10 @@ private:
     QLabel *m_state;
     QList<std::function<void()>> m_refreshers;
     QList<QToolButton *> m_toggles;
-    /** @brief Give every toggle the width of the widest, so the selected fill never changes size */
+    /** @brief Give every toggle the width of the widest, so the selected fill never changes size;
+        toggles drop their labels when the bar is too narrow for them */
     void equalizeToggles();
+    bool m_compact{false};
     void updateTitle();
     void placeTitle();
 };
