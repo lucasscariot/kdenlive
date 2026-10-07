@@ -83,6 +83,18 @@ void headerStrip(QPainter *painter, const QRect &rect)
     painter->fillRect(QRect(rect.left(), rect.bottom(), rect.width(), 1), DesignTokens::color(QStringLiteral("separator")));
 }
 
+QPixmap tinted(const QIcon &icon, const QSize &size, const QColor &color, qreal devicePixelRatio, QIcon::Mode mode)
+{
+    QPixmap pixmap = icon.pixmap(size, devicePixelRatio, mode);
+    if (pixmap.isNull()) {
+        return pixmap;
+    }
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), color);
+    return pixmap;
+}
+
 QColor wash(bool hovered, bool pressed)
 {
     if (pressed) {

@@ -23,6 +23,8 @@
 #include <QStyleFactory>
 #include <QStyleOption>
 #include <QTabBar>
+#include <QTimer>
+#include <QToolButton>
 #include <QWidget>
 
 #include <tuple>
@@ -137,10 +139,33 @@ QRect pillRect(const QRect &tabRect)
 void KdenliveStyle::polish(QWidget *widget)
 {
     QProxyStyle::polish(widget);
-    if (qobject_cast<QMenu *>(widget)) {
+    if (auto *menu = qobject_cast<QMenu *>(widget)) {
         // Rounded popups need a transparent window behind the panel's corners
         widget->setAttribute(Qt::WA_TranslucentBackground, true);
         widget->setFont(DesignTokens::font(QStringLiteral("text-body")));
+        // A popup holds the pointer, so the button that opened it never sees the mouse leave: repaint it on close
+        connect(menu, &QMenu::aboutToHide, menu, [menu]() {
+            for (QWidget *top : QApplication::topLevelWidgets()) {
+                for (QToolButton *button : top->findChildren<QToolButton *>()) {
+                    if (button->menu() == menu) {
+                        QTimer::singleShot(0, button, [button]() {
+                            button->setAttribute(Qt::WA_UnderMouse, button->rect().contains(button->mapFromGlobal(QCursor::pos())));
+                            button->update();
+                        });
+                    }
+                }
+            }
+        });
+    }
+    if (widget->inherits("QTipLabel")) {
+        // Tooltips: caption text in ink on a rounded raised panel
+        widget->setAttribute(Qt::WA_TranslucentBackground, true);
+        widget->setFont(DesignTokens::font(QStringLiteral("text-caption")));
+        QPalette palette = widget->palette();
+        palette.setColor(QPalette::ToolTipText, token("ink"));
+        palette.setColor(QPalette::WindowText, token("ink"));
+        palette.setColor(QPalette::ToolTipBase, token("surface-raised"));
+        widget->setPalette(palette);
     }
     if (qobject_cast<QDialog *>(widget)) {
         widget->installEventFilter(this);
@@ -261,6 +286,8 @@ int KdenliveStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, c
     case PM_MenuButtonIndicator:
         // Wide enough to aim at the menu part of split buttons
         return size("icon-md") + DesignTokens::space(1);
+    case PM_ToolTipLabelFrameWidth:
+        return DesignTokens::space(2);
     case PM_DefaultFrameWidth:
     case PM_SpinBoxFrameWidth:
     case PM_ComboBoxFrameWidth:
@@ -341,7 +368,7 @@ QSize KdenliveStyle::sizeFromContents(ContentsType type, const QStyleOption *opt
                 width += m.shortcutGap + labelMetrics.horizontalAdvance(shortcut);
             }
             if (item->menuItemType == QStyleOptionMenuItem::SubMenu) {
-                width += m.arrowColumn;
+                width += m.arrowColumn + DesignTokens::space(2);
             }
             return QSize(width, m.rowHeight + DesignTokens::space(1));
         }
@@ -591,7 +618,7 @@ void KdenliveStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *
         DesignPaint::panel(painter, option->rect, Qt::transparent, token("separator"), radius("radius-lg"));
         return;
     case PE_PanelTipLabel:
-        DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-sm"));
+        DesignPaint::panel(painter, option->rect, token("surface-raised"), token("border-control"), radius("radius-md"));
         return;
     case PE_PanelMenu:
         if (qobject_cast<const QMenu *>(widget)) {
@@ -711,6 +738,11 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
                 label.palette.setColor(QPalette::ButtonText, token("ink-secondary"));
             } else if (isPrimaryButton(button, widget) && enabled) {
                 label.palette.setColor(QPalette::ButtonText, token("on-accent"));
+                if (!button->icon.isNull()) {
+                    // The icon follows the label onto the accent fill
+                    const qreal dpr = widget ? widget->devicePixelRatioF() : 1.0;
+                    label.icon = QIcon(DesignPaint::tinted(button->icon, button->iconSize, token("on-accent"), dpr));
+                }
             } else {
                 label.palette.setColor(QPalette::ButtonText, textColor(option));
             }
@@ -800,7 +832,13 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
                                        selected ? DesignPaint::withAlpha(token("on-accent"), 0.25) : token("accent-soft"), Qt::transparent,
                                        radius("radius-xs"));
                 }
-                item->icon.paint(painter, iconRect, Qt::AlignCenter, enabled ? QIcon::Normal : QIcon::Disabled, checked ? QIcon::On : QIcon::Off);
+                if (selected) {
+                    // White icon on the accent row, like the label beside it
+                    const qreal dpr = widget ? widget->devicePixelRatioF() : 1.0;
+                    painter->drawPixmap(iconRect, DesignPaint::tinted(item->icon, iconRect.size(), token("on-accent"), dpr));
+                } else {
+                    item->icon.paint(painter, iconRect, Qt::AlignCenter, enabled ? QIcon::Normal : QIcon::Disabled, checked ? QIcon::On : QIcon::Off);
+                }
             } else if (checked) {
                 painter->save();
                 painter->setRenderHint(QPainter::Antialiasing, true);
@@ -950,16 +988,22 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
             const bool hasMenuPart = tool->subControls & SC_ToolButtonMenu;
 
             if (hasFlag(widget, "_kdenlive_primary")) {
-                // The primary action of a bar: accent fill, bold label, the menu part behind a divider
-                QColor fill = token("accent-fill");
-                if (!enabled) {
-                    fill = withAlpha(fill, DesignTokens::opacity(QStringLiteral("opacity-disabled")));
-                } else if (pressed) {
-                    fill = fill.darker(115);
-                } else if (hover) {
-                    fill = fill.lighter(112);
+                // The primary action of a bar: accent fill, bold label, the menu part behind a divider.
+                // Hover and press only light the part under the pointer; an open menu keeps its part pressed.
+                const QColor base = enabled ? token("accent-fill") : withAlpha(token("accent-fill"), DesignTokens::opacity(QStringLiteral("opacity-disabled")));
+                DesignPaint::panel(painter, tool->rect, base, Qt::transparent, radius("radius-md"));
+                const bool menuOpen = hasMenuPart && (tool->state & State_On);
+                const bool overMenu = hasMenuPart && (tool->activeSubControls & SC_ToolButtonMenu);
+                if (enabled && (hover || pressed || menuOpen)) {
+                    const bool partPressed = pressed || menuOpen;
+                    const QColor overlayColor = partPressed ? withAlpha(token("surface-viewer"), 0.22) : withAlpha(token("on-accent"), 0.12);
+                    painter->save();
+                    QPainterPath shape;
+                    shape.addRoundedRect(QRectF(tool->rect), radius("radius-md"), radius("radius-md"));
+                    painter->setClipPath(shape);
+                    painter->fillRect(hasMenuPart ? ((overMenu || menuOpen) ? menu : button) : tool->rect, overlayColor);
+                    painter->restore();
                 }
-                DesignPaint::panel(painter, tool->rect, fill, Qt::transparent, radius("radius-md"));
                 const QColor onAccent = token("on-accent");
                 if (hasMenuPart) {
                     const int inset = DesignTokens::space(3) - DesignTokens::space(1);
@@ -977,15 +1021,20 @@ void KdenliveStyle::drawComplexControl(ComplexControl control, const QStyleOptio
             }
 
             if (hasFlag(widget, "_kdenlive_panel_toggle")) {
-                // Panel toggles: the visible pane keeps a soft fill and bright label, never the accent
+                // Panel toggles, as in Final Cut: the visible pane shows an accent icon and a bright label;
+                // hover only adds a wash, so the two states never look alike
                 const bool on = tool->state & State_On;
-                const QColor fill = on ? token("fill-pressed") : DesignPaint::wash(hover, pressed);
+                const QColor fill = DesignPaint::wash(hover, pressed);
                 if (fill.alpha() > 0) {
                     DesignPaint::panel(painter, tool->rect, fill, Qt::transparent, radius("radius-md"));
                 }
                 QStyleOptionToolButton label(*tool);
                 label.state &= ~(State_Sunken | State_On);
-                label.palette.setColor(QPalette::ButtonText, on ? token("ink") : token("ink-secondary"));
+                label.palette.setColor(QPalette::ButtonText, on || hover ? token("ink") : token("ink-secondary"));
+                if (on && !tool->icon.isNull()) {
+                    const qreal dpr = widget ? widget->devicePixelRatioF() : 1.0;
+                    label.icon = QIcon(DesignPaint::tinted(tool->icon, tool->iconSize, token("accent"), dpr));
+                }
                 // Center icon and text as one group, so equal width toggles stay balanced
                 const int iconWidth = tool->icon.isNull() ? 0 : tool->iconSize.width() + DesignTokens::space(2);
                 const int contentWidth = qMin(tool->rect.width(), iconWidth + tool->fontMetrics.horizontalAdvance(tool->text) + 2);
