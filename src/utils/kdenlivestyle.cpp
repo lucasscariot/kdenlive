@@ -12,6 +12,7 @@
 #include <QCursor>
 #include <QDialog>
 #include <QEvent>
+#include <QFrame>
 #include <QIcon>
 #include <QLinearGradient>
 #include <QMenu>
@@ -653,6 +654,30 @@ void KdenliveStyle::drawControl(ControlElement element, const QStyleOption *opti
             }
             QCommonStyle::drawControl(element, &plain, painter, widget);
             return;
+        }
+        break;
+    case CE_ShapedFrame:
+        if (const auto *frame = qstyleoption_cast<const QStyleOptionFrame *>(option)) {
+            // Every QFrame line and box in the app: separator hairlines instead of Fusion's text colored or bevelled frames
+            const QRect r = frame->rect;
+            switch (frame->frameShape) {
+            case QFrame::HLine:
+                painter->fillRect(QRect(r.left(), r.center().y(), r.width(), 1), token("separator"));
+                return;
+            case QFrame::VLine:
+                painter->fillRect(QRect(r.center().x(), r.top(), 1, r.height()), token("separator"));
+                return;
+            case QFrame::Box:
+            case QFrame::Panel:
+            case QFrame::StyledPanel:
+            case QFrame::WinPanel:
+                if (frame->lineWidth > 0) {
+                    DesignPaint::panel(painter, r, Qt::transparent, token("separator"), radius("radius-sm"));
+                }
+                return;
+            default:
+                break;
+            }
         }
         break;
     case CE_MenuEmptyArea:

@@ -133,7 +133,9 @@ void DesignTokens::load()
             const QString familyKey = style.value(QStringLiteral("family")).toString(groupFamily);
             QFont font(m_families.value(familyKey));
             const int pixelSize = toPixels(style.value(QStringLiteral("fontSize")));
-            font.setPixelSize(pixelSize);
+            // Points rather than pixels: much of the app scales fonts with pointSize() arithmetic,
+            // which breaks on pixel sized fonts. 1px is 0.75pt at Qt's 96 dpi logical resolution.
+            font.setPointSizeF(pixelSize * 0.75);
             font.setWeight(QFont::Weight(style.value(QStringLiteral("fontWeight")).toInt(400)));
             const QString spacing = style.value(QStringLiteral("letterSpacing")).toString();
             if (spacing.endsWith(QLatin1String("em"))) {
