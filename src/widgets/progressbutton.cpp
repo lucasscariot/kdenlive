@@ -113,9 +113,10 @@ QSize ProgressButton::sizeHint() const
     QSize size = QToolButton::sizeHint();
     if (m_primary) {
         // The toolbar may size us as icon only, but the primary look shows the bold label
+        // Label padding space-4 on both sides, plus the style's fixed menu column
         const QFontMetrics metrics(DesignTokens::font(QStringLiteral("text-body-strong")));
-        const int padding = DesignTokens::space(3) + DesignTokens::space(2);
-        const int menuWidth = popupMode() == MenuButtonPopup ? style()->pixelMetric(QStyle::PM_MenuButtonIndicator, nullptr, this) + DesignTokens::space(2) : 0;
+        const int padding = DesignTokens::space(4);
+        const int menuWidth = popupMode() == MenuButtonPopup ? DesignTokens::size(QStringLiteral("icon-md")) + 2 * DesignTokens::space(2) : 0;
         size.setWidth(metrics.horizontalAdvance(text()) + 2 * padding + menuWidth);
         size.setHeight(DesignTokens::size(QStringLiteral("control-md")));
     }

@@ -103,6 +103,19 @@ void PanelBar::addPanelToggle(const QString &dockName, const QString &label, con
     }
     refresh();
     (rightSide ? m_right : m_left)->addWidget(button);
+    m_toggles.append(button);
+    equalizeToggles();
+}
+
+void PanelBar::equalizeToggles()
+{
+    int width = 0;
+    for (QToolButton *toggle : std::as_const(m_toggles)) {
+        width = qMax(width, toggle->sizeHint().width());
+    }
+    for (QToolButton *toggle : std::as_const(m_toggles)) {
+        toggle->setFixedWidth(width);
+    }
 }
 
 void PanelBar::refreshToggles()
