@@ -7,6 +7,7 @@
     <property name="length">600</property>
     <property name="kdenlive:clipname">source.mkv</property>
     <property name="kdenlive:markers">[{"pos":15,"comment":"Clap","type":3,"duration":0}]</property>
+    <property name="kdenlive:speech">&lt;p&gt;&lt;a href="2#10.5:11"&gt;Fixture&lt;/a&gt; &lt;a href="2#11.2:11.6"&gt;speech.&lt;/a&gt; &lt;/p&gt;</property>
     <property name="kdenlive:id">2</property>
 <property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000002}</property>
   </producer>

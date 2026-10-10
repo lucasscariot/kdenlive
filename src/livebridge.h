@@ -48,6 +48,12 @@ public:
     QJsonObject renderStatus();
     /** Sequence guides or a bin clip's markers as json, csv or Kdenlive's native guide JSON text. */
     QJsonObject markerExport(const QJsonObject &arguments);
+    /** A bin clip's stored transcript, optionally mapped through timeline clips; see docs/native-mcp.md "Transcripts and silence". */
+    QJsonObject transcript(const QJsonObject &arguments);
+    /** ffmpeg silencedetect on a bin clip, a timeline clip or a timeline range; runs synchronously. */
+    QJsonObject silenceDetect(const QJsonObject &arguments);
+    /** Progress of speech-to-text jobs started with the transcribe command. */
+    QJsonObject transcribeStatus(const QJsonObject &arguments);
     /** Scoped state read: optional include (section names), trackId and range {start, end}; see docs/native-mcp.md. */
     QJsonObject stateFor(const QJsonObject &arguments);
     /** Every section name stateFor accepts in include. */
@@ -110,6 +116,14 @@ private:
     QList<ClipSpan> trackClips(int trackId) const;
     QSet<int> allClipIds() const;
     QJsonObject startRender(const QJsonObject &command);
+    /** transcript_import, range_cut and transcribe (livebridgetranscript.cpp); sets handled when the command is one of them. */
+    QJsonObject executeTranscript(const QJsonObject &command, bool &handled);
+    QJsonObject importTranscript(const QJsonObject &command);
+    QJsonObject rangeCut(const QJsonObject &command);
+    QJsonObject startTranscription(const QJsonObject &command);
+    void finishTranscription(const QString &jobId);
+    /** Marker category resolution shared with livebridgetranscript.cpp. */
+    static QJsonObject markerCategoryFor(const QJsonValue &value, int &category);
     QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;
 
@@ -172,6 +186,8 @@ private:
     };
     QMap<QString, RenderState> m_renders;
     bool m_renderTracking{false};
+    struct TranscriptionJob;
+    QMap<QString, std::shared_ptr<TranscriptionJob>> m_transcriptions;
     QList<HistoryEntry> m_history;
     QPointer<QUndoStack> m_historyStack;
     QList<QMetaObject::Connection> m_historyConnections;

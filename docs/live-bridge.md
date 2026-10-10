@@ -107,6 +107,16 @@ Supported commands:
 - `group`: `clipIds`. `ungroup`: `clipId` or `groupId`.
 - `speed`: `clipId`, `speed` (factor) and optional `pitchCompensation`.
 - `enable`: `clipId`, `enabled` and optional `linked`.
+- `transcript_import`: `binId`, `format` (`json`, `srt`, `vtt` or `whisper`),
+  `text`, optional `language`, `engine` and `append`. Stores the word list on
+  the bin clip in one Undo step. Returns `wordCount` and `segmentCount`.
+- `range_cut`: one of `ranges` (timeline frames), `words` (word index spans on
+  `binId` or `clipId`) or `silences` (on `binId`, `clipId` or `range`), with
+  optional `keep`, `mode` (`extract` or `lift`), `trackIds` or `allTracks`,
+  `padding`, `minGap`, `addMarkers` and `dryRun`. Removes every range in one Undo
+  step. Returns `removedRanges`, `removedFrames` and `newDuration`.
+- `transcribe`: `binId`, optional `engine`, `model` and `language`. Starts
+  Kdenlive's speech to text and returns `jobId`, or `TRANSCRIPTION_UNAVAILABLE`.
 - `move`: `clipId`, `trackId`, `position`.
 - `trim`: `clipId`, `duration`, `edge` equal to `left` or `right`.
 - `save_as`: new absolute `.kdenlive` `path` in a writable folder. Saves a copy,
@@ -142,7 +152,8 @@ Supported commands:
   `remove_clip`, `audio_envelope`, `rename_track`, `insert`, `move`, `trim`,
   `reframe`, `effect_add`, `effect_set`, `effect_remove`, `title_edit`, the
   four `marker_*` commands, `split`, `remove_range`, `remove_gap`,
-  `insert_space`, `group`, `ungroup`, `speed` and `enable`. Runs
+  `insert_space`, `group`, `ungroup`, `speed`, `enable`, `transcript_import`
+  and `range_cut`. Runs
   them as one Undo step and returns `results`. On the first failure it rolls
   everything back and returns that error with `failedIndex`.
 - `undo` and `redo`: optional `count` (steps) or `toIndex` (target Undo
@@ -156,7 +167,8 @@ entries created by `apply()` are recorded with `origin: "mcp"` and
 `revertSession`, and written to the change log file like MCP edits. The folder
 policy for imports, save-as and render outputs is enforced by the native MCP
 server, not by D-Bus `apply()`. Frame
-capture, effect listing, title reading, marker export, render status and the
+capture, effect listing, title reading, marker export, render status,
+transcript readback, silence detection, transcription status and the
 `desktop_history` change log are available only as [native MCP](native-mcp.md)
 tools, not through D-Bus. `state()` includes `lastChange`.
 `capabilities()` lists the project's `markerCategories`; see

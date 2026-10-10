@@ -300,7 +300,9 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
                                      "asynchronous; wait for bin readiness. Edits share native Undo with the user. Open and save a local project before "
                                      "editing. Media imports, save_as and render outputs are restricted to the project folder and configured additional media "
                                      "folder. Use desktop_batch to make many edits one Undo step. For a format change (e.g. vertical), save_as a copy, "
-                                     "set the profile, reframe clips and resize titles, verifying with desktop_frame_capture, then desktop_render."}}}},
+                                     "set the profile, reframe clips and resize titles, verifying with desktop_frame_capture, then desktop_render. For "
+                                     "transcript or dead-air edits, read desktop_transcript or desktop_silence_detect, then cut with desktop_range_cut "
+                                     "(dryRun first) as one Undo step."}}}},
             Status::Ok, allocated);
     }
     if (sessionId.isEmpty()) return rpcError(notification ? nullId : id, -32600, "Mcp-Session-Id is required.", Status::BadRequest);

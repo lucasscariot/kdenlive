@@ -31,6 +31,9 @@ const project = join(root, 'test.kdenlive');
 const config = join(root, 'config/kdenliverc');
 await promisify(execFile)('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=30', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '20', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-c:a', 'pcm_s16le', source]);
 await copyFile(source, replacement);
+// A 20 s tone with silences at [3, 5) and [9, 12) seconds, for silence detection and cuts.
+const speechFile = join(root, 'media/speech.wav');
+await promisify(execFile)('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'aevalsrc=if(gte(t\\,3)*lt(t\\,5)+gte(t\\,9)*lt(t\\,12)\\,0\\,0.5*sin(2*PI*440*t)):s=48000:d=20', '-c:a', 'pcm_s16le', speechFile]);
 await writeFile(project, (await readFile(join(directory, 'fixture.kdenlive'), 'utf8')).replaceAll('@MEDIA@', source.replaceAll('&', '&amp;')));
 // Kdenlive keeps a sequence's subtitles next to the project as <project file name>.ass.
 await writeFile(`${project}.ass`, `[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Sans,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello from MCP\nDialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,Second line\n`);
@@ -55,6 +58,8 @@ const expectedTools = {
   desktop_clip_split: [false, true, true], desktop_range_remove: [false, true, false], desktop_gap_remove: [false, true, false],
   desktop_space_insert: [false, true, false], desktop_clip_group: [false, false, true], desktop_clip_ungroup: [false, true, true],
   desktop_clip_speed: [false, true, true], desktop_clip_enable: [false, true, true],
+  desktop_transcript: [true, false, true], desktop_silence_detect: [true, false, true], desktop_transcribe_status: [true, false, true],
+  desktop_transcript_import: [false, true, false], desktop_range_cut: [false, true, false], desktop_transcribe: [false, true, false],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -167,7 +172,7 @@ async function stop() {
 try {
   await launch();
   const catalog = await client.listTools();
-  assert.equal(catalog.tools.length, 42);
+  assert.equal(catalog.tools.length, 48);
   const names = catalog.tools.map(item => item.name).sort();
   const expectedNames = Object.keys(expectedTools).sort();
   assert.deepEqual(names, expectedNames, `Tool catalog mismatch. Missing: ${expectedNames.filter(name => !names.includes(name)).join(', ') || 'none'}; unexpected: ${names.filter(name => !expectedNames.includes(name)).join(', ') || 'none'}`);
@@ -529,6 +534,204 @@ try {
   assert.deepEqual([toggled.clipIds, clip(pairV).enabled, clip(pairA).enabled, undoLabel()], [[pairV], true, false, 'Enable clips']);
   await edit('desktop_undo', { toIndex: timelineIndex });
   assert.deepEqual(layout(), timelineStart, 'Every timeline edit is undone');
+  // Transcripts and silence. A 20 s tone with two silences goes on A1 at 600; transcripts in every import format go on the linked pair's
+  // source, whose clips show source 10..15 s at speed 0.5 (sourceIn 600, so timeline frame = round(seconds * 60) - 600). Cuts by words,
+  // silences, ranges and keep are each one Undo step. Everything is undone at the end of the section.
+  await refresh();
+  const transcriptCaps = await ok('desktop_capabilities');
+  for (const operation of ['transcript_import', 'range_cut', 'transcribe']) assert(transcriptCaps.operations.includes(operation), operation);
+  assert.deepEqual([transcriptCaps.transcriptFormats, transcriptCaps.transcriptOutputFormats, transcriptCaps.speechEngines],
+    [['json', 'srt', 'vtt', 'whisper'], ['words', 'segments', 'text', 'srt'], ['whisper', 'vosk']]);
+  const transcriptIndex = state.undo.index;
+  const transcriptStart = layout();
+  const guidesBefore = state.markers;
+  const pairBin = sourceBin().id;
+  const colorBin = state.bin.find(item => item.type === 'color').id;
+  const sequenceBin = state.bin.find(item => item.type === 'sequence').id;
+  const speechBin = (await edit('desktop_media_import', { path: speechFile })).binId;
+  await ready(speechBin, speechFile);
+  const speechClip = (await edit('desktop_clip_insert', { binId: speechBin, trackId: A1.id, position: 600, sourceIn: 0, sourceOut: 600, media: 'audio' })).clipId;
+  assert.deepEqual([clip(speechClip).position, clip(speechClip).duration], [600, 600]);
+  const cutBase = layout();
+  const near = (actual, expected, label) => assert(Math.abs(actual - expected) <= 1, `${label}: ${actual} vs ${expected}`);
+  const tail = () => lane('A1').clips.filter(item => item.position >= 570).map(item => [item.position, item.duration]);
+  // Silence detection: the raw detection on the bin clip, padded silences mapped through the timeline clip, and a timeline range.
+  let silence = await ok('desktop_silence_detect', { binId: speechBin, padding: 0 });
+  assert.deepEqual([silence.target, silence.analyzed, silence.silences.length, silence.speech.length], ['bin', { start: 0, end: 20 }, 2, 3]);
+  silence.silences.forEach((item, i) => {
+    near(item.sourceStart, [90, 270][i], 'silence start'); near(item.sourceEnd, [150, 360][i], 'silence end');
+    assert.equal(item.timelineStart, undefined);
+  });
+  silence = await ok('desktop_silence_detect', { clipId: speechClip });
+  assert.deepEqual([silence.target, silence.thresholdDb, silence.minDuration, silence.padding], ['clip', -35, 0.5, 0.1]);
+  silence.silences.forEach((item, i) => {
+    near(item.timelineStart, [693, 873][i], 'padded start'); near(item.timelineEnd, [747, 957][i], 'padded end');
+    near(item.detectedStart * 30, [90, 270][i], 'detected start'); assert.equal(item.clipId, speechClip);
+  });
+  const clipSilences = silence.silences.map(item => [item.timelineStart, item.timelineEnd]);
+  assert.deepEqual(silence.speech.map(item => [item.timelineStart, item.timelineEnd]),
+    [[600, clipSilences[0][0]], [clipSilences[0][1], clipSilences[1][0]], [clipSilences[1][1], 1200]]);
+  const rangeSilence = await ok('desktop_silence_detect', { range: { start: 600, end: 1200 } });
+  assert.deepEqual([rangeSilence.target, rangeSilence.clips.map(item => item.clipId)], ['range', [speechClip]]);
+  assert.deepEqual(rangeSilence.silences.map(item => [item.timelineStart, item.timelineEnd]), clipSilences);
+  // Frames with no clip at all are silent too.
+  assert.deepEqual((await ok('desktop_silence_detect', { range: { start: 1150, end: 1300 } })).silences.map(item => [item.timelineStart, item.timelineEnd]), [[1200, 1300]]);
+  for (const [args, code] of [[{ binId: colorBin }, 'NO_AUDIO'], [{ clipId: 999999 }, 'UNKNOWN_CLIP'], [{}, 'INVALID_ARGUMENTS'],
+    [{ binId: speechBin, thresholdDb: 3 }, 'INVALID_ARGUMENTS'], [{ binId: speechBin, clipId: speechClip }, 'INVALID_ARGUMENTS'],
+    [{ clipId: speechClip, sourceRange: { start: 0, end: 1 } }, 'INVALID_ARGUMENTS'], [{ binId: sequenceBin }, 'SEQUENCE_PROTECTED'],
+    [{ range: { start: 1300, end: 1400 } }, 'NO_AUDIO']])
+    assert.equal((await tool('desktop_silence_detect', args)).error.code, code, JSON.stringify(args));
+  assert.equal((await ok('desktop_silence_detect', { binId: speechBin, sourceRange: { start: 8, end: 20 } })).silences.length, 1);
+  // Transcript import (json) and readback by bin clip, timeline clip and range.
+  // The fixture source has a transcript made in the Text-based edit panel (kdenlive:speech); an import replaces it and Undo brings it back.
+  let readback = await ok('desktop_transcript', { binId: pairBin });
+  assert.deepEqual([readback.origin, readback.engine, readback.words.map(word => [word.text, word.start, word.end, word.segment])],
+    ['kdenlive:speech', 'kdenlive', [['Fixture', 10.5, 11, 0], ['speech.', 11.2, 11.6, 0]]]);
+  const spoken = [['Before', 2, 2.5], ['Hello', 10.5, 11], ['world.', 11.2, 11.6], ['Um', 12, 12.5], ['second', 13.4, 14], ['take.', 14.1, 14.6]];
+  const ownJson = { language: 'en', engine: 'test', words: spoken.map(([text, start, end]) => ({ start, end, text, confidence: 0.9 })) };
+  let stored = await edit('desktop_transcript_import', { binId: pairBin, format: 'json', text: JSON.stringify(ownJson) });
+  assert.deepEqual([stored.wordCount, stored.segmentCount, stored.language, stored.engine, stored.replaced, undoLabel()],
+    [6, 4, 'en', 'test', true, 'Import transcript']);
+  const importEntry = await lastSummary();
+  assert.deepEqual([importEntry.command, importEntry.tool, importEntry.summary.binId, importEntry.summary.wordCount], ['transcript_import', 'desktop_transcript_import', pairBin, 6]);
+  readback = await ok('desktop_transcript', { binId: pairBin });
+  assert.deepEqual([readback.target, readback.origin, readback.language, readback.engine, readback.wordCount, readback.count], ['bin', 'mcp', 'en', 'test', 6, 6]);
+  assert.deepEqual(readback.words.map(word => [word.index, word.text, word.start, word.end, word.sourceStart, word.sourceEnd, word.confidence, word.timelineStart]),
+    spoken.map(([text, start, end], index) => [index, text, start, end, Math.round(start * 30), Math.round(end * 30), 0.9, undefined]));
+  assert.deepEqual(readback.gaps.map(gap => [gap.start, gap.end, gap.afterWord, gap.beforeWord]), [[0, 2, -1, 0], [2.5, 10.5, 0, 1], [12.5, 13.4, 3, 4], [14.6, 20, 5, -1]]);
+  // The words round-trip through our own json format.
+  assert.deepEqual((await ok('desktop_transcript', { binId: pairBin, minPause: 5 })).gaps.map(gap => gap.start), [2.5, 14.6]);
+  readback = await ok('desktop_transcript', { clipId: pairV });
+  assert.deepEqual([readback.target, readback.clipId, readback.count], ['clip', pairV, 5]);
+  assert.deepEqual(readback.words.map(word => [word.index, word.timelineStart, word.timelineEnd, word.clipId, word.trackId]),
+    [[1, 30, 60, pairV, V1.id], [2, 72, 96, pairV, V1.id], [3, 120, 150, pairV, V1.id], [4, 204, 240, pairV, V1.id], [5, 246, 276, pairV, V1.id]]);
+  assert.deepEqual(readback.gaps.map(gap => [gap.timelineStart, gap.timelineEnd, gap.afterWord, gap.beforeWord]), [[150, 204, 3, 4]]);
+  readback = await ok('desktop_transcript', { clipId: pairV, format: 'segments' });
+  assert.deepEqual(readback.segments.map(item => [item.text, item.firstWord, item.lastWord, item.timelineStart, item.timelineEnd]),
+    [['Hello world.', 1, 2, 30, 96], ['Um', 3, 3, 120, 150], ['second take.', 4, 5, 204, 276]]);
+  assert.equal(readback.words, undefined);
+  assert.equal((await ok('desktop_transcript', { clipId: pairV, format: 'text' })).text, 'Hello world.\nUm\nsecond take.');
+  assert.equal((await ok('desktop_transcript', { clipId: pairV, format: 'srt' })).text,
+    '1\n00:00:01,000 --> 00:00:03,200\nHello world.\n\n2\n00:00:04,000 --> 00:00:05,000\nUm\n\n3\n00:00:06,800 --> 00:00:09,200\nsecond take.\n');
+  readback = await ok('desktop_transcript', { range: { start: 100, end: 300 } });
+  assert.deepEqual(readback.words.map(word => [word.index, word.clipId, word.binId, word.timelineStart]), [[3, pairA, pairBin, 120], [4, pairA, pairBin, 204], [5, pairA, pairBin, 246]]);
+  assert.deepEqual(readback.clips.map(item => [item.clipId, item.wordCount]), [[pairA, 6]]);
+  assert.deepEqual((await ok('desktop_transcript', { range: { start: 0, end: 100 }, trackIds: [V1.id] })).words.map(word => [word.clipId, word.index]), [[pairV, 1], [pairV, 2]]);
+  assert.equal((await tool('desktop_transcript', { range: { start: 600, end: 700 } })).error.code, 'NO_TRANSCRIPT');
+  for (const args of [{ binId: pairBin, format: 'html' }, { binId: pairBin, trackIds: [V1.id] }, { binId: pairBin, minPause: -1 }, { range: { start: 5, end: 5 } }])
+    assert.equal((await tool('desktop_transcript', args)).error.code, 'INVALID_ARGUMENTS', JSON.stringify(args));
+  // Cut words: extract (default) on every unlocked track; one Undo restores it.
+  let rangeCut = await edit('desktop_range_cut', { clipId: pairV, words: [{ from: 3, to: 3 }] });
+  assert.deepEqual([rangeCut.removedRanges, rangeCut.removedFrames, rangeCut.mode, rangeCut.source, rangeCut.newDuration, undoLabel()],
+    [[{ start: 120, end: 150, duration: 30 }], 30, 'extract', 'words', 1170, 'Remove range']);
+  assert.deepEqual([spans('V1'), spans('A1'), spans('Titles')], [[[0, 120], [120, 150]], [[0, 120], [120, 150], [570, 600]], [[30, 90], [120, 120]]]);
+  assert(rangeCut.clipIdsAffected.includes(pairV) && rangeCut.clipIdsAffected.includes(speechClip) && rangeCut.newClipIds.length === 3, JSON.stringify(rangeCut));
+  await edit('desktop_undo'); assert.deepEqual(layout(), cutBase);
+  // keep: true removes everything but the given words inside the clip span; dryRun changes nothing.
+  const historyBeforeDry = state.undo.index;
+  rangeCut = await edit('desktop_range_cut', { clipId: pairV, words: [{ from: 1, to: 2 }, { from: 4, to: 5 }], keep: true, dryRun: true });
+  assert.deepEqual([rangeCut.removedRanges.map(item => [item.start, item.end]), rangeCut.dryRun, rangeCut.changed, rangeCut.newDuration], [[[0, 30], [96, 204], [276, 300]], true, false, 1200 - 162]);
+  assert.deepEqual([layout(), state.undo.index], [cutBase, historyBeforeDry]);
+  // Ranges are merged, shrunk by padding and dropped below minGap.
+  rangeCut = await edit('desktop_range_cut', { ranges: [{ start: 700, end: 710 }, { start: 705, end: 720 }, { start: 800, end: 803 }], padding: 1, minGap: 5, dryRun: true });
+  assert.deepEqual(rangeCut.removedRanges.map(item => [item.start, item.end]), [[701, 719]]);
+  // Cut every silence: the dry run matches silence detection; the real cut adds a guide at each join and is one Undo step.
+  rangeCut = await edit('desktop_range_cut', { clipId: speechClip, silences: true, dryRun: true });
+  assert.deepEqual(rangeCut.removedRanges.map(item => [item.start, item.end]), clipSilences);
+  assert.deepEqual((await edit('desktop_range_cut', { range: { start: 600, end: 1200 }, silences: { padding: 0.1 }, dryRun: true })).removedRanges.map(item => [item.start, item.end]), clipSilences);
+  const removedTotal = clipSilences.reduce((sum, [from, to]) => sum + to - from, 0);
+  const beforeCut = state.undo.index;
+  rangeCut = await edit('desktop_range_cut', { clipId: speechClip, silences: true, addMarkers: 3 });
+  assert.deepEqual([rangeCut.removedFrames, rangeCut.newDuration, rangeCut.changed, undoLabel(), state.undo.index], [removedTotal, 1200 - removedTotal, true, 'Remove 2 ranges', beforeCut + 1]);
+  const joins = [clipSilences[0][0], clipSilences[1][0] - (clipSilences[0][1] - clipSilences[0][0])];
+  assert.deepEqual(rangeCut.markersAdded.map(item => [item.position, item.duration, item.category]), joins.map(position => [position, 0, 3]));
+  assert.deepEqual(joins.map(position => guide(position)?.category), [3, 3]);
+  assert.deepEqual(tail(), [[600, joins[0] - 600], [joins[0], joins[1] - joins[0]], [joins[1], 1200 - removedTotal - joins[1]]]);
+  const cutEntry = await lastSummary();
+  assert.deepEqual([cutEntry.command, cutEntry.tool, cutEntry.text, cutEntry.undoIndex, cutEntry.summary.source, cutEntry.summary.removedFrames, cutEntry.summary.ranges,
+    cutEntry.summary.markersAdded, cutEntry.summary.removedRanges], ['range_cut', 'desktop_range_cut', 'Remove 2 ranges', beforeCut + 1, 'silences', removedTotal, 2, 2, clipSilences]);
+  await edit('desktop_undo');
+  assert.deepEqual([layout(), state.markers], [cutBase, guidesBefore], 'One Undo restores clips and guides');
+  // Lift leaves gaps on the given tracks; keep with ranges inverts them inside range.
+  rangeCut = await edit('desktop_range_cut', { ranges: [{ start: 650, end: 660 }], mode: 'lift', trackIds: [A1.id] });
+  assert.deepEqual([rangeCut.newDuration, tail(), undoLabel()], [1200, [[600, 50], [660, 540]], 'Lift range']);
+  await edit('desktop_undo');
+  rangeCut = await edit('desktop_range_cut', { ranges: [{ start: 630, end: 690 }, { start: 750, end: 870 }], range: { start: 600, end: 1200 }, keep: true });
+  assert.deepEqual([rangeCut.removedRanges.map(item => [item.start, item.end]), rangeCut.newDuration, tail()], [[[600, 630], [690, 750], [870, 1200]], 780, [[600, 60], [660, 120]]]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), cutBase);
+  for (const [args, code] of [[{ clipId: speechClip, words: [{ from: 0, to: 0 }] }, 'NO_TRANSCRIPT'], [{ binId: pairBin, words: [{ from: 0, to: 9 }] }, 'INVALID_COMMAND'],
+    [{ ranges: [{ start: 5, end: 5 }] }, 'INVALID_COMMAND'], [{ ranges: [{ start: 0, end: 5 }], silences: true }, 'INVALID_COMMAND'],
+    [{ clipId: pairV, ranges: [{ start: 0, end: 5 }] }, 'INVALID_COMMAND'], [{ ranges: [{ start: 0, end: 5 }], trackIds: [Muted.id] }, 'TRACK_LOCKED'],
+    [{ ranges: [{ start: 0, end: 5 }], addMarkers: 'Nope' }, 'UNKNOWN_CATEGORY'], [{ range: { start: 0, end: 10 }, words: [{ from: 0, to: 0 }] }, 'INVALID_COMMAND'],
+    [{ binId: state.bin.find(item => item.type === 'title').id, silences: true }, 'UNKNOWN_CLIP'], [{ clipId: colorClip, silences: true }, 'NO_AUDIO'],
+    [{ range: { start: 0, end: 300 }, silences: true, trackIds: [V1.id] }, 'NO_AUDIO']])
+    assert.equal(await rejected('desktop_range_cut', args), code, JSON.stringify(args));
+  // srt and vtt give cue timing, split equally between the words; whisper keeps its word timing and probabilities.
+  const srtText = '1\n00:00:10,500 --> 00:00:11,600\nHello <i>world</i>.\n\n2\n00:00:13,400 --> 00:00:14,600\nsecond take.\n';
+  stored = await edit('desktop_transcript_import', { binId: pairBin, format: 'srt', text: srtText, language: 'en' });
+  assert.deepEqual([stored.wordCount, stored.segmentCount, stored.interpolatedWords, stored.replaced, stored.engine, stored.language], [4, 2, 4, true, 'import', 'en']);
+  assert.deepEqual((await ok('desktop_transcript', { binId: pairBin })).words.map(word => [word.text, word.start, word.end, word.segment, word.interpolated]),
+    [['Hello', 10.5, 11.05, 0, true], ['world.', 11.05, 11.6, 0, true], ['second', 13.4, 14, 1, true], ['take.', 14, 14.6, 1, true]]);
+  assert.deepEqual((await ok('desktop_transcript', { clipId: pairV, format: 'segments' })).segments.map(item => [item.text, item.timelineStart, item.timelineEnd]),
+    [['Hello world.', 30, 96], ['second take.', 204, 276]]);
+  stored = await edit('desktop_transcript_import', { binId: pairBin, format: 'vtt', text: 'WEBVTT\n\nNOTE made by hand\n\n00:10.500 --> 00:11.600 align:start\nHello world.\n' });
+  assert.deepEqual((await ok('desktop_transcript', { binId: pairBin })).words.map(word => [word.text, word.start, word.end]), [['Hello', 10.5, 11.05], ['world.', 11.05, 11.6]]);
+  const whisper = { text: ' Hello world. Second take.', language: 'en', segments: [
+    { id: 0, start: 10.5, end: 11.6, text: ' Hello world.', words: [{ word: ' Hello', start: 10.5, end: 11, probability: 0.75 }, { word: ' world.', start: 11.2, end: 11.6, probability: 0.5 }] },
+    { id: 1, start: 13.4, end: 14.6, text: ' Second take.' }] };
+  stored = await edit('desktop_transcript_import', { binId: pairBin, format: 'whisper', text: JSON.stringify(whisper) });
+  assert.deepEqual([stored.wordCount, stored.language, stored.engine, stored.interpolatedWords], [4, 'en', 'whisper', 2]);
+  assert.deepEqual((await ok('desktop_transcript', { clipId: pairV })).words.map(word => [word.text, word.timelineStart, word.timelineEnd, word.confidence ?? null, word.segment]),
+    [['Hello', 30, 60, 0.75, 0], ['world.', 72, 96, 0.5, 0], ['Second', 204, 240, null, 1], ['take.', 240, 276, null, 1]]);
+  const beforeAppend = state.undo.index;
+  stored = await edit('desktop_transcript_import', { binId: pairBin, format: 'json', text: JSON.stringify([{ start: 16, end: 16.5, text: 'Later' }]), append: true });
+  assert.deepEqual([stored.wordCount, stored.appended, stored.replaced, state.undo.index], [5, true, false, beforeAppend + 1]);
+  await edit('desktop_undo'); assert.equal((await ok('desktop_transcript', { binId: pairBin })).wordCount, 4, 'Each import is its own Undo step');
+  for (const [args, code] of [[{ binId: pairBin, format: 'json', text: '{"words":[{"start":2,"end":1,"text":"x"}]}' }, 'INVALID_TRANSCRIPT'],
+    [{ binId: pairBin, format: 'srt', text: 'not subtitles' }, 'INVALID_TRANSCRIPT'], [{ binId: pairBin, format: 'json', text: '[{"start":300,"end":301,"text":"late"}]' }, 'INVALID_TRANSCRIPT'],
+    [{ binId: pairBin, format: 'whisper', text: '{"text":"no segments"}' }, 'INVALID_TRANSCRIPT'], [{ binId: pairBin, format: 'json', text: '[]' }, 'INVALID_TRANSCRIPT'],
+    [{ binId: colorBin, format: 'json', text: '[]' }, 'NO_AUDIO'], [{ binId: sequenceBin, format: 'json', text: '[]' }, 'SEQUENCE_PROTECTED'],
+    [{ binId: pairBin, format: 'docx', text: 'x' }, 'INVALID_COMMAND']])
+    assert.equal(await rejected('desktop_transcript_import', args), code, JSON.stringify(args));
+  // Batch: a transcript import and a cut in one Undo step.
+  const beforeTranscriptBatch = state.undo.index;
+  const batched = await edit('desktop_batch', { commands: [
+    { type: 'transcript_import', binId: speechBin, format: 'srt', text: '1\n00:00:00,500 --> 00:00:02,000\nTone one\n' },
+    { type: 'range_cut', ranges: [{ start: 650, end: 660 }], mode: 'lift', trackIds: [A1.id] }] });
+  assert.deepEqual([batched.results.map(item => item.ok), state.undo.index, undoLabel()], [[true, true], beforeTranscriptBatch + 1, 'MCP batch (2 edits)']);
+  assert.deepEqual((await ok('desktop_transcript', { clipId: speechClip })).words.map(word => [word.text, word.timelineStart]), [['Tone', 615], ['one', 638]]);
+  await edit('desktop_undo');
+  assert.equal((await tool('desktop_transcript', { binId: speechBin })).error.code, 'NO_TRANSCRIPT');
+  assert.deepEqual(layout(), cutBase);
+  // Live transcription needs Kdenlive's speech-to-text Python environment and a model; without them the tool reports what is missing.
+  for (const engine of ['whisper', 'vosk']) {
+    await refresh();
+    const started = await tool('desktop_transcribe', { ...fields(), binId: speechBin, engine });
+    if (started.ok) {
+      let job;
+      for (let attempt = 0; attempt < 6000 && job?.state !== 'finished' && job?.state !== 'failed'; attempt++) {
+        job = (await ok('desktop_transcribe_status', { jobId: started.data.jobId })).jobs[0];
+        await delay(100);
+      }
+      assert.equal(job.state, 'finished', JSON.stringify(job));
+      console.log(`desktop_transcribe (${engine}) ran: ${job.wordCount} words`);
+      continue;
+    }
+    assert.equal(started.error.code, 'TRANSCRIPTION_UNAVAILABLE', JSON.stringify(started));
+    assert.deepEqual([typeof started.reason, started.engine, Array.isArray(started.installedModels), Array.isArray(started.missingDependencies), typeof started.hint],
+      ['string', engine, true, true, 'string'], JSON.stringify(started));
+    console.log(`desktop_transcribe (${engine}) unavailable here: ${started.reason}`);
+  }
+  assert.deepEqual((await ok('desktop_transcribe_status')).jobs.filter(job => job.state === 'running'), []);
+  assert.equal((await tool('desktop_transcribe_status', { jobId: 'nope' })).error.code, 'UNKNOWN_JOB');
+  assert.equal(await rejected('desktop_transcribe', { binId: colorBin }), 'NO_AUDIO');
+  assert.equal(await rejected('desktop_transcribe', { binId: speechBin, engine: 'siri' }), 'INVALID_COMMAND');
+  await edit('desktop_undo', { toIndex: transcriptIndex });
+  assert.deepEqual([layout(), state.markers], [transcriptStart, guidesBefore], 'Every transcript edit is undone');
+  assert(!state.bin.some(item => item.id === speechBin));
+  assert.equal((await ok('desktop_transcript', { binId: pairBin })).origin, 'kdenlive:speech', 'Undo restores the panel transcript');
+  // Replacing a clip's media reloads it from the new file, which drops its transcript (checked below).
+  await edit('desktop_transcript_import', { binId: pairBin, format: 'json', text: JSON.stringify(ownJson) });
   const video = state.tracks.find(item => !item.audio && !item.locked);
   const audio = state.tracks.find(item => item.audio && item.clips.length);
   const asset = state.bin.find(item => item.ready && item.url === source);
@@ -578,19 +781,25 @@ try {
   const replaceRequest = { ...fields(), binId: asset.id, replacementBinId: imported.binId };
   const replaced = await ok('desktop_media_replace', replaceRequest);
   await ready(asset.id, replacement);
+  assert.equal((await tool('desktop_transcript', { binId: asset.id })).error.code, 'NO_TRANSCRIPT', 'Replaced media has no transcript');
   assert.equal(clip(id).position, 420); assert.equal(clip(id).duration, 45);
   await edit('desktop_undo'); await ready(asset.id, source);
   await edit('desktop_redo'); await ready(asset.id, replacement);
   await edit('desktop_media_remove', { binId: imported.binId });
   // Replaying an already applied replacement must not re-check its removed source bin item.
   assert.deepEqual(await ok('desktop_media_replace', replaceRequest), replaced);
+  // A transcript is a bin clip property: it is saved with the project and read back after a reload.
+  await edit('desktop_transcript_import', { binId: asset.id, format: 'json', text: JSON.stringify(ownJson) });
   await edit('desktop_project_save'); assert.equal(state.modified, false);
   assert.match(await readFile(project, 'utf8'), /name="kdenlive_id">volume<\/property>/);
+  assert.match(await readFile(project, 'utf8'), /name="kdenlive:mcp_transcript"/);
   const previousSession = state.sessionId;
   await stop(); await launch();
   assert.notEqual(state.sessionId, previousSession);
   assert(state.tracks.flatMap(track => track.clips).some(item => item.position === 420 && item.duration === 45 && item.sourceIn === 30));
   assert.equal(state.tracks.find(track => track.name === 'MCP Music').clips[0].effectCount, 1);
+  const reloaded = await ok('desktop_transcript', { binId: state.bin.find(item => item.url === replacement).id });
+  assert.deepEqual([reloaded.origin, reloaded.language, reloaded.words.map(word => word.text)], ['mcp', 'en', ['Before', 'Hello', 'world.', 'Um', 'second', 'take.']]);
   assert.equal((await tool('desktop_clip_insert', insertion)).error.code, 'SESSION_CHANGED');
 
   // Change log: entries made through MCP carry their request, tool, connection and affected ids; undo and redo move them between applied
