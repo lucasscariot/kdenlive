@@ -216,9 +216,17 @@ QJsonArray McpTools::definitions()
     result.append(definition("desktop_capabilities", "Read native editing capabilities of this Kdenlive instance.", {}, readOnlyTool));
     result.append(
         definition("desktop_state",
-                   "Read the actual visible sequence, project frame size, bin readiness and usage, native IDs, effect counts, sessionId, revision and "
-                   "shared Undo history.",
-                   {}, readOnlyTool));
+                   "Read the visible sequence with native IDs, sessionId, revision and shared Undo history. Default sections, also embedded in every "
+                   "edit result: tracks (type, lock, mute/hide, active), clips (source range, speed, enabled, group, linked A/V partner, mixes) and "
+                   "gaps, compositions, markers (guides), bin items and folders, sequences. include picks sections and adds subtitles, effects "
+                   "(per-clip effect ids) or media (bin frame size, fps, streams). trackId and range {start, end} (end exclusive) narrow the timeline "
+                   "sections; counts always cover the whole sequence.",
+                   {{"include", QJsonObject{{"type", "array"},
+                                            {"uniqueItems", true},
+                                            {"items", QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(LiveBridge::stateSectionNames())}}}}},
+                    {"trackId", frameSchema()},
+                    {"range", objectSchema({{"start", frameSchema()}, {"end", frameSchema(1)}})}},
+                   readOnlyTool, {"include", "trackId", "range"}));
     result.append(definition("desktop_frame_capture",
                              "Render one frame of the active sequence at a timeline position as a PNG image (default 540 px wide). Does not move the "
                              "playhead.",
@@ -266,10 +274,11 @@ QJsonArray McpTools::definitions()
 
 QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonObject &arguments, const QString &additionalMediaRoot)
 {
-    if (name == QLatin1String("desktop_capabilities") || name == QLatin1String("desktop_state") || name == QLatin1String("desktop_render_status")) {
+    if (name == QLatin1String("desktop_state")) return engine.stateFor(arguments);
+    if (name == QLatin1String("desktop_capabilities") || name == QLatin1String("desktop_render_status")) {
         if (!arguments.isEmpty()) return failure("INVALID_ARGUMENTS", "This tool takes no arguments.");
         if (name == QLatin1String("desktop_render_status")) return engine.renderStatus();
-        return QJsonDocument::fromJson((name == QLatin1String("desktop_state") ? engine.state() : engine.capabilities()).toUtf8()).object();
+        return QJsonDocument::fromJson(engine.capabilities().toUtf8()).object();
     }
     if (name == QLatin1String("desktop_frame_capture")) return engine.frameCapture(arguments);
     if (name == QLatin1String("desktop_effect_list")) return engine.effectList(arguments);

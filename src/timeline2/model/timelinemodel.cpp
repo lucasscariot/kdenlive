@@ -5951,6 +5951,16 @@ bool TimelineModel::isInGroup(int id) const
     return m_groups->isInGroup(id);
 }
 
+int TimelineModel::getItemGroupId(int id) const
+{
+    READ_LOCK();
+    int result = -1;
+    for (int group = m_groups->getDirectAncestor(id); group != -1 && m_groups->getType(group) != GroupType::Selection;
+         group = m_groups->getDirectAncestor(group))
+        result = group;
+    return result;
+}
+
 void TimelineModel::limitBlackTrack(bool limit)
 {
     int duration;

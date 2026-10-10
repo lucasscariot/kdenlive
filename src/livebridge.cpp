@@ -8,7 +8,10 @@
 #include "assets/model/assetcommand.hpp"
 #include "bin/bin.h"
 #include "bin/clipcreator.hpp"
+#include "bin/model/markerlistmodel.hpp"
+#include "bin/model/subtitlemodel.hpp"
 #include "bin/projectclip.h"
+#include "bin/projectfolder.h"
 #include "bin/projectitemmodel.h"
 #include "core.h"
 #include "dialogs/wizard.h"
@@ -27,7 +30,9 @@
 #include "render/renderserver.h"
 #include "renderpresets/renderpresetmodel.hpp"
 #include "renderpresets/renderpresetrepository.hpp"
+#include "timeline2/model/compositionmodel.hpp"
 #include "timeline2/model/timelineitemmodel.hpp"
+#include "timeline2/view/timelinecontroller.h"
 #include "timeline2/view/timelinewidget.h"
 
 #include <QApplication>
@@ -51,6 +56,7 @@
 #include <limits>
 #include <mlt++/MltProfile.h>
 #include <numeric>
+#include <tuple>
 
 namespace {
 QString json(const QJsonObject &value)
@@ -76,6 +82,21 @@ bool keys(const QJsonObject &object, const QStringList &allowed)
         if (!allowed.contains(it.key())) return false;
     }
     return true;
+}
+
+const QStringList &stateSections()
+{
+    static const QStringList result{QStringLiteral("tracks"),    QStringLiteral("clips"),     QStringLiteral("compositions"),
+                                    QStringLiteral("markers"),   QStringLiteral("subtitles"), QStringLiteral("bin"),
+                                    QStringLiteral("sequences"), QStringLiteral("effects"),   QStringLiteral("media")};
+    return result;
+}
+
+const QStringList &defaultStateSections()
+{
+    static const QStringList result{QStringLiteral("tracks"),  QStringLiteral("clips"), QStringLiteral("compositions"),
+                                    QStringLiteral("markers"), QStringLiteral("bin"),   QStringLiteral("sequences")};
+    return result;
 }
 } // namespace
 
@@ -105,7 +126,10 @@ QString LiveBridge::capabilities() const
                                            "effect_set", "effect_remove", "title_edit",  "render",        "batch",          "undo",         "redo"}},
                  {"insertModes", QJsonArray{"video", "audio"}},
                  {"frameRanges", "sourceOut is exclusive; frames use project FPS"},
-                 {"stateScope", "active sequence tracks, clips and project bin; not a full project interchange format"},
+                 {"stateScope", "active sequence tracks, clips, compositions, markers, subtitles, project bin and sequence list; not a full project "
+                                "interchange format"},
+                 {"stateSections", QJsonArray::fromStringList(stateSections())},
+                 {"defaultStateSections", QJsonArray::fromStringList(defaultStateSections())},
                  {"receiptLimit", 64},
                  {"batchEditing", true},
                  {"batchLimit", 200}});
@@ -175,69 +199,367 @@ void LiveBridge::contentChanged()
     });
 }
 
-QJsonObject LiveBridge::snapshot() const
+namespace {
+QString clipTypeName(ClipType::ProducerType type)
 {
+    switch (type) {
+    case ClipType::Audio:
+        return QStringLiteral("audio");
+    case ClipType::Video:
+        return QStringLiteral("video");
+    case ClipType::AV:
+        return QStringLiteral("av");
+    case ClipType::Color:
+        return QStringLiteral("color");
+    case ClipType::Image:
+        return QStringLiteral("image");
+    case ClipType::Text:
+    case ClipType::TextTemplate:
+        return QStringLiteral("title");
+    case ClipType::SlideShow:
+        return QStringLiteral("slideshow");
+    case ClipType::Playlist:
+        return QStringLiteral("playlist");
+    case ClipType::QText:
+        return QStringLiteral("text");
+    case ClipType::Qml:
+    case ClipType::Animation:
+        return QStringLiteral("animation");
+    case ClipType::Timeline:
+        return QStringLiteral("sequence");
+    default:
+        return QStringLiteral("other");
+    }
+}
+
+QJsonValue optionalId(int id)
+{
+    return id < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(id);
+}
+
+bool overlaps(int position, int duration, int start, int end)
+{
+    return position < end && position + qMax(duration, 1) > start;
+}
+} // namespace
+
+const QStringList &LiveBridge::stateSectionNames()
+{
+    return stateSections();
+}
+
+LiveBridge::StateScope LiveBridge::defaultScope()
+{
+    StateScope scope;
+    scope.sections = defaultStateSections();
+    return scope;
+}
+
+QJsonObject LiveBridge::stateFor(const QJsonObject &arguments)
+{
+    if (!bind()) return QJsonDocument::fromJson(failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline.")).toUtf8()).object();
+    const auto invalid = [] {
+        return error(QStringLiteral("INVALID_ARGUMENTS"),
+                     QStringLiteral("Expected optional include (section names), trackId and range {start, end} with start < end."));
+    };
+    if (!keys(arguments, {QStringLiteral("include"), QStringLiteral("trackId"), QStringLiteral("range")})) return invalid();
+    StateScope scope = defaultScope();
+    if (arguments.contains(QStringLiteral("include"))) {
+        if (!arguments.value(QStringLiteral("include")).isArray()) return invalid();
+        scope.sections.clear();
+        for (const auto &value : arguments.value(QStringLiteral("include")).toArray()) {
+            if (!stateSections().contains(value.toString()))
+                return error(QStringLiteral("INVALID_ARGUMENTS"),
+                             QStringLiteral("Unknown state section. Use: %1.").arg(stateSections().join(QStringLiteral(", "))));
+            scope.sections.append(value.toString());
+        }
+    }
+    if (arguments.contains(QStringLiteral("trackId"))) {
+        if (!integer(arguments, QStringLiteral("trackId"))) return invalid();
+        scope.trackId = arguments.value(QStringLiteral("trackId")).toInt();
+        if (!m_timeline->isTrack(scope.trackId)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
+    }
+    if (arguments.contains(QStringLiteral("range"))) {
+        const auto range = arguments.value(QStringLiteral("range")).toObject();
+        if (!arguments.value(QStringLiteral("range")).isObject() || !keys(range, {QStringLiteral("start"), QStringLiteral("end")}) ||
+            !integer(range, QStringLiteral("start")) || !integer(range, QStringLiteral("end"), 1) ||
+            range.value(QStringLiteral("start")).toInt() >= range.value(QStringLiteral("end")).toInt())
+            return invalid();
+        scope.start = range.value(QStringLiteral("start")).toInt();
+        scope.end = range.value(QStringLiteral("end")).toInt();
+    }
+    return snapshot(scope);
+}
+
+QJsonObject LiveBridge::snapshot(const StateScope &requested) const
+{
+    // Dependent sections: clips, compositions and effects live inside tracks, effects inside clips, media inside bin items.
+    QStringList sections;
+    const auto wants = [&requested](const QString &name) { return requested.sections.contains(name); };
+    const bool effects = wants(QStringLiteral("effects"));
+    const bool clips = effects || wants(QStringLiteral("clips"));
+    const bool compositions = wants(QStringLiteral("compositions"));
+    const bool tracksWanted = clips || compositions || wants(QStringLiteral("tracks"));
+    const bool media = wants(QStringLiteral("media"));
+    const bool binWanted = media || wants(QStringLiteral("bin"));
+    for (const auto &name : stateSections()) {
+        const bool on = name == QLatin1String("tracks")         ? tracksWanted
+                        : name == QLatin1String("clips")        ? clips
+                        : name == QLatin1String("bin")          ? binWanted
+                        : name == QLatin1String("compositions") ? compositions
+                                                                : wants(name);
+        if (on) sections.append(name);
+    }
+    const int start = requested.start;
+    const int end = requested.end;
+    const double fps = pCore->getCurrentFps();
+    auto *widget = pCore->window()->getCurrentTimeline();
+    const int activeTrack = widget && m_timeline->isTrack(widget->controller()->activeTrack()) ? widget->controller()->activeTrack() : -1;
+
     QJsonArray tracks;
-    for (int row = 0; row < m_timeline->rowCount(); ++row) {
+    for (int row = 0; tracksWanted && row < m_timeline->rowCount(); ++row) {
         const auto track = m_timeline->index(row, 0);
         const int trackId = int(track.internalId());
-        QJsonArray clips;
+        if (requested.trackId >= 0 && trackId != requested.trackId) continue;
+        const bool audio = m_timeline->isAudioTrack(trackId);
+        const bool disabled = m_timeline->data(track, TimelineModel::IsDisabledRole).toBool();
+        QJsonObject entry{{"id", trackId},
+                          {"name", m_timeline->data(track, TimelineModel::NameRole).toString()},
+                          {"tag", m_timeline->getTrackTagById(trackId)},
+                          {"type", audio ? "audio" : "video"},
+                          {"audio", audio},
+                          {"locked", m_timeline->data(track, TimelineModel::IsLockedRole).toBool()},
+                          {"muted", audio && disabled},
+                          {"hidden", !audio && disabled},
+                          {"active", trackId == activeTrack}};
+        QList<QJsonObject> clipList;
+        QJsonArray compositionList;
         for (int i = 0; i < m_timeline->rowCount(track); ++i) {
-            const int id = int(m_timeline->index(i, 0, track).internalId());
-            if (!m_timeline->isClip(id)) continue;
-            const auto range = m_timeline->getClipInOut(id);
-            clips.append(QJsonObject{{"id", id},
-                                     {"binId", m_timeline->getClipBinId(id)},
-                                     {"name", m_timeline->getClipName(id)},
-                                     {"position", m_timeline->getClipPosition(id)},
-                                     {"duration", m_timeline->getClipPlaytime(id)},
-                                     {"sourceIn", range.first},
-                                     {"sourceOut", range.second + 1},
-                                     {"speed", m_timeline->getClipSpeed(id)},
-                                     {"effectCount", m_timeline->getClipEffectStackModel(id)->rowCount()},
-                                     {"grouped", m_timeline->isInGroup(id)}});
+            const auto item = m_timeline->index(i, 0, track);
+            const int id = int(item.internalId());
+            if (clips && m_timeline->isClip(id)) {
+                const auto range = m_timeline->getClipInOut(id);
+                const int position = m_timeline->getClipPosition(id);
+                const int duration = m_timeline->getClipPlaytime(id);
+                const auto state = m_timeline->getClipState(id);
+                const int groupId = m_timeline->getItemGroupId(id);
+                auto stack = m_timeline->getClipEffectStackModel(id);
+                QJsonArray mixes;
+                if (const int mix = m_timeline->data(item, TimelineModel::MixRole).toInt(); mix > 0)
+                    mixes.append(QJsonObject{
+                        {"edge", "start"}, {"position", position}, {"duration", mix}, {"offset", m_timeline->data(item, TimelineModel::MixCutRole).toInt()}});
+                if (const int mix = m_timeline->data(item, TimelineModel::MixEndDurationRole).toInt(); mix > 0)
+                    mixes.append(QJsonObject{{"edge", "end"}, {"position", position + duration - mix}, {"duration", mix}});
+                QJsonObject clip{{"id", id},
+                                 {"binId", m_timeline->getClipBinId(id)},
+                                 {"name", m_timeline->getClipName(id)},
+                                 {"type", clipTypeName(state.second)},
+                                 {"position", position},
+                                 {"duration", duration},
+                                 {"sourceIn", range.first},
+                                 {"sourceOut", range.second + 1},
+                                 {"speed", m_timeline->getClipSpeed(id)},
+                                 {"enabled", state.first != PlaylistState::Disabled},
+                                 {"effectCount", stack->rowCount()},
+                                 {"grouped", groupId >= 0},
+                                 {"groupId", optionalId(groupId)},
+                                 {"linkedClipId", optionalId(m_timeline->getClipSplitPartner(id))},
+                                 {"mixes", mixes}};
+                if (effects) {
+                    QJsonArray list;
+                    for (int effectRow = 0; effectRow < stack->rowCount(); ++effectRow) {
+                        auto effect = std::static_pointer_cast<EffectItemModel>(stack->getEffectStackRow(effectRow));
+                        const QString effectId = effect->getAssetId();
+                        list.append(QJsonObject{{"effectId", effectId},
+                                                {"name", EffectsRepository::get()->exists(effectId) ? EffectsRepository::get()->getName(effectId) : effectId},
+                                                {"enabled", effect->isAssetEnabled()}});
+                    }
+                    clip.insert(QStringLiteral("effects"), list);
+                }
+                clipList.append(clip);
+            } else if (compositions && m_timeline->isComposition(id)) {
+                const int position = m_timeline->getCompositionPosition(id);
+                const int duration = m_timeline->getCompositionPlaytime(id);
+                if (!overlaps(position, duration, start, end)) continue;
+                auto composition = std::dynamic_pointer_cast<CompositionModel>(m_timeline->getCompositionParameterModel(id));
+                if (!composition) continue;
+                // MLT track indexes count the black background track as 0.
+                const int aTrack = composition->getATrack();
+                const int groupId = m_timeline->getItemGroupId(id);
+                compositionList.append(QJsonObject{{"id", id},
+                                                   {"compositionId", composition->getAssetId()},
+                                                   {"name", composition->displayName()},
+                                                   {"position", position},
+                                                   {"duration", duration},
+                                                   {"aTrack", aTrack},
+                                                   {"aTrackId", aTrack > 0 && aTrack <= m_timeline->getTracksCount()
+                                                                    ? QJsonValue(m_timeline->getTrackIndexFromPosition(aTrack - 1))
+                                                                    : QJsonValue(QJsonValue::Null)},
+                                                   {"bTrack", m_timeline->getTrackMltIndex(trackId)},
+                                                   {"forcedATrack", composition->getForcedTrack() >= 0},
+                                                   {"grouped", groupId >= 0},
+                                                   {"groupId", optionalId(groupId)}});
+            }
         }
-        tracks.append(QJsonObject{{"id", trackId},
-                                  {"name", m_timeline->data(track, TimelineModel::NameRole).toString()},
-                                  {"audio", m_timeline->isAudioTrack(trackId)},
-                                  {"locked", m_timeline->data(track, TimelineModel::IsLockedRole).toBool()},
-                                  {"clips", clips}});
-    }
-    QJsonArray bin;
-    for (const auto &id : pCore->projectItemModel()->getAllClipIds()) {
-        auto clip = pCore->projectItemModel()->getClipByBinID(id);
-        if (clip) {
-            const bool ready = clip->statusReady();
-            // A loading producer holds its write lock until its GUI-thread completion.
-            // Reading its duration here would prevent that completion from running.
-            bin.append(QJsonObject{{"id", id},
-                                   {"name", clip->clipName()},
-                                   {"url", clip->url()},
-                                   {"ready", ready},
-                                   {"inUse", clip->isIncludedInTimeline()},
-                                   {"duration", ready ? QJsonValue(qint64(clip->frameDuration())) : QJsonValue::Null}});
+        if (clips) {
+            std::sort(clipList.begin(), clipList.end(), [](const QJsonObject &a, const QJsonObject &b) {
+                const int left = a.value(QStringLiteral("position")).toInt(), right = b.value(QStringLiteral("position")).toInt();
+                return left != right ? left < right : a.value(QStringLiteral("id")).toInt() < b.value(QStringLiteral("id")).toInt();
+            });
+            QJsonArray clipArray;
+            QJsonArray gaps;
+            int cursor = 0;
+            for (const auto &clip : std::as_const(clipList)) {
+                const int position = clip.value(QStringLiteral("position")).toInt();
+                const int duration = clip.value(QStringLiteral("duration")).toInt();
+                if (position > cursor && overlaps(cursor, position - cursor, start, end))
+                    gaps.append(QJsonObject{{"position", cursor}, {"duration", position - cursor}});
+                cursor = qMax(cursor, position + duration);
+                if (overlaps(position, duration, start, end)) clipArray.append(clip);
+            }
+            entry.insert(QStringLiteral("clips"), clipArray);
+            entry.insert(QStringLiteral("gaps"), gaps);
         }
+        if (compositions) entry.insert(QStringLiteral("compositions"), compositionList);
+        tracks.append(entry);
     }
+
     auto stack = m_document->commandStack();
     auto &profile = pCore->getProjectProfile();
-    return {{"ok", true},
-            {"sessionId", m_session},
-            {"revision", m_revision},
-            {"sequenceId", m_timeline->uuid().toString()},
-            {"documentUrl", m_document->url().toString()},
-            {"modified", m_document->isModified()},
-            {"fps", QJsonObject{{"numerator", profile.frame_rate_num()}, {"denominator", profile.frame_rate_den()}}},
-            {"profile", QJsonObject{{"width", profile.width()},
-                                    {"height", profile.height()},
-                                    {"description", pCore->getCurrentProfile()->description()},
-                                    {"duration", pCore->projectDuration()}}},
-            {"undo", QJsonObject{{"index", stack->index()},
-                                 {"canUndo", stack->canUndo()},
-                                 {"canRedo", stack->canRedo()},
-                                 {"undoText", stack->undoText()},
-                                 {"redoText", stack->redoText()}}},
-            {"tracks", tracks},
-            {"bin", bin}};
+    auto guides = m_timeline->getGuideModel();
+    auto subtitles = m_timeline->hasSubtitleModel() ? m_timeline->getSubtitleModel() : nullptr;
+    const auto binIds = pCore->projectItemModel()->getAllClipIds();
+    QJsonObject result{{"ok", true},
+                       {"sessionId", m_session},
+                       {"revision", m_revision},
+                       {"sequenceId", m_timeline->uuid().toString()},
+                       {"documentUrl", m_document->url().toString()},
+                       {"modified", m_document->isModified()},
+                       {"fps", QJsonObject{{"numerator", profile.frame_rate_num()}, {"denominator", profile.frame_rate_den()}}},
+                       {"profile", QJsonObject{{"width", profile.width()},
+                                               {"height", profile.height()},
+                                               {"description", pCore->getCurrentProfile()->description()},
+                                               {"duration", pCore->projectDuration()}}},
+                       {"playhead", pCore->getMonitorPosition()},
+                       {"activeTrackId", optionalId(activeTrack)},
+                       {"undo", QJsonObject{{"index", stack->index()},
+                                            {"canUndo", stack->canUndo()},
+                                            {"canRedo", stack->canRedo()},
+                                            {"undoText", stack->undoText()},
+                                            {"redoText", stack->redoText()}}},
+                       {"sections", QJsonArray::fromStringList(sections)},
+                       {"counts", QJsonObject{{"tracks", m_timeline->getTracksCount()},
+                                              {"clips", m_timeline->getClipsCount()},
+                                              {"compositions", m_timeline->getCompositionsCount()},
+                                              {"markers", guides ? guides->rowCount() : 0},
+                                              {"subtitles", subtitles ? subtitles->count() : 0},
+                                              {"bin", int(binIds.size())}}}};
+    if (requested.trackId >= 0 || start > 0 || end < std::numeric_limits<int>::max()) {
+        QJsonObject filter;
+        if (requested.trackId >= 0) filter.insert(QStringLiteral("trackId"), requested.trackId);
+        if (start > 0 || end < std::numeric_limits<int>::max()) filter.insert(QStringLiteral("range"), QJsonObject{{"start", start}, {"end", end}});
+        result.insert(QStringLiteral("filter"), filter);
+    }
+    if (tracksWanted) result.insert(QStringLiteral("tracks"), tracks);
+    if (wants(QStringLiteral("markers"))) {
+        QJsonArray markers;
+        for (const auto &marker : guides ? guides->getAllMarkers() : QList<CommentedTime>()) {
+            const int position = marker.time().frames(fps);
+            const int duration = marker.duration().frames(fps);
+            if (!overlaps(position, duration, start, end)) continue;
+            const auto category = pCore->markerTypes.value(marker.markerType());
+            markers.append(QJsonObject{{"position", position},
+                                       {"duration", duration},
+                                       {"comment", marker.comment()},
+                                       {"category", marker.markerType()},
+                                       {"categoryName", category.displayName},
+                                       {"color", category.color.name()}});
+        }
+        result.insert(QStringLiteral("markers"), markers);
+    }
+    if (wants(QStringLiteral("subtitles"))) {
+        QList<QJsonObject> list;
+        if (subtitles)
+            for (int id : subtitles->getAllSubIds()) {
+                const auto range = subtitles->getInOut(id);
+                if (!overlaps(range.first, range.second - range.first, start, end)) continue;
+                list.append(QJsonObject{
+                    {"id", id}, {"layer", subtitles->getLayerForId(id)}, {"start", range.first}, {"end", range.second}, {"text", subtitles->getText(id)}});
+            }
+        std::sort(list.begin(), list.end(), [](const QJsonObject &a, const QJsonObject &b) {
+            const auto key = [](const QJsonObject &item) {
+                return std::make_tuple(item.value(QStringLiteral("start")).toInt(), item.value(QStringLiteral("layer")).toInt(),
+                                       item.value(QStringLiteral("id")).toInt());
+            };
+            return key(a) < key(b);
+        });
+        QJsonArray array;
+        for (const auto &item : std::as_const(list))
+            array.append(item);
+        result.insert(QStringLiteral("subtitles"), array);
+    }
+    if (binWanted) {
+        const auto parentOf = [](const std::shared_ptr<AbstractProjectItem> &item) -> QJsonValue {
+            const auto parent = item->parent();
+            if (!parent || parent->clipId() == QLatin1String("-1")) return QJsonValue::Null;
+            return parent->clipId();
+        };
+        QJsonArray bin;
+        for (const auto &id : binIds) {
+            auto clip = pCore->projectItemModel()->getClipByBinID(id);
+            if (!clip) continue;
+            const bool ready = clip->statusReady();
+            const auto type = clip->clipType();
+            // A loading producer holds its write lock until its GUI-thread completion.
+            // Reading its duration or media properties here would prevent that completion from running.
+            QJsonObject item{{"id", id},
+                             {"name", clip->clipName()},
+                             {"type", clipTypeName(type)},
+                             {"parentId", parentOf(clip)},
+                             // Generated clips have no media file; their resource is not a path.
+                             {"url", type == ClipType::Color || type == ClipType::Timeline ? QString() : clip->url()},
+                             {"ready", ready},
+                             {"inUse", clip->isIncludedInTimeline()},
+                             {"duration", ready ? QJsonValue(qint64(clip->frameDuration())) : QJsonValue::Null}};
+            if (media && ready) {
+                const QSize size = clip->getFrameSize();
+                const double clipFps = clip->getOriginalFps();
+                const bool sized = size.width() > 0 && size.height() > 0;
+                item.insert(QStringLiteral("hasVideo"), clip->hasVideo());
+                item.insert(QStringLiteral("hasAudio"), clip->hasAudio());
+                item.insert(QStringLiteral("width"), sized ? QJsonValue(size.width()) : QJsonValue(QJsonValue::Null));
+                item.insert(QStringLiteral("height"), sized ? QJsonValue(size.height()) : QJsonValue(QJsonValue::Null));
+                item.insert(QStringLiteral("fps"), clipFps > 0 ? QJsonValue(clipFps) : QJsonValue(QJsonValue::Null));
+            }
+            bin.append(item);
+        }
+        QJsonArray folders;
+        std::function<void(const std::shared_ptr<TreeItem> &)> walk = [&](const std::shared_ptr<TreeItem> &node) {
+            for (int i = 0; i < node->childCount(); ++i) {
+                auto child = std::static_pointer_cast<AbstractProjectItem>(node->child(i));
+                if (child->itemType() != AbstractProjectItem::FolderItem) continue;
+                folders.append(QJsonObject{{"id", child->clipId()}, {"name", child->name()}, {"parentId", parentOf(child)}});
+                walk(child);
+            }
+        };
+        walk(pCore->projectItemModel()->getRootFolder());
+        result.insert(QStringLiteral("bin"), bin);
+        result.insert(QStringLiteral("folders"), folders);
+    }
+    if (wants(QStringLiteral("sequences"))) {
+        QJsonArray sequences;
+        const auto all = pCore->projectItemModel()->getAllSequenceClips();
+        for (auto it = all.cbegin(); it != all.cend(); ++it) {
+            auto clip = pCore->projectItemModel()->getClipByBinID(it.value());
+            sequences.append(QJsonObject{{"id", it.key().toString()},
+                                         {"binId", it.value()},
+                                         {"name", clip ? clip->clipName() : QString()},
+                                         {"active", it.key() == m_timeline->uuid()},
+                                         {"open", m_document->getTimeline(it.key(), true) != nullptr}});
+        }
+        result.insert(QStringLiteral("sequences"), sequences);
+    }
+    return result;
 }
 
 QString LiveBridge::failure(const QString &code, const QString &message) const
@@ -251,7 +573,7 @@ QString LiveBridge::failure(const QString &code, const QString &message) const
 QString LiveBridge::state()
 {
     if (!bind()) return failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline."));
-    return json(snapshot());
+    return json(snapshot(defaultScope()));
 }
 
 QString LiveBridge::apply(const QString &request)
@@ -297,7 +619,7 @@ QString LiveBridge::applyAuthorized(const QString &request, const std::function<
         // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
         contentChanged();
         pCore->refreshProjectMonitorOnce();
-        result.insert(QStringLiteral("state"), snapshot());
+        result.insert(QStringLiteral("state"), snapshot(defaultScope()));
     }
     result.insert(QStringLiteral("requestId"), requestId);
     const QString response = json(result);
