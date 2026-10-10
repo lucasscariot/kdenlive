@@ -85,6 +85,8 @@
         <file>design/icons/KdenlivePro-dark/scalable/timeline-extract.svg</file>
         <file>design/icons/KdenlivePro-dark/scalable/timeline-insert.svg</file>
         <file>design/icons/KdenlivePro-dark/scalable/timeline-lift.svg</file>
+        <file>design/icons/KdenlivePro-dark/scalable/timeline-index.svg</file>
+        <file>design/icons/KdenlivePro-dark/scalable/timeline-mode-magnetic.svg</file>
         <file>design/icons/KdenlivePro-dark/scalable/timeline-overwrite.svg</file>
         <file>design/icons/KdenlivePro-dark/scalable/timeline-use-zone-off.svg</file>
         <file>design/icons/KdenlivePro-dark/scalable/timeline-use-zone-on.svg</file>
@@ -193,6 +195,8 @@
         <file>design/icons/KdenlivePro-light/scalable/timeline-extract.svg</file>
         <file>design/icons/KdenlivePro-light/scalable/timeline-insert.svg</file>
         <file>design/icons/KdenlivePro-light/scalable/timeline-lift.svg</file>
+        <file>design/icons/KdenlivePro-light/scalable/timeline-index.svg</file>
+        <file>design/icons/KdenlivePro-light/scalable/timeline-mode-magnetic.svg</file>
         <file>design/icons/KdenlivePro-light/scalable/timeline-overwrite.svg</file>
         <file>design/icons/KdenlivePro-light/scalable/timeline-use-zone-off.svg</file>
         <file>design/icons/KdenlivePro-light/scalable/timeline-use-zone-on.svg</file>

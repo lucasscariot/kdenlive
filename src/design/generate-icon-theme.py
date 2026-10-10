@@ -128,6 +128,8 @@ ICONS = {
     "timeline-insert": "between-horizontal-end",
     "timeline-extract": "panel-bottom-close",
     "timeline-lift": "panel-bottom-open",
+    "timeline-mode-magnetic": "chart-gantt",
+    "timeline-index": "panel-left",
     "timeline-use-zone-on": "frame",
     "timeline-use-zone-off": "frame",
     "add-subtitle": "captions",

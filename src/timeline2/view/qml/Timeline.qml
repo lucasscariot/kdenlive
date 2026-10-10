@@ -528,8 +528,16 @@ function getTrackColor(audio, header) {
     readonly property color playheadColor: K.Design.colors["playhead"]
     readonly property color selectedTrackColor: K.Design.alpha("accent", 0.1)
     readonly property color frameColor: K.Design.colors["scrim"]
+    // Final Cut style: a narrow strip in the role color replaces the track headers, their controls live in the index
+    readonly property bool compactHeaders: K.KdenliveSettings.compactTrackHeaders
+    readonly property bool showIndex: K.KdenliveSettings.showTimelineIndex
+    readonly property int indexWidth: showIndex ? 4 * K.Design.space6 : 0
+    readonly property int compactHeadWidth: K.Design.space4 + K.Design.space3
     // Wide enough by default for the track name to share the first row with its tag and buttons
-    property int headerWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)
+    property int fullHeadWidth: Math.max(minHeaderWidth, root.timeline.headerWidth() > 10 ? root.timeline.headerWidth() : 10 * collapsedHeight)
+    readonly property int trackHeadWidth: compactHeaders ? compactHeadWidth : fullHeadWidth
+    // Everything left of the tracks: the index and the track heads
+    readonly property int headerWidth: indexWidth + trackHeadWidth
     property bool blockAutoScroll: false
     property int duration: root.timeline.duration
     property color audioColor: root.timeline.audioColor
@@ -1156,9 +1164,23 @@ function getTrackColor(audio, header) {
     }
 
     Row {
+        Item {
+            width: root.headerWidth
+            height: root.height
+            z: 1
+        K.TimelineIndex {
+            id: timelineIndex
+            visible: root.showIndex
+            width: root.indexWidth
+            height: parent.height
+            timeline: root.timeline
+            controller: root.controller
+            onHandBackFocus: tracksArea.focus = true
+        }
         Column {
             id: headerContainer
-            width: root.headerWidth
+            x: root.indexWidth
+            width: root.trackHeadWidth
             z: 1
             Item {
                 // Padding between toolbar and track headers.
@@ -1166,6 +1188,7 @@ function getTrackColor(audio, header) {
                 height: ruler.height
                 ToolButton {
                     text: metrics.elidedText
+                    display: root.compactHeaders ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
                     font: K.UiUtils.smallestReadableFont
                     flat: true
                     icon.name: 'tools-wizard'
@@ -1180,7 +1203,7 @@ function getTrackColor(audio, header) {
                         id: metrics
                         font: K.UiUtils.smallestReadableFont
                         elide: Text.ElideRight
-                        elideWidth: root.headerWidth * 0.8
+                        elideWidth: root.trackHeadWidth * 0.8
                         text: root.addedSequenceName.length == 0 ? KI18n.i18n("Sequence") : root.addedSequenceName
                     }
                     onClicked: {
@@ -1232,6 +1255,7 @@ function getTrackColor(audio, header) {
                 }
                 K.SubtitleTrackHead {
                     id: subtitleTrackHeader
+                    clip: true
                     width: trackHeaders.width
                     height: subtitleTrack.height
                     timeline: root.timeline
@@ -1280,7 +1304,10 @@ function getTrackColor(audio, header) {
                             showAudioRecord: model.audioRecord
                             effectNames: model.effectNames
                             isStackEnabled: model.isStackEnabled
-                            width: root.headerWidth
+                            width: root.trackHeadWidth
+                            compact: root.compactHeaders
+                            trackRole: model.trackRole
+                            storyline: model.storyline
                             current: model.item === root.timeline.activeTrack
                             trackId: model.item
                             height: model.trackHeight
@@ -1323,13 +1350,14 @@ function getTrackColor(audio, header) {
                 }
                 Column {
                     id: trackHeadersResizer
+                    visible: !root.compactHeaders
                     spacing: 0
                     width: Math.round(K.UiUtils.baseSizeMedium / 3)
                     Rectangle {
                         id: resizer
                         height: trackHeaders.height + subtitleTrackHeader.height
                         width: parent.width
-                        x: root.headerWidth - width
+                        x: root.trackHeadWidth - width
                         color: K.Design.colors["accent"]
                         opacity: 0
                         Drag.active: headerMouseArea.drag.active
@@ -1360,14 +1388,15 @@ function getTrackColor(audio, header) {
                             onPositionChanged: mouse => {
                                 if (mouse.buttons === Qt.LeftButton) {
                                     parent.opacity = 0.5
-                                    root.headerWidth = Math.max( root.minHeaderWidth, mapToItem(null, x, y).x + 2)
-                                    root.timeline.setHeaderWidth(root.headerWidth)
+                                    root.fullHeadWidth = Math.max(root.minHeaderWidth, mapToItem(null, x, y).x + 2 - root.indexWidth)
+                                    root.timeline.setHeaderWidth(root.fullHeadWidth)
                                 }
                             }
                         }
                     }
                 }
             }
+        }
         }
         MouseArea {
             id: tracksArea
@@ -1924,6 +1953,13 @@ function getTrackColor(audio, header) {
                                 border.color: root.frameColor
                                 height: model.trackHeight
                                 color: (model.item === root.timeline.activeTrack) ? Qt.tint(root.getTrackColor(model.audio, false), root.selectedTrackColor) : root.getTrackColor(model.audio, false)
+                                // The primary storyline sits on a darker band, as in Final Cut Pro
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    visible: root.timeline.magnetic && parent.model.storyline
+                                    color: K.Design.alpha("surface-viewer", 0.35)
+                                }
                             }
                         }
                     }
@@ -2518,6 +2554,8 @@ function getTrackColor(audio, header) {
             isDisabled: model.disabled
             isAudio: model.audio
             isLocked: model.locked
+            trackRole: model.trackRole
+            storyline: model.storyline
             trackThumbsFormat: model.thumbsFormat
             trackInternalId: model.item
             effectZones: model.effectZones

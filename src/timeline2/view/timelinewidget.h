@@ -98,6 +98,8 @@ private:
     QMenu *m_targetsMenu;
     QActionGroup *m_targetsGroup{nullptr};
     QMenu *m_thumbsMenu;
+    QMenu *m_roleMenu{nullptr};
+    QAction *m_storylineAction{nullptr};
     QMenu *m_addClipMenu;
     QMenu *m_favEffects;
     QMenu *m_favCompositions;

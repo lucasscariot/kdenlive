@@ -35,6 +35,11 @@ Rectangle {
     required property int thumbsFormat
     required property int collapsedHeight
     required property int trackTagWidth
+    /** @brief Final Cut style: only a strip in the role color, the controls live in the timeline index */
+    required property bool compact
+    required property string trackRole
+    required property bool storyline
+    readonly property bool isTarget: (isAudio && timeline.audioTarget.indexOf(trackId) > -1) || (!isAudio && trackId === timeline.videoTarget)
     readonly property int resizeInProgress: trimInMouseArea.pressed
     border.width: 1
 
@@ -46,6 +51,10 @@ Rectangle {
     SystemPalette { id: activePalette }
 
     function editName() {
+        if (compact) {
+            // The name is edited in the timeline index
+            return
+        }
         nameEdit.visible = true
         nameEdit.focus = true
         nameEdit.selectAll()
@@ -115,7 +124,7 @@ Rectangle {
         height: trackHeadRoot.height
         verticalAlignment: Text.AlignTop
         horizontalAlignment: Text.AlignHCenter
-        visible: trackHeadRoot.isAudio ? trackHeadRoot.timeline.hasAudioTarget > 0 : trackHeadRoot.timeline.hasVideoTarget
+        visible: !trackHeadRoot.compact && (trackHeadRoot.isAudio ? trackHeadRoot.timeline.hasAudioTarget > 0 : trackHeadRoot.timeline.hasVideoTarget)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.margins: 1
@@ -211,7 +220,96 @@ Rectangle {
     ]
     }
     Item {
+        // Compact head: the role strip, which also toggles the insert target, and the state of the track
+        id: compactHead
+        visible: trackHeadRoot.compact
+        anchors.fill: parent
+        Rectangle {
+            id: roleStrip
+            readonly property bool targetable: trackHeadRoot.isAudio ? trackHeadRoot.timeline.hasAudioTarget > 0 : trackHeadRoot.timeline.hasVideoTarget
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.margins: K.Design.space1
+            width: trackHeadRoot.isTarget ? K.Design.space2 + K.Design.space1 : K.Design.space2
+            radius: K.Design.radiusXs
+            color: trackHeadRoot.timeline.roleColors[trackHeadRoot.trackRole] ?? K.Design.colors["ink-tertiary"]
+            opacity: trackHeadRoot.isTarget ? 1 : 0.45
+            MouseArea {
+                id: stripArea
+                anchors.fill: parent
+                anchors.rightMargin: -K.Design.space2
+                hoverEnabled: true
+                cursorShape: roleStrip.targetable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: mouse => {
+                    trackHeadRoot.timeline.activeTrack = trackHeadRoot.trackId
+                    if (mouse.button == Qt.RightButton) {
+                        if (trackHeadRoot.isAudio) {
+                            trackHeadRoot.showTargetMenu(trackHeadRoot.trackId)
+                        } else {
+                            trackHeadRoot.showHeaderMenu()
+                        }
+                    } else if (trackHeadRoot.isAudio) {
+                        trackHeadRoot.timeline.switchAudioTarget(trackHeadRoot.trackId)
+                    } else if (trackHeadRoot.trackId === trackHeadRoot.timeline.videoTarget) {
+                        trackHeadRoot.timeline.videoTarget = -1
+                    } else if (trackHeadRoot.timeline.hasVideoTarget) {
+                        trackHeadRoot.timeline.videoTarget = trackHeadRoot.trackId
+                    }
+                }
+            }
+            ToolTip {
+                visible: stripArea.containsMouse
+                font: K.UiUtils.smallestReadableFont
+                text: '%1 · %2%3\n%4'.arg(trackHeadRoot.trackName.length > 0 ? trackHeadRoot.trackName : trackHeadRoot.trackTag)
+                                     .arg(trackHeadRoot.timeline.roleLabel(trackHeadRoot.trackRole))
+                                     .arg(trackHeadRoot.storyline && trackHeadRoot.timeline.magnetic ? ' · ' + KI18n.i18n("Primary storyline") : '')
+                                     .arg(KI18n.i18n("Click to toggle track as target. Target tracks will receive the inserted clips"))
+            }
+        }
+        Column {
+            // Only states away from the default show, each a button to restore it
+            anchors.left: roleStrip.right
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
+            ToolButton {
+                visible: trackHeadRoot.isDisabled
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: K.Design.space4
+                height: K.Design.space4
+                padding: 0
+                focusPolicy: Qt.NoFocus
+                icon.width: K.Design.iconSm
+                icon.height: K.Design.iconSm
+                icon.name: trackHeadRoot.isAudio ? 'audio-off' : 'kdenlive-hide-video'
+                onClicked: trackHeadRoot.timeline.hideTrack(trackHeadRoot.trackId, trackHeadRoot.isDisabled)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: trackHeadRoot.isAudio ? KI18n.i18n("Unmute track") : KI18n.i18n("Show track")
+            }
+            ToolButton {
+                id: compactLock
+                visible: trackHeadRoot.isLocked
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: K.Design.space4
+                height: K.Design.space4
+                padding: 0
+                focusPolicy: Qt.NoFocus
+                icon.width: K.Design.iconSm
+                icon.height: K.Design.iconSm
+                icon.name: 'lock'
+                onClicked: trackHeadRoot.controller.setTrackLockedState(trackHeadRoot.trackId, false)
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: KI18n.i18n("Unlock track")
+            }
+        }
+    }
+    Item {
         id: trackHeadColumn
+        visible: !trackHeadRoot.compact
         anchors.fill: parent
         anchors.leftMargin: trackTarget.width
         anchors.topMargin: 0

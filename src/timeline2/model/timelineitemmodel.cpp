@@ -18,6 +18,7 @@
 #include "groupsmodel.hpp"
 #include "kdenlivesettings.h"
 #include "macros.hpp"
+#include "magnetictimeline.hpp"
 #include "snapmodel.hpp"
 #include "timeline2/view/previewmanager.h"
 #include "trackmodel.hpp"
@@ -307,6 +308,8 @@ QHash<int, QByteArray> TimelineItemModel::roleNames() const
     roles[EffectZonesRole] = "effectZones";
     roles[GrabbedRole] = "isGrabbed";
     roles[SelectedRole] = "selected";
+    roles[StorylineRole] = "storyline";
+    roles[TrackRoleRole] = "trackRole";
     return roles;
 }
 
@@ -480,6 +483,10 @@ QVariant TimelineItemModel::data(const QModelIndex &index, int role) const
         case EffectZonesRole: {
             return getTrackById_const(id)->stackZones();
         }
+        case StorylineRole:
+            return MagneticTimeline::primaryTrack(this) == id;
+        case TrackRoleRole:
+            return getTrackRole(id);
         default:
             break;
         }

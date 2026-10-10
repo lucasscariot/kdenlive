@@ -107,6 +107,7 @@ public:
     friend class MarkerListModel;
     friend class TimeRemap;
     friend struct TimelineFunctions;
+    friend struct MagneticTimeline;
     friend class KdenliveTests;
     friend class OtioExport;
     friend class OtioImport;
@@ -178,7 +179,9 @@ public:
         SelectedRole,       /// clip+composition only
         TrackActiveRole,    /// track only
         AudioRecordRole,    /// track only
-        EffectZonesRole     /// track only
+        EffectZonesRole,    /// track only
+        StorylineRole,      /// track only, true for the primary storyline of the magnetic timeline
+        TrackRoleRole       /// track only, the role of the clips on the track: video, titles, dialogue, music or effects
     };
 
     enum MoveResult { MoveSuccess, MoveErrorAudio, MoveErrorVideo, MoveErrorType, MoveErrorOther };
@@ -969,6 +972,12 @@ public:
     const QSize getCompositionSizeOnTrack(const ObjectId &id);
     /** @brief Get a track tag (A1, V1, V2,...) through its id */
     const QString getTrackTagById(int trackId) const;
+    /** @brief The role of the clips on a track (video, titles, dialogue, music or effects), guessed from the track name until one is assigned */
+    Q_INVOKABLE QString getTrackRole(int trackId) const;
+    /** @brief The roles a track can take, video roles first */
+    static QStringList trackRoles(bool audio);
+    /** @brief Assign a role to a track (undoable) */
+    bool setTrackRole(int trackId, const QString &role, Fun &undo, Fun &redo);
     /** @brief returns true if track is empty at position on playlist */
     bool trackIsBlankAt(int tid, int pos, int playlist) const;
     /** @brief returns true if track is empty at position on playlist */
@@ -1085,6 +1094,8 @@ Q_SIGNALS:
 
     /** @brief Signal sent whenever the audio target changes */
     void audioTargetChanged();
+    /** @brief Signal sent whenever the edit mode changes */
+    void editModeChanged();
     /** @brief Signal sent whenever the selection changes */
     void selectionChanged();
     /** @brief Signal sent whenever the selected mix changes */

@@ -56,6 +56,7 @@ public:
     friend struct TimelineFunctions;
     friend class TimelineItemModel;
     friend class TimelineModel;
+    friend struct MagneticTimeline;
     friend class KdenliveTests;
     friend class OtioExport;
 

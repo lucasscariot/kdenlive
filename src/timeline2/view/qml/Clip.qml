@@ -107,6 +107,8 @@ Rectangle {
     property int draggedX: x
     property double xIntegerOffset: 0
     readonly property bool isLocked: parentTrack && parentTrack.isLocked === true
+    // In magnetic mode every clip off the storyline is connected to it
+    readonly property bool isConnected: timeline.magnetic && parentTrack && parentTrack.storyline === false
     property color borderColor: K.Design.alpha("surface-viewer", 0.55)
     property bool isComposition: false
     readonly property int slipOffset: boundValue(outPoint - maxDuration + 1, trimmingOffset, inPoint)
@@ -321,7 +323,14 @@ Rectangle {
             }
             return '#' + color.substring(color.length - 8, color.length - 2)
         }
-        return isAudio? clipRoot.timeline.audioColor : clipRoot.timeline.videoColor
+        const typeColor = isAudio ? clipRoot.timeline.audioColor : clipRoot.timeline.videoColor
+        // Clips take the color of their track role, as in Final Cut Pro, unless a color was chosen in the settings
+        const customColor = isAudio ? K.KdenliveSettings.audioColor : K.KdenliveSettings.videoColor
+        const roleColor = clipRoot.parentTrack ? clipRoot.timeline.roleColors[clipRoot.parentTrack.trackRole] : undefined
+        if (customColor.a === 0 && roleColor !== undefined) {
+            return roleColor
+        }
+        return typeColor
     }
 
     property bool noThumbs: (isAudio || itemType === K.ClipType.Color || mltService === '')
@@ -1387,6 +1396,18 @@ Rectangle {
                 transform: Scale { xScale: -1; origin.x: fadeOutCanvas.width / 2 }
             }
 
+            Rectangle {
+                // Connection point of a connected clip: a pin on its first frame, towards the storyline
+                visible: clipRoot.isConnected && !clipRoot.hideDecorations
+                x: 0
+                width: 2
+                height: Math.round(parent.height / 3)
+                anchors.bottom: clipRoot.isAudio ? undefined : parent.bottom
+                anchors.top: clipRoot.isAudio ? parent.top : undefined
+                color: K.Design.colors["ink"]
+                opacity: 0.7
+                z: 2
+            }
             Rectangle {
                 // Name strip, spans the whole clip under the scrolling label
                 id: nameStrip

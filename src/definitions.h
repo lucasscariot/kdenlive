@@ -137,7 +137,7 @@ std::pair<bool, bool> stateToBool(PlaylistState::ClipState state);
 PlaylistState::ClipState stateFromBool(std::pair<bool, bool> av);
 
 namespace TimelineMode {
-enum EditMode { NormalEdit = 0, OverwriteEdit = 1, InsertEdit = 2 };
+enum EditMode { NormalEdit = 0, OverwriteEdit = 1, InsertEdit = 2, MagneticEdit = 3 };
 }
 
 namespace AssetListType {

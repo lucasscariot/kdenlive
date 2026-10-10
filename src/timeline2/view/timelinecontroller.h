@@ -12,6 +12,7 @@
 #include <KActionCollection>
 #include <QApplication>
 #include <QDir>
+#include <QTimer>
 
 class QAction;
 class ClipModel;
@@ -78,6 +79,12 @@ class TimelineController : public QObject
     Q_PROPERTY(int trimmingMainClip READ trimmingMainClip NOTIFY trimmingMainClipChanged)
     Q_PROPERTY(int multicamIn MEMBER multicamIn NOTIFY multicamInChanged)
     Q_PROPERTY(int timecodeOffset MEMBER m_timecodeOffset NOTIFY timecodeOffsetChanged)
+    /** @brief True in magnetic mode, where the primary storyline ripples and other clips are connected to it */
+    Q_PROPERTY(bool magnetic READ magnetic NOTIFY magneticChanged)
+    /** @brief The color of each track role, by role name */
+    Q_PROPERTY(QVariantMap roleColors READ roleColors NOTIFY colorsChanged)
+    /** @brief The tracks grouped by role, for the timeline index: a list of {role, label, color, audio, enabled, lanes} */
+    Q_PROPERTY(QVariantList roleLanes READ roleLanes NOTIFY roleLanesChanged)
 
 public:
     TimelineController(QObject *parent);
@@ -731,6 +738,32 @@ public:
     bool hasPreviewTrack() const;
     /** @brief Display project master effects */
     Q_INVOKABLE void showMasterEffects();
+
+    bool magnetic() const;
+    /** @brief True if trimming this item ripples the storyline (a storyline clip in magnetic mode) */
+    Q_INVOKABLE bool magneticRipple(int itemId) const;
+    /** @brief The storyline clip a connected clip hangs from in magnetic mode, -1 if none */
+    Q_INVOKABLE int magneticParent(int itemId) const;
+    /** @brief Make a video track hold the primary storyline (undoable) */
+    Q_INVOKABLE void setPrimaryStoryline(int trackId);
+    QVariantList roleLanes() const;
+    QVariantMap roleColors() const;
+    /** @brief The color of a role from the design tokens, @p strip for the darker name strip shade */
+    Q_INVOKABLE QColor roleColor(const QString &role, bool strip = false) const;
+    Q_INVOKABLE QString roleLabel(const QString &role) const;
+    /** @brief The roles a track can take */
+    Q_INVOKABLE QStringList trackRoles(int trackId) const;
+    /** @brief Assign a role to a track (undoable) */
+    Q_INVOKABLE void setTrackRole(int trackId, const QString &role);
+    /** @brief Show or hide (mute for audio) every track of a role in one undoable step */
+    Q_INVOKABLE void setRoleEnabled(const QString &role, bool enabled);
+    /** @brief Show only the tracks of a role, or show every track again when it is the only one shown */
+    Q_INVOKABLE void soloRole(const QString &role);
+    /** @brief The timeline clips for the index, in timeline order: a list of {id, name, start, duration, role, storyline, trackId}
+        @param filter only keep clips whose name contains it, ignoring case */
+    Q_INVOKABLE QVariantList indexClips(const QString &filter) const;
+    /** @brief Select a clip and move the playhead to its start */
+    Q_INVOKABLE void revealClip(int clipId);
     /** @brief Return true if an instance of this bin clip is currently under timeline cursor */
     bool refreshIfVisible(int cid);
     /** @brief Collapse / expand active track */
@@ -886,6 +919,8 @@ private:
     QMetaObject::Connection m_deleteConnection;
     QPoint m_effectZone;
     bool m_autotrackHeight;
+    bool m_magnetic{false};
+    QTimer m_indexTimer;
     QVariantList m_masterEffectZones;
     /** @brief The clip that is displayed in the preview monitor during a trimming operation*/
     int m_trimmingMainClip;
@@ -922,6 +957,10 @@ Q_SIGNALS:
     void subtitlesWarningChanged();
     void multicamInChanged();
     void autotrackHeightChanged();
+    void magneticChanged();
+    void roleLanesChanged();
+    /** @brief The clips of the timeline changed, the index list should refresh */
+    void indexClipsChanged();
     void seeked(int position);
     void zoneChanged();
     void subtitlesListChanged();
