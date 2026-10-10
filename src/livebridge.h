@@ -9,7 +9,9 @@
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
+#include <QStringList>
 #include <functional>
+#include <limits>
 
 class KdenliveDoc;
 class TimelineItemModel;
@@ -29,6 +31,10 @@ public:
     QJsonObject effectList(const QJsonObject &arguments);
     QJsonObject titleRead(const QJsonObject &arguments);
     QJsonObject renderStatus();
+    /** Scoped state read: optional include (section names), trackId and range {start, end}; see docs/native-mcp.md. */
+    QJsonObject stateFor(const QJsonObject &arguments);
+    /** Every section name stateFor accepts in include. */
+    static const QStringList &stateSectionNames();
 
 public Q_SLOTS:
     Q_SCRIPTABLE QString capabilities() const;
@@ -41,7 +47,17 @@ Q_SIGNALS:
 private:
     bool bind();
     void contentChanged();
-    QJsonObject snapshot() const;
+    /** Which parts of the active sequence a snapshot contains; frames in [start, end). */
+    struct StateScope
+    {
+        QStringList sections;
+        int trackId{-1};
+        int start{0};
+        int end{std::numeric_limits<int>::max()};
+    };
+    /** The sections embedded in every mutation result and returned by a plain state read. */
+    static StateScope defaultScope();
+    QJsonObject snapshot(const StateScope &scope) const;
     QJsonObject execute(const QJsonObject &command);
     QJsonObject executeBatch(const QJsonObject &command);
     QJsonObject executeProduction(const QJsonObject &command, bool &handled);

@@ -32,6 +32,8 @@ const config = join(root, 'config/kdenliverc');
 await promisify(execFile)('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=30', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '20', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-c:a', 'pcm_s16le', source]);
 await copyFile(source, replacement);
 await writeFile(project, (await readFile(join(directory, 'fixture.kdenlive'), 'utf8')).replaceAll('@MEDIA@', source.replaceAll('&', '&amp;')));
+// Kdenlive keeps a sequence's subtitles next to the project as <project file name>.ass.
+await writeFile(`${project}.ass`, `[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Sans,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello from MCP\nDialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,Second line\n`);
 const probe = createServer();
 await new Promise((done, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', done); });
 const port = probe.address().port;
@@ -163,14 +165,68 @@ try {
     if (!readOnlyHint && item.name !== 'desktop_apply')
       for (const key of ['sessionId', 'expectedRevision', 'requestId']) assert(item.inputSchema.required.includes(key), `${item.name} must require ${key}`);
   }
+  // State sections. The fixture carries a linked V1/A1 pair, a dissolve on Titles over V1, two guides, two subtitles,
+  // a muted and locked empty audio track, and the title clip inside a Graphics bin folder.
+  assert.deepEqual(state.sections, ['tracks', 'clips', 'compositions', 'markers', 'bin', 'sequences']);
+  assert.deepEqual(state.counts, { tracks: 4, clips: 3, compositions: 1, markers: 2, subtitles: 2, bin: 4 });
+  assert.equal(state.subtitles, undefined, 'Subtitles are opt-in');
+  assert.equal(state.playhead, 0);
+  const [v1, a1, titles] = state.tracks;
+  assert.deepEqual(state.tracks.map(track => [track.name, track.type, track.locked, track.muted, track.hidden]),
+    [['V1', 'video', false, false, false], ['A1', 'audio', false, false, false], ['Titles', 'video', false, false, false], ['Muted', 'audio', true, true, false]]);
+  assert.deepEqual(state.tracks.filter(track => track.active).map(track => track.id), [state.activeTrackId]);
+  const [linkedVideo, linkedAudio] = [v1.clips[0], a1.clips[0]];
+  assert.deepEqual([linkedVideo.grouped, linkedVideo.linkedClipId, linkedAudio.linkedClipId, linkedVideo.enabled, linkedVideo.speed, linkedVideo.type],
+    [true, linkedAudio.id, linkedVideo.id, true, 0.5, 'av']);
+  assert.equal(typeof linkedVideo.groupId, 'number'); assert.equal(linkedAudio.groupId, linkedVideo.groupId);
+  const background = titles.clips[0];
+  assert.deepEqual([background.grouped, background.groupId, background.linkedClipId, background.type, background.mixes], [false, null, null, 'color', []]);
+  assert.equal(background.effects, undefined, 'Effect summaries are opt-in');
+  assert.deepEqual(titles.gaps, [{ position: 0, duration: 30 }]); assert.deepEqual(v1.gaps, []);
+  assert.deepEqual(titles.compositions.map(({ id, ...rest }) => rest), [{ compositionId: 'dissolve', name: 'Dissolve', position: 30, duration: 60,
+    aTrack: 1, aTrackId: v1.id, bTrack: 3, forcedATrack: false, grouped: false, groupId: null }]);
+  assert.deepEqual(state.markers.map(({ color, categoryName, ...rest }) => rest),
+    [{ position: 90, duration: 0, comment: 'Title in', category: 1 }, { position: 200, duration: 30, comment: 'Outro', category: 2 }]);
+  assert(state.markers.every(marker => /^#[0-9a-f]{6}$/.test(marker.color) && marker.categoryName), JSON.stringify(state.markers));
+  const folder = name => state.folders.find(item => item.name === name);
+  assert.equal(folder('Graphics').parentId, null);
+  const titleAsset = state.bin.find(item => item.name === 'MCP title');
+  assert.deepEqual([titleAsset.type, titleAsset.parentId], ['title', folder('Graphics').id]);
+  assert.deepEqual(['color', 'av'].map(type => state.bin.find(item => item.type === type)?.parentId), [null, null]);
+  assert.equal(state.bin.find(item => item.type === 'color').url, '');
+  const sequenceAsset = state.bin.find(item => item.type === 'sequence');
+  assert.equal(sequenceAsset.parentId, folder('Sequences').id);
+  assert.deepEqual(state.sequences, [{ id: state.sequenceId, binId: sequenceAsset.id, name: sequenceAsset.name, active: true, open: true }]);
+  const subtitled = await ok('desktop_state', { include: ['subtitles'] });
+  assert.deepEqual(subtitled.sections, ['subtitles']);
+  for (const key of ['tracks', 'markers', 'bin', 'folders', 'sequences']) assert.equal(subtitled[key], undefined, `include omits ${key}`);
+  assert.deepEqual([subtitled.sessionId, subtitled.counts], [state.sessionId, state.counts]);
+  assert.deepEqual(subtitled.subtitles.map(({ id, ...rest }) => rest),
+    [{ layer: 0, start: 30, end: 75, text: 'Hello from MCP' }, { layer: 0, start: 150, end: 180, text: 'Second line' }]);
+  const scoped = await ok('desktop_state', { include: ['compositions', 'markers', 'subtitles'], trackId: titles.id, range: { start: 80, end: 160 } });
+  assert.deepEqual(scoped.sections, ['tracks', 'compositions', 'markers', 'subtitles']);
+  assert.deepEqual(scoped.filter, { trackId: titles.id, range: { start: 80, end: 160 } });
+  assert.deepEqual(scoped.tracks.map(track => [track.id, track.clips, track.compositions.length]), [[titles.id, undefined, 1]]);
+  assert.deepEqual(scoped.markers.map(marker => marker.position), [90]);
+  assert.deepEqual(scoped.subtitles.map(subtitle => subtitle.start), [150]);
+  assert.deepEqual((await ok('desktop_state', { trackId: titles.id, range: { start: 0, end: 20 } })).tracks[0], { ...titles, clips: [], compositions: [] });
+  const media = await ok('desktop_state', { include: ['media'] });
+  assert.deepEqual(media.sections, ['bin', 'media']);
+  const sourceMedia = media.bin.find(item => item.url === source);
+  assert.deepEqual([sourceMedia.width, sourceMedia.height, sourceMedia.fps, sourceMedia.hasVideo, sourceMedia.hasAudio], [320, 180, 30, true, true]);
+  for (const args of [{ include: ['nope'] }, { include: 'tracks' }, { range: { start: 10, end: 10 } }, { range: { start: 0 } }, { unknown: 1 }])
+    assert.equal((await tool('desktop_state', args)).error.code, 'INVALID_ARGUMENTS', JSON.stringify(args));
+  assert.equal((await tool('desktop_state', { trackId: 999999 })).error.code, 'UNKNOWN_TRACK');
   const video = state.tracks.find(item => !item.audio && !item.locked);
   const audio = state.tracks.find(item => item.audio && item.clips.length);
   const asset = state.bin.find(item => item.ready && item.url === source);
   assert(video && audio && asset);
   const insertion = { ...fields(), binId: asset.id, trackId: video.id, position: 360, sourceIn: 30, sourceOut: 90, media: 'video' };
   const inserted = await ok('desktop_clip_insert', insertion);
+  assert.deepEqual(Object.keys(inserted.state).sort(), Object.keys(state).sort(), 'Edits embed the default desktop_state snapshot');
   state = inserted.state;
   const id = inserted.clipId;
+  assert.deepEqual([clip(id).grouped, clip(id).groupId, clip(id).linkedClipId, clip(id).enabled], [false, null, null, true]);
   assert.equal(clip(id).position, 360); assert.equal(clip(id).duration, 60);
   assert.deepEqual(await ok('desktop_clip_insert', insertion), inserted);
   await edit('desktop_clip_move', { clipId: id, trackId: video.id, position: 420 });
@@ -228,6 +284,8 @@ try {
   const capabilities = await ok('desktop_capabilities');
   for (const operation of ['save_as', 'set_profile', 'reframe', 'effect_add', 'effect_set', 'effect_remove', 'title_edit', 'render', 'batch'])
     assert(capabilities.operations.includes(operation), `capabilities lacks ${operation}`);
+  assert.deepEqual(capabilities.defaultStateSections, state.sections);
+  assert.deepEqual(capabilities.stateSections, ['tracks', 'clips', 'compositions', 'markers', 'subtitles', 'bin', 'sequences', 'effects', 'media']);
   const videoTrack = state.tracks.find(track => !track.audio && track.clips.some(item => item.position === 420));
   const clipId = videoTrack.clips.find(item => item.position === 420).id;
   const vclip = () => clip(clipId);
@@ -254,6 +312,11 @@ try {
   const effect = async () => (await ok('desktop_effect_list', { clipId })).effects[added.effectIndex];
   const brightness = await effect();
   assert.equal(brightness.effectId, 'brightness'); assert.equal(brightness.builtIn, false); assert.equal(brightness.enabled, true);
+  const summary = await ok('desktop_state', { include: ['effects'], trackId: videoTrack.id });
+  assert.deepEqual(summary.sections, ['tracks', 'clips', 'effects']);
+  const summarized = summary.tracks[0].clips.find(item => item.id === clipId);
+  assert.equal(summarized.effects.length, summarized.effectCount);
+  assert.deepEqual(summarized.effects[added.effectIndex], { effectId: 'brightness', name: brightness.name, enabled: true });
   assert.match(brightness.params.level, /(^|=)0\.5$/);
   assert.equal(await rejected('desktop_effect_set', { clipId, index: added.effectIndex, params: { no_such_parameter: '1' } }), 'UNKNOWN_PARAMETER');
   assert.equal(await rejected('desktop_effect_set', { clipId, index: 99, params: { level: '1' } }), 'UNKNOWN_EFFECT');

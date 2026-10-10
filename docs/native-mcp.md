@@ -50,7 +50,8 @@ from `desktop_state`; bin IDs are numeric strings.
 
 | Tools | Parameters | Purpose |
 | --- | --- | --- |
-| `desktop_capabilities`, `desktop_state` | none | Read capabilities and the visible project |
+| `desktop_capabilities` | none | Read capabilities, including the state section names |
+| `desktop_state` | optional `include` (section names), `trackId`, `range` (`start`, `end`) | Read the visible sequence, bin and history; see [State snapshot](#state-snapshot) |
 | `desktop_frame_capture` | `position`, optional `width` (64 to 1920, default 540) | Return one rendered frame as a PNG image without moving the playhead |
 | `desktop_effect_list` | optional `clipId` or `binId`, optional `query` | List a clip's effects with parameters and `keyframeOrigin`, and/or search the effect catalog |
 | `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
@@ -85,6 +86,40 @@ Read `desktop_state` before editing. Each edit needs its `sessionId`, the
 `sourceOut` is exclusive. Import and replacement load asynchronously. Poll state
 until the affected bin asset is ready before using it.
 
+## State snapshot
+
+`desktop_state` and every successful edit return the same snapshot shape.
+Edit results embed it as `state`, always with the default sections. Frames are
+project frames; ranges end exclusively.
+
+These fields are always present: `sessionId`, `revision`, `sequenceId` (the
+active sequence UUID), `documentUrl`, `modified`, `fps` (`numerator`,
+`denominator`), `profile` (`width`, `height`, `description`, `duration`),
+`playhead`, `activeTrackId`, `undo` (`index`, `canUndo`, `canRedo`,
+`undoText`, `redoText`), `sections` (the sections returned) and `counts`
+(`tracks`, `clips`, `compositions`, `markers`, `subtitles`, `bin` for the whole
+sequence, whatever the filters). A filtered read also returns `filter`.
+
+| Section | Default | Adds |
+| --- | --- | --- |
+| `tracks` | yes | `tracks[]`: `id`, `name`, `tag` (V1, A1...), `type` (`video`/`audio`), `audio`, `locked`, `muted` (audio tracks), `hidden` (video tracks), `active` |
+| `clips` | yes | `tracks[].clips[]` sorted by position: `id`, `binId`, `name`, `type`, `position`, `duration`, `sourceIn`, `sourceOut`, `speed`, `enabled`, `effectCount`, `grouped`, `groupId`, `linkedClipId` (A/V partner), `mixes[]` (`edge` `start`/`end`, `position`, `duration`, and for `start` the mix cut `offset`); `tracks[].gaps[]` (`position`, `duration`) between clips |
+| `compositions` | yes | `tracks[].compositions[]`: `id`, `compositionId`, `name`, `position`, `duration`, `aTrack` and `bTrack` (MLT indexes, 0 is the black background), `aTrackId` (null for the background), `forcedATrack`, `grouped`, `groupId` |
+| `markers` | yes | `markers[]` (sequence guides): `position`, `duration` (0 for a point), `comment`, `category`, `categoryName`, `color` |
+| `bin` | yes | `bin[]`: `id`, `name`, `type`, `parentId` (folder, null at the root), `url` (media path, empty for generated clips), `ready`, `inUse`, `duration`; `folders[]`: `id`, `name`, `parentId` |
+| `sequences` | yes | `sequences[]`: `id` (UUID), `binId`, `name`, `active`, `open` |
+| `subtitles` | no | `subtitles[]` sorted by start: `id`, `layer`, `start`, `end`, `text`; empty when the sequence has no subtitles |
+| `effects` | no | `tracks[].clips[].effects[]`: `effectId`, `name`, `enabled`, in stack order; implies `clips` |
+| `media` | no | `width`, `height`, `fps`, `hasVideo`, `hasAudio` on ready bin items (null when not applicable); implies `bin` |
+
+Clip types are `av`, `video`, `audio`, `image`, `color`, `title`, `text`,
+`slideshow`, `playlist`, `animation`, `sequence` or `other`. `clips`,
+`compositions` and `effects` imply `tracks`. `include` replaces the default set,
+so `["subtitles"]` returns only the always-present fields and subtitles.
+`trackId` keeps one track. `range` keeps clips, gaps, compositions, markers and
+subtitles that overlap it. Unknown sections or keys and an empty range fail
+with `INVALID_ARGUMENTS`; an unknown track fails with `UNKNOWN_TRACK`.
+
 Retry an uncertain edit only with its identical request ID and arguments. The
 engine keeps 64 receipts across HTTP reconnections and port changes. Opening a
 different document/sequence or restarting invalidates the editing session.
@@ -103,7 +138,8 @@ save a copy first.
 
 This version does not expose project creation, track creation, downloads or the
 companion's offline project tools. Open/create projects in the GUI. Native state
-describes the active sequence and project bin.
+describes the active sequence, the project bin and the list of sequences; clip
+markers, keyframes and effect parameters are read with their own tools.
 
 ## Build and install
 
@@ -143,14 +179,18 @@ and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
 **Acceptance checks.** The run calls all 28 tools. It checks the catalog against
-the expected tool names and annotations, then: inserting, moving, trimming and
-removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
+the expected tool names and annotations, then reads the fixture's state:
+track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
+a dissolve composition, two guides, two subtitles, bin folders and types, and
+the sequence list; it checks `include`, `trackId` and `range` scoping, the
+media section and rejected arguments. It then tests inserting, moving,
+trimming and removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
 `REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
 importing, removing and replacing media; the audio envelope and track rename;
 saving and reopening, which yields a new session. It then captures frames and
 checks the PNG image block and its size; searches the effect catalog; adds,
-sets, removes and undoes an effect, with unknown effects, indexes and parameters
-rejected; reads and edits a title clip from the fixture, with undo/redo; runs
+sets, removes and undoes an effect and reads it in the `effects` section, with
+unknown effects, indexes and parameters rejected; reads and edits a title clip from the fixture, with undo/redo; runs
 `desktop_apply`; applies a batch as one Undo step and checks that a failing batch
 leaves the timeline, bin and history unchanged; saves a copy, with a path outside
 the allowed folders refused; switches to 1080x1920 at the same frame rate; pans

@@ -148,8 +148,13 @@ its old revision. Receipts are in memory; process restart, document replacement
 or active-sequence change invalidates the session. On a lost response, retry the
 identical request before deciding what happened.
 
-State covers active-sequence tracks/clips and the project bin, not
-the complete native document. It does not synchronize an offline project model.
+State covers the active sequence (tracks with lock and mute/hide flags, clips
+with groups, linked partners and mixes, gaps, compositions and guides), the
+project bin with folders, and the list of sequences, not the complete native
+document. `state()` and every `apply` result return this default snapshot; the
+native MCP `desktop_state` can add subtitles, per-clip effect ids and media
+properties, or narrow it to a track or frame range. The fields are listed in
+[State snapshot](native-mcp.md#state-snapshot). It does not synchronize an offline project model.
 It rejects edits while a modal dialog or mouse drag is active. Native validation
 handles track locks, collisions and groups. Some trim requests may be constrained
 by Kdenlive; use the returned `actualDuration` and state.
