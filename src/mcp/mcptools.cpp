@@ -35,6 +35,8 @@ struct Command
     QStringList optional;
 };
 
+const QJsonObject markerFormat{{"type", "string"}, {"enum", QJsonArray{"json", "csv", "kdenlive"}}};
+
 const QMap<QString, Command> &commands()
 {
     static const auto result = [] {
@@ -45,6 +47,9 @@ const QMap<QString, Command> &commands()
         const QJsonObject unit{{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
         const QJsonObject params{{"type", "object"}, {"additionalProperties", QJsonObject{{"type", "string"}}}};
         const QJsonObject size{{"type", "integer"}, {"minimum", 16}, {"maximum", 8192}};
+        const QJsonObject comment{{"type", "string"}, {"maxLength", 4096}};
+        const QJsonObject category{{"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "string"}, {"minLength", 1}}}},
+                                   {"description", "Category index or name from desktop_capabilities markerCategories"}};
         const QJsonObject titleItem{
             {"type", "object"},
             {"properties", QJsonObject{{"index", frame},
@@ -73,6 +78,20 @@ const QMap<QString, Command> &commands()
             {"title_edit",
              {{{"binId", bin}, {"width", size}, {"height", size}, {"items", QJsonObject{{"type", "array"}, {"items", titleItem}}}},
               {"width", "height", "items"}}},
+            {"marker_add",
+             {{{"position", frame}, {"duration", frame}, {"comment", comment}, {"category", category}, {"binId", bin}},
+              {"duration", "comment", "category", "binId"}}},
+            {"marker_edit",
+             {{{"position", frame}, {"binId", bin}, {"newPosition", frame}, {"duration", frame}, {"comment", comment}, {"category", category}},
+              {"binId", "newPosition", "duration", "comment", "category"}}},
+            {"marker_remove",
+             {{{"binId", bin},
+               {"position", frame},
+               {"all", QJsonObject{{"type", "boolean"}, {"const", true}}},
+               {"category", category},
+               {"range", objectSchema({{"start", frame}, {"end", frameSchema(1)}})}},
+              {"binId", "position", "all", "category", "range"}}},
+            {"marker_import", {{{"format", markerFormat}, {"text", QJsonObject{{"type", "string"}, {"minLength", 1}}}, {"binId", bin}}, {"binId"}}},
             {"render", {{{"path", text}, {"preset", text}}, {"preset"}}},
             {"import", {{{"path", text}}}},
             {"remove_asset", {{{"binId", bin}}}},
@@ -174,6 +193,24 @@ const QList<Tool> &editingTools()
          "Edit a title clip: canvas width/height (match the project frame after a profile change) and text items by index (text, x, y, "
          "fontPixelSize, alignment). Read items with desktop_title_read first.",
          "title_edit", overwritingRepeatable},
+        {"desktop_marker_add",
+         "Add a guide to the active sequence, or with binId a marker to that bin clip (frames relative to the clip). duration > 0 makes a range "
+         "marker. category is an index or name from desktop_capabilities markerCategories (default: the configured default category). A marker "
+         "already at position is replaced: its comment, category and duration all take the new values (replaced: true).",
+         "marker_add", overwritingRepeatable},
+        {"desktop_marker_edit",
+         "Change the guide (or, with binId, clip marker) at position: newPosition, duration (0 makes a point), comment and/or category. Fields left "
+         "out keep their value. Returns marker and previous.",
+         "marker_edit", overwritingRepeatable},
+        {"desktop_marker_remove",
+         "Remove guides (or, with binId, clip markers) as one Undo step: the one at position, all:true, or those matching category and/or range "
+         "{start, end} (positions in [start, end)). Returns the removed markers.",
+         "marker_remove", overwritingRepeatable},
+        {"desktop_marker_import",
+         "Add guides (or, with binId, clip markers) from text produced by desktop_marker_export: format json, csv (header row; position in frames "
+         "or timecode) or kdenlive (native guide JSON). One Undo step; markers at existing positions are replaced. All entries are validated "
+         "first.",
+         "marker_import", overwritingRepeatable},
         {"desktop_render",
          "Start rendering the active sequence to a new file in the project folder or additional media folder. preset defaults to the configured one "
          "(usually MP4-H264/AAC). Poll desktop_render_status.",
@@ -182,7 +219,7 @@ const QList<Tool> &editingTools()
         {"desktop_redo", "Redo the latest action in shared Kdenlive history.", "redo", overwriting},
         {"desktop_batch",
          "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
-         "title_edit) as one Undo step. Each command has the same fields as desktop_apply commands. Stops and rolls back everything on the first "
+         "title_edit, marker_*) as one Undo step. Each command has the same fields as desktop_apply commands. Stops and rolls back everything on the first "
          "failure, reporting failedIndex.",
          "batch", overwriting}};
     return result;
@@ -240,6 +277,11 @@ QJsonArray McpTools::definitions()
     result.append(definition("desktop_title_read", "Read a title clip's canvas size, the project frame size and its items (text, position, font size, box).",
                              {{"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, readOnlyTool));
     result.append(definition("desktop_render_status", "Read progress, status and errors of renders started with desktop_render.", {}, readOnlyTool));
+    result.append(definition("desktop_marker_export",
+                             "Export the active sequence guides, or with binId a bin clip's markers, as text: json (the desktop_state marker shape), csv "
+                             "(position in frames and HH:MM:SS:FF timecode, duration, category, categoryName, color, comment) or kdenlive (native guide "
+                             "JSON, as Kdenlive's own export). desktop_marker_import reads all three.",
+                             {{"format", markerFormat}, {"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, readOnlyTool, {"binId"}));
     auto fields = editFields();
     QJsonArray variants;
     QJsonArray batchVariants;
@@ -283,6 +325,7 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
     if (name == QLatin1String("desktop_frame_capture")) return engine.frameCapture(arguments);
     if (name == QLatin1String("desktop_effect_list")) return engine.effectList(arguments);
     if (name == QLatin1String("desktop_title_read")) return engine.titleRead(arguments);
+    if (name == QLatin1String("desktop_marker_export")) return engine.markerExport(arguments);
     QJsonObject request;
     if (name == QLatin1String("desktop_apply")) {
         if (arguments.size() != 1 || !arguments.value("request").isObject()) return failure("INVALID_ARGUMENTS", "Expected a request object.");

@@ -56,7 +56,6 @@ public:
     /** @brief Returns the model's owner clip id */
     const QString &ownerId() const;
 
-protected:
     /** @brief Same function but accumulates undo/redo */
     bool addMarker(GenTime pos, const QString &comment, int type, Fun &undo, Fun &redo);
     /** @brief Same function but for range markers and accumulates undo/redo */

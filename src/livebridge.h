@@ -31,6 +31,8 @@ public:
     QJsonObject effectList(const QJsonObject &arguments);
     QJsonObject titleRead(const QJsonObject &arguments);
     QJsonObject renderStatus();
+    /** Sequence guides or a bin clip's markers as json, csv or Kdenlive's native guide JSON text. */
+    QJsonObject markerExport(const QJsonObject &arguments);
     /** Scoped state read: optional include (section names), trackId and range {start, end}; see docs/native-mcp.md. */
     QJsonObject stateFor(const QJsonObject &arguments);
     /** Every section name stateFor accepts in include. */
@@ -61,6 +63,7 @@ private:
     QJsonObject execute(const QJsonObject &command);
     QJsonObject executeBatch(const QJsonObject &command);
     QJsonObject executeProduction(const QJsonObject &command, bool &handled);
+    QJsonObject executeMarker(const QJsonObject &command);
     QJsonObject startRender(const QJsonObject &command);
     QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;

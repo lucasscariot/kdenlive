@@ -50,12 +50,13 @@ from `desktop_state`; bin IDs are numeric strings.
 
 | Tools | Parameters | Purpose |
 | --- | --- | --- |
-| `desktop_capabilities` | none | Read capabilities, including the state section names |
+| `desktop_capabilities` | none | Read capabilities, including the state section names and the project's marker categories |
 | `desktop_state` | optional `include` (section names), `trackId`, `range` (`start`, `end`) | Read the visible sequence, bin and history; see [State snapshot](#state-snapshot) |
 | `desktop_frame_capture` | `position`, optional `width` (64 to 1920, default 540) | Return one rendered frame as a PNG image without moving the playhead |
 | `desktop_effect_list` | optional `clipId` or `binId`, optional `query` | List a clip's effects with parameters and `keyframeOrigin`, and/or search the effect catalog |
 | `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
 | `desktop_render_status` | none | Follow the progress of renders started by `desktop_render` |
+| `desktop_marker_export` | `format` (`json`, `csv`, `kdenlive`), optional `binId` | Return the sequence guides, or a bin clip's markers, as text |
 | `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
 | `desktop_clip_insert`, `desktop_clip_remove` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media`; `clipId` | Add or remove timeline clips |
 | `desktop_media_replace` | `binId`, `replacementBinId` | Replace an asset while preserving timeline ranges |
@@ -67,11 +68,15 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_clip_reframe` | `clipId`, `mode` (`fill`/`fit`), optional `focusX`, `focusY`, `endFocusX`, `endFocusY`, `zoom` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
 | `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | `clipId` or `binId`; `effectId` and optional `params`; `index` and `params`; `index` | Edit effects on timeline clips or bin clips with MLT parameter strings |
 | `desktop_title_edit` | `binId`, optional `width`, `height`, `items` (`index`, `text`, `x`, `y`, `fontPixelSize`, `alignment`) | Edit a title clip's canvas size and text items |
+| `desktop_marker_add` | `position`, optional `duration`, `comment`, `category`, `binId` | Add a guide, or with `binId` a clip marker; replaces a marker at the same frame |
+| `desktop_marker_edit` | `position`, optional `binId`, then any of `newPosition`, `duration`, `comment`, `category` | Change one guide or clip marker |
+| `desktop_marker_remove` | optional `binId`, and `position`, `all: true`, or `category` and/or `range` (`start`, `end`) | Remove one or many markers in one Undo step |
+| `desktop_marker_import` | `format`, `text`, optional `binId` | Add markers from exported text in one Undo step |
 | `desktop_render` | `path`, optional `preset` | Render the active sequence with a preset |
 | `desktop_batch` | `commands` (1 to 200 `desktop_apply` commands) | Apply edits as one Undo step, rolled back on the first failure |
 | `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
 
-Tool annotations follow the MCP hints. The six reading tools are
+Tool annotations follow the MCP hints. The seven reading tools are
 `readOnlyHint`. `desktop_media_import`, `desktop_clip_insert`,
 `desktop_audio_envelope`, `desktop_project_save_as`, `desktop_effect_add` and
 `desktop_render` only add content and are not `destructiveHint`; every other
@@ -86,6 +91,44 @@ Read `desktop_state` before editing. Each edit needs its `sessionId`, the
 `sourceOut` is exclusive. Import and replacement load asynchronously. Poll state
 until the affected bin asset is ready before using it.
 
+## Markers and guides
+
+Without `binId`, marker tools act on the active sequence's guides; with
+`binId` they act on that bin clip's markers, at frames relative to the clip.
+Sequence bin clips are refused with `SEQUENCE_PROTECTED`, because their markers
+are the sequence guides. `category` is an index or a name (exact, then
+case-insensitive) from `markerCategories` (`index`, `name`, `color`) in
+`desktop_capabilities`, which reflects the open project; omitted, it is
+`defaultMarkerCategory`. A `duration` above 0 makes a range marker. Kdenlive
+keys markers by frame: `desktop_marker_add` at an occupied frame replaces that
+marker's comment, category and duration, as the native model does, and reports
+`replaced: true`. Kdenlive reads an empty comment back as `Marker`.
+
+Results carry `target` (`guides` or `clip`), `binId` for clip markers, and
+`marker` (add, edit, plus `previous` and `changed` for edit), `removed` and
+`count` (remove), or `imported` and `replaced` (import), in the
+[snapshot](#state-snapshot) marker shape. Each call is one Undo step, labelled
+for example `Add guide`, `Move guide`, `Remove 3 guides` or `Import 5 clip
+markers` after Kdenlive's `hh:mm` prefix. Removal by `category` and/or `range`
+takes markers whose position is in `[start, end)`. The marker commands can run
+inside `desktop_batch`.
+
+`desktop_marker_export` returns `text`, so it writes no file: `json` is the
+snapshot marker array; `csv` has a header row
+`position,timecode,duration,category,categoryName,color,comment`, with the
+project `HH:MM:SS:FF` timecode and RFC 4180 quoting; `kdenlive` is
+`MarkerListModel::toJson`, the format of Kdenlive's own guide export
+(`pos`, `comment`, `type`, `duration`). `desktop_marker_import` reads all three.
+CSV columns are matched by name; it needs `position` (frames) or `timecode`,
+and reads `category` or `categoryName`. JSON imports ignore unknown keys. Every
+entry is validated before anything changes. Errors: `UNKNOWN_MARKER` (nothing
+at `position`, or no marker matches the filter), `UNKNOWN_CATEGORY`,
+`MARKER_EXISTS` (editing onto an occupied frame), and `INVALID_ARGUMENTS` for
+positions, durations and ranges that are not whole frames or leave the sequence
+(or clip), and for unreadable import text. A changed position or duration must
+fit; an existing guide past a shortened sequence can still be edited in place
+or removed. Malformed fields fail with `INVALID_COMMAND`.
+
 ## State snapshot
 
 `desktop_state` and every successful edit return the same snapshot shape.
@@ -98,7 +141,7 @@ active sequence UUID), `documentUrl`, `modified`, `fps` (`numerator`,
 `playhead`, `activeTrackId`, `undo` (`index`, `canUndo`, `canRedo`,
 `undoText`, `redoText`), `sections` (the sections returned) and `counts`
 (`tracks`, `clips`, `compositions`, `markers`, `subtitles`, `bin` for the whole
-sequence, whatever the filters). A filtered read also returns `filter`.
+sequence, whatever the filters; `markers` counts guides only). A filtered read also returns `filter`.
 
 | Section | Default | Adds |
 | --- | --- | --- |
@@ -106,7 +149,7 @@ sequence, whatever the filters). A filtered read also returns `filter`.
 | `clips` | yes | `tracks[].clips[]` sorted by position: `id`, `binId`, `name`, `type`, `position`, `duration`, `sourceIn`, `sourceOut`, `speed`, `enabled`, `effectCount`, `grouped`, `groupId`, `linkedClipId` (A/V partner), `mixes[]` (`edge` `start`/`end`, `position`, `duration`, and for `start` the mix cut `offset`); `tracks[].gaps[]` (`position`, `duration`) between clips |
 | `compositions` | yes | `tracks[].compositions[]`: `id`, `compositionId`, `name`, `position`, `duration`, `aTrack` and `bTrack` (MLT indexes, 0 is the black background), `aTrackId` (null for the background), `forcedATrack`, `grouped`, `groupId` |
 | `markers` | yes | `markers[]` (sequence guides): `position`, `duration` (0 for a point), `comment`, `category`, `categoryName`, `color` |
-| `bin` | yes | `bin[]`: `id`, `name`, `type`, `parentId` (folder, null at the root), `url` (media path, empty for generated clips), `ready`, `inUse`, `duration`; `folders[]`: `id`, `name`, `parentId` |
+| `bin` | yes | `bin[]`: `id`, `name`, `type`, `parentId` (folder, null at the root), `url` (media path, empty for generated clips), `ready`, `inUse`, `duration`, and `markers[]` (clip markers, same shape as guides, frames relative to the clip) only when the clip has any; `folders[]`: `id`, `name`, `parentId` |
 | `sequences` | yes | `sequences[]`: `id` (UUID), `binId`, `name`, `active`, `open` |
 | `subtitles` | no | `subtitles[]` sorted by start: `id`, `layer`, `start`, `end`, `text`; empty when the sequence has no subtitles |
 | `effects` | no | `tracks[].clips[].effects[]`: `effectId`, `name`, `enabled`, in stack order; implies `clips` |
@@ -138,8 +181,8 @@ save a copy first.
 
 This version does not expose project creation, track creation, downloads or the
 companion's offline project tools. Open/create projects in the GUI. Native state
-describes the active sequence, the project bin and the list of sequences; clip
-markers, keyframes and effect parameters are read with their own tools.
+describes the active sequence, the project bin with its clip markers, and the
+list of sequences; keyframes and effect parameters are read with their own tools.
 
 ## Build and install
 
@@ -178,12 +221,18 @@ The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable edit
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
-**Acceptance checks.** The run calls all 28 tools. It checks the catalog against
+**Acceptance checks.** The run calls all 33 tools. It checks the catalog against
 the expected tool names and annotations, then reads the fixture's state:
 track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
 a dissolve composition, two guides, two subtitles, bin folders and types, and
 the sequence list; it checks `include`, `trackId` and `range` scoping, the
-media section and rejected arguments. It then tests inserting, moving,
+media section and rejected arguments. It reads the marker categories and a
+clip marker from the fixture; adds point and range guides by category index and
+name, replaces, edits, moves and removes them with undo/redo; removes many by
+`all`, `category` and `range` in one Undo step that one `desktop_undo` restores;
+round-trips json, csv and kdenlive exports through import; runs marker commands
+in a batch; adds, edits, exports and removes bin-clip markers; and checks the
+marker error codes. It then tests inserting, moving,
 trimming and removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
 `REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
 importing, removing and replacing media; the audio envelope and track rename;
