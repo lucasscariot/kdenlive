@@ -82,20 +82,26 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_marker_edit` | `position`, optional `binId`, then any of `newPosition`, `duration`, `comment`, `category` | Change one guide or clip marker |
 | `desktop_marker_remove` | optional `binId`, and `position`, `all: true`, or `category` and/or `range` (`start`, `end`) | Remove one or many markers in one Undo step |
 | `desktop_marker_import` | `format`, `text`, optional `binId` | Add markers from exported text in one Undo step |
+| `desktop_transcript` | one of `binId`, `clipId` or `range` (`start`, `end`; optional `trackIds`), optional `format` (`words`, `segments`, `text`, `srt`), `minPause` (seconds, default 0.5) | Read a clip's word-level transcript with source and timeline times, and the pauses in it; see [Transcripts and silence](#transcripts-and-silence) |
+| `desktop_transcript_import` | `binId`, `format` (`json`, `srt`, `vtt`, `whisper`), `text`, optional `language`, `engine`, `append` | Store a transcript on a bin clip in one Undo step |
+| `desktop_silence_detect` | one of `binId` (optional `sourceRange` in seconds), `clipId` or `range` (optional `trackIds`), optional `thresholdDb` (default -35), `minDuration` (s, default 0.5), `padding` (s, default 0.1) | Find silences and speech with ffmpeg `silencedetect` |
+| `desktop_range_cut` | one of `ranges` (`start`, `end` frames), `words` (`from`, `to` indexes, with `binId` or `clipId`) or `silences` (`true` or `{thresholdDb, minDuration, padding}`, with `binId`, `clipId` or `range`); optional `keep`, `range`, `mode` (`extract`, `lift`), `trackIds` or `allTracks`, `padding`, `minGap` (frames), `addMarkers` (a category), `dryRun` | Remove many ranges in one Undo step; returns `removedRanges`, `removedFrames`, `newDuration`, `clipIdsAffected` |
+| `desktop_transcribe`, `desktop_transcribe_status` | `binId`, optional `engine` (`whisper`, `vosk`), `model`, `language`; optional `jobId` | Run Kdenlive's speech to text on a clip and follow the job |
 | `desktop_render` | `path`, optional `preset` | Render the active sequence with a preset |
 | `desktop_batch` | `commands` (1 to 200 `desktop_apply` commands) | Apply edits as one Undo step, rolled back on the first failure |
 | `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
 
-Tool annotations follow the MCP hints. The eight reading tools are
+Tool annotations follow the MCP hints. The eleven reading tools are
 `readOnlyHint`. `desktop_media_import`, `desktop_audio_envelope`,
 `desktop_project_save_as`, `desktop_effect_add`, `desktop_clip_group` and
 `desktop_render` only add content and are not `destructiveHint`; every other
 editing tool is (`desktop_clip_insert` can overwrite). Repeating
 `desktop_clip_insert`, `desktop_effect_add`, `desktop_effect_remove`,
 `desktop_range_remove`, `desktop_gap_remove`, `desktop_space_insert`,
-`desktop_render`, `desktop_undo`, `desktop_redo`, `desktop_batch` or
-`desktop_apply` with new edit fields has a further effect, so they are not
-`idempotentHint`. Independently of the hints, an identical retry
+`desktop_transcript_import` (with `append`), `desktop_range_cut`,
+`desktop_transcribe`, `desktop_render`, `desktop_undo`, `desktop_redo`,
+`desktop_batch` or `desktop_apply` with new edit fields has a further effect, so
+they are not `idempotentHint`. Independently of the hints, an identical retry
 with the same `requestId` returns the saved result.
 
 Read `desktop_state` before editing. Each edit needs its `sessionId`, the
@@ -166,9 +172,148 @@ are never changed: commands naming one fail with `TRACK_LOCKED`, and
 
 To cut a span, such as a silence, out of linked audio and video and close it,
 use one `desktop_range_remove` with `mode: "extract"` and `allTracks: true`
-(or the pair's `trackIds`). For many spans, send one `desktop_batch` of
-`remove_range` commands from the last span to the first, so earlier positions
-stay valid and the whole pass is one Undo step.
+(or the pair's `trackIds`). For many spans use `desktop_range_cut`, which takes
+the list (or computes it from a transcript or from silences) and removes it in
+one Undo step; a `desktop_batch` of `remove_range` commands ordered from the
+last span to the first does the same.
+
+## Transcripts and silence
+
+A transcript belongs to a bin clip: words with `start` and `end` in seconds of
+the clip's source media. It is stored in the project as the bin clip property
+`kdenlive:mcp_transcript` (compact JSON: `version`, `language`, `engine`,
+`format`, `words[{start, end, text, confidence?, segment?, interpolated?}]`),
+together with the same words in Kdenlive's own `kdenlive:speech` property, the
+HTML the **Text-based edit** panel saves after speech recognition, so the panel
+shows an imported transcript. Both go through the bin's Edit Clip command, so an
+import is one Undo step (`Import transcript`), undone with the rest of the
+history and saved with the project. A transcript the panel recognised itself is
+read from `kdenlive:speech` (`origin: "kdenlive:speech"`, `engine: "kdenlive"`,
+one segment per paragraph); when the panel recognises again after an MCP import,
+its newer result wins. Replacing the clip's media (`desktop_media_replace`)
+reloads the clip and drops the transcript. Transcripts are not part of
+`desktop_state`.
+
+`desktop_transcript_import` formats:
+
+- `json`: a words array or `{language, engine, words}`; each word has `start`,
+  `end`, `text` (or `word`), optional `confidence` (0 to 1, or `probability`)
+  and `segment` (index). Unknown keys are ignored, so `desktop_transcript`
+  output can be imported again.
+- `srt` and `vtt`: cue timing only. Each cue's text (tags removed) is split into
+  words and its duration divided equally between them; such words carry
+  `interpolated: true`. Each cue is a segment. WebVTT headers, `NOTE`, `STYLE`
+  and `REGION` blocks and cue settings are skipped.
+- `whisper`: openai-whisper JSON (`--output_format json`, `word_timestamps`):
+  `language` and `segments[].words[]` (`word`, `start`, `end`,
+  `probability`); a segment without words is interpolated like a cue.
+
+An import replaces the clip's transcript; `append: true` adds the words to it.
+Words are sorted by `start`; one lying more than a second past the clip's end
+fails with `INVALID_TRANSCRIPT`, as does unparsable text. A tool call carries at
+most about 60 KiB of text (the request limit), so import long transcripts in
+parts with `append: true`. Clips without audio fail with `NO_AUDIO`, sequences
+with `SEQUENCE_PROTECTED`.
+
+`desktop_transcript` reads the transcript of a bin clip (`binId`: source times
+only), of one timeline clip (`clipId`: the words its source window shows), or of
+every clip in a timeline `range` on the unmuted audio tracks or `trackIds`
+(a linked video clip whose audio half is covered is left out). Each word has
+`index` (its position in the bin clip's word list), `text`, `start`/`end`
+(source seconds), `sourceStart`/`sourceEnd` (source frames at the project frame
+rate) and `confidence`, `segment` or `interpolated` when known. Through the
+timeline, words add `clipId`, `trackId` and `timelineStart`/`timelineEnd`:
+
+```
+timeline frame = position + round(seconds × fps / speed) − sourceIn
+```
+
+where `sourceIn` and `speed` are the clip's state values (for a slowed clip,
+`sourceIn` counts frames of the speed-adjusted source). Times are clamped to
+the clip, and words partly outside it are `clipped`. Time-remap curves are
+ignored and reversed clips are refused (`INCOMPATIBLE_MEDIA`) or skipped in a
+range. `format` picks `words` (default), `segments` (`text`, times,
+`firstWord`, `lastWord`; the stored segments when every word has one, otherwise
+split after `.`, `?`, `!` and pauses longer than `minPause`), `text` (one
+segment per line) or `srt` (cues in source time for a bin clip, timeline time
+otherwise). Every format returns `gaps`: pauses longer than `minPause` seconds
+(default 0.5) between words and at the edges of the clip's window, with
+`afterWord`/`beforeWord` (-1 at an edge), so dead air shows up without another
+call. `NO_TRANSCRIPT` when the clip (or every clip in the range) has none.
+
+`desktop_silence_detect` runs `ffmpeg -af silencedetect` (the ffmpeg configured
+in Kdenlive's environment settings) synchronously on the clip's audio stream,
+only over the span it needs: the whole bin clip or `sourceRange` (seconds), the
+source window of `clipId`, or the parts of the clips inside `range`. Silences
+are quieter than `thresholdDb` for at least `minDuration` seconds; each is then
+shrunk by `padding` seconds where it meets speech, keeping a little air around
+words (`detectedStart`/`detectedEnd` keep the raw detection). `speech[]` is the
+complement. For a `range`, `silences` are the timeline frames where none of the
+covered clips has speech, so frames without any clip count as silent; per-clip
+results are in `clips[]`, and a range without any audio clip on the measured
+tracks fails with `NO_AUDIO`. At most two hours of audio per call (`TOO_LONG`);
+ffmpeg failures and time-outs are `ANALYSIS_FAILED`, clips without audio
+`NO_AUDIO`.
+
+`desktop_range_cut` turns one of three selections into timeline ranges:
+`ranges` in timeline frames; `words` (`{from, to}` inclusive indexes from
+`desktop_transcript`) through `clipId` or through every instance of `binId` in
+the active sequence; or `silences`, as `desktop_silence_detect` computes them on
+`binId`, `clipId` or `range` (in a range, measured on the cut tracks' unmuted
+audio tracks). `keep: true` inverts the selection inside the clip spans (or
+`range`, or the whole sequence for `ranges`), keeping only the selected takes.
+The ranges are merged, shrunk by `padding` frames at both ends and dropped below
+`minGap` frames (default 1). `dryRun: true` stops there and returns them;
+it still needs the edit fields so that it reflects the current revision, adds
+no history, and like every successful call advances the revision (use the
+returned `state.revision`). Otherwise every range is removed with Kdenlive's
+lift or extract on `trackIds` or every unlocked track (the default), last range
+first, and `addMarkers` adds a guide of that category at each cut: at the join
+for `extract`, over the gap for `lift`. The whole pass is one Undo step
+(`Remove 3 ranges`, `Lift range`), one `desktop_history` entry with `source`,
+`ranges`, `removedFrames` and `removedRanges` in its summary, and one
+`desktop_undo` restores clips and guides. Results: `removedRanges`
+(`start`, `end`, `duration` in frames before the edit), `removedFrames`,
+`newDuration`, `removedClipIds`, `newClipIds`, `clipIdsAffected` (removed, new and
+moved clips) and `markersAdded`. Guides follow ripples as described in
+[Timeline editing](#timeline-editing). `transcript_import` and `range_cut` run
+inside `desktop_batch`.
+
+`desktop_transcribe` starts Kdenlive's own speech to text on a file clip's audio,
+with the scripts and arguments the Text-based edit panel uses (Whisper's
+`whispertotext.py` or Vosk's `speechtotext.py`, run by the speech-to-text
+Python environment), and returns a `jobId`; one job runs at a time
+(`TRANSCRIPTION_BUSY`). `engine` and `model` default to the ones configured in
+Kdenlive. Poll `desktop_transcribe_status` for `state` (`running`, `finished`,
+`failed`), `progress`, `wordCount` and `error` (an unknown `jobId` is
+`UNKNOWN_JOB`; a script that cannot start is `TRANSCRIPTION_FAILED`, and one
+that fails later leaves a `TRANSCRIPTION_FAILED` error on its job). When the job finishes, its words
+(one segment per Whisper segment or Vosk result, Vosk confidences kept) are
+stored as an import would, as one Undo step attributed to the `desktop_transcribe`
+request in the change log; a job that hears no speech stores nothing. If the
+Python environment, its packages or a model is missing, the call fails with
+`TRANSCRIPTION_UNAVAILABLE` and `reason` (`python_environment_missing`,
+`dependencies_missing`, `model_missing` or `script_missing`), `engine`,
+`model`, `installedModels`, `missingDependencies` and a `hint`. MCP never
+installs packages or downloads models: the user does that in **Settings →
+Configure Kdenlive → Speech to Text**, by installing Whisper (or Vosk) and
+downloading a model there. Clips without a local media file fail with
+`INCOMPATIBLE_MEDIA`.
+
+Examples, each one Undo step:
+
+- Remove silences: `desktop_range_cut {clipId, silences: true, dryRun: true}`
+  to review the ranges, then the same call without `dryRun` (add
+  `addMarkers: 3`, a marker category, to see the cuts). For a whole multi-clip sequence, use
+  `silences: {thresholdDb: -40, minDuration: 0.8}` with `range: {start: 0, end:
+  <duration>}`.
+- Cut these sentences: read `desktop_transcript {clipId, format: "segments"}`,
+  pick the segments to drop and pass their word spans:
+  `desktop_range_cut {clipId, words: [{from: 12, to: 19}, {from: 40, to: 44}]}`.
+- Keep best takes: read the segments of the clip holding every take, choose
+  the best take of each line and pass only those with `keep: true`:
+  `desktop_range_cut {clipId, words: [{from: 0, to: 8}, {from: 31, to: 39}],
+  keep: true}` removes the rest of the clip and closes the gaps.
 
 ## Markers and guides
 
@@ -366,7 +511,7 @@ The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable edit
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
-**Acceptance checks.** The run calls all 42 tools. It checks the catalog against
+**Acceptance checks.** The run calls all 48 tools. It checks the catalog against
 the expected tool names and annotations, then reads the fixture's state:
 track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
 a dissolve composition, two guides, two subtitles, bin folders and types, and
@@ -386,11 +531,24 @@ all-track insert-mode, overwrite and audio-only insertion, `OVERLAP`, grouping a
 ungrouping with A/V linking and nesting, speed changes with undo and `OVERLAP`,
 enabling and disabling with and without the linked clip, the history summaries
 of these edits, and their refusals on the locked track; one `toIndex` undo then
-restores the fixture layout. It then tests inserting, moving,
+restores the fixture layout. Transcripts and silence come next: a generated
+20 s tone with two silences goes on A1, and silence detection on the bin clip,
+the timeline clip and a range must find them within a frame, padded and mapped
+to timeline frames; the fixture's Text-based edit transcript is read back;
+json, srt, vtt and whisper imports are checked word by word, and through the
+pair's clips (source in 10 s, speed 0.5) in timeline frames, as words,
+segments, text, srt and gaps; `desktop_range_cut` removes words, keeps takes,
+lifts and extracts ranges, and cuts every silence with guides at the joins in
+one Undo step that one `desktop_undo` restores, with its history summary; an
+import and a cut share one batch step; the error codes are checked; and
+`desktop_transcribe` must report `TRANSCRIPTION_UNAVAILABLE` with its reason
+when no speech-to-text environment is installed (with one, it waits for the
+job). It then tests inserting, moving,
 trimming and removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
 `REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
-importing, removing and replacing media; the audio envelope and track rename;
-saving and reopening, which yields a new session. After the restart it checks
+importing, removing and replacing media (which drops a transcript); the audio
+envelope and track rename; saving and reopening, which yields a new session and
+keeps the transcript imported before saving. After the restart it checks
 the change log: `lastChange`, entry origins, commands, tools, summaries and
 batch children, applied and undone states through `count` and `toIndex`
 undo/redo, the history filters and their errors, the `history` state section,
@@ -407,7 +565,7 @@ the allowed folders refused; switches to 1080x1920 at the same frame rate; pans
 and fits a clip with `desktop_clip_reframe`; resizes the title canvas; and
 renders the 1080x1920 sequence, polling `desktop_render_status` until the file
 is finished, with bad paths, an unknown preset and a second render refused. It
-takes about 30 seconds.
+takes about 35 seconds.
 
 Codex's HTTP configuration fields are documented in its
 [configuration reference](https://developers.openai.com/codex/config-reference).

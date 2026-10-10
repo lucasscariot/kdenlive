@@ -131,30 +131,35 @@ QString LiveBridge::capabilities() const
     for (auto it = pCore->markerTypes.cbegin(); it != pCore->markerTypes.cend(); ++it)
         categories.append(QJsonObject{{"index", it.key()}, {"name", it.value().displayName}, {"color", it.value().color.name()}});
     const int defaultCategory = KdenliveSettings::default_marker_type();
-    return json({{"ok", true},
-                 {"protocolVersion", 1},
-                 {"transport", "native-editor"},
-                 {"operations", QJsonArray{"import",       "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track",  "save",
-                                           "save_as",      "set_profile",   "insert",      "move",          "trim",           "reframe",       "effect_add",
-                                           "effect_set",   "effect_remove", "title_edit",  "marker_add",    "marker_edit",    "marker_remove", "marker_import",
-                                           "render",       "batch",         "undo",        "redo",          "split",          "remove_range",  "remove_gap",
-                                           "insert_space", "group",         "ungroup",     "speed",         "enable"}},
-                 {"insertModes", QJsonArray{"video", "audio"}},
-                 {"editModes", QJsonArray{"normal", "overwrite", "insert"}},
-                 {"removeModes", QJsonArray{"lift", "extract"}},
-                 {"markerCategories", categories},
-                 {"defaultMarkerCategory", pCore->markerTypes.contains(defaultCategory) ? QJsonValue(defaultCategory)
-                                           : pCore->markerTypes.isEmpty()               ? QJsonValue(QJsonValue::Null)
-                                                                                        : QJsonValue(pCore->markerTypes.firstKey())},
-                 {"markerFormats", QJsonArray{"json", "csv", "kdenlive"}},
-                 {"frameRanges", "sourceOut is exclusive; frames use project FPS"},
-                 {"stateScope", "active sequence tracks, clips, compositions, markers, subtitles, project bin and sequence list; not a full project "
-                                "interchange format"},
-                 {"stateSections", QJsonArray::fromStringList(stateSections())},
-                 {"defaultStateSections", QJsonArray::fromStringList(defaultStateSections())},
-                 {"receiptLimit", 64},
-                 {"batchEditing", true},
-                 {"batchLimit", 200}});
+    return json(
+        {{"ok", true},
+         {"protocolVersion", 1},
+         {"transport", "native-editor"},
+         {"operations", QJsonArray{"import",       "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track",      "save",
+                                   "save_as",      "set_profile",   "insert",      "move",          "trim",           "reframe",           "effect_add",
+                                   "effect_set",   "effect_remove", "title_edit",  "marker_add",    "marker_edit",    "marker_remove",     "marker_import",
+                                   "render",       "batch",         "undo",        "redo",          "split",          "remove_range",      "remove_gap",
+                                   "insert_space", "group",         "ungroup",     "speed",         "enable",         "transcript_import", "range_cut",
+                                   "transcribe"}},
+         {"insertModes", QJsonArray{"video", "audio"}},
+         {"editModes", QJsonArray{"normal", "overwrite", "insert"}},
+         {"removeModes", QJsonArray{"lift", "extract"}},
+         {"markerCategories", categories},
+         {"defaultMarkerCategory", pCore->markerTypes.contains(defaultCategory) ? QJsonValue(defaultCategory)
+                                   : pCore->markerTypes.isEmpty()               ? QJsonValue(QJsonValue::Null)
+                                                                                : QJsonValue(pCore->markerTypes.firstKey())},
+         {"markerFormats", QJsonArray{"json", "csv", "kdenlive"}},
+         {"transcriptFormats", QJsonArray{"json", "srt", "vtt", "whisper"}},
+         {"transcriptOutputFormats", QJsonArray{"words", "segments", "text", "srt"}},
+         {"speechEngines", QJsonArray{"whisper", "vosk"}},
+         {"frameRanges", "sourceOut is exclusive; frames use project FPS"},
+         {"stateScope", "active sequence tracks, clips, compositions, markers, subtitles, project bin and sequence list; not a full project "
+                        "interchange format"},
+         {"stateSections", QJsonArray::fromStringList(stateSections())},
+         {"defaultStateSections", QJsonArray::fromStringList(defaultStateSections())},
+         {"receiptLimit", 64},
+         {"batchEditing", true},
+         {"batchLimit", 200}});
 }
 
 bool LiveBridge::bind()
@@ -721,6 +726,8 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
     if (type.startsWith(QLatin1String("marker_"))) return executeMarker(command);
     auto timeline = executeTimeline(command, handled);
     if (handled) return timeline;
+    auto transcript = executeTranscript(command, handled);
+    if (handled) return transcript;
     if (type == QLatin1String("remove_asset")) {
         if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId")})) return invalid();
         const QString id = command.value(QStringLiteral("binId")).toString();
@@ -884,13 +891,20 @@ QJsonObject LiveBridge::editableClip(int clipId) const
 }
 
 namespace {
-const QStringList batchable{QStringLiteral("import"),        QStringLiteral("remove_asset"), QStringLiteral("remove_clip"),  QStringLiteral("audio_envelope"),
-                            QStringLiteral("rename_track"),  QStringLiteral("insert"),       QStringLiteral("move"),         QStringLiteral("trim"),
-                            QStringLiteral("reframe"),       QStringLiteral("effect_add"),   QStringLiteral("effect_set"),   QStringLiteral("effect_remove"),
-                            QStringLiteral("title_edit"),    QStringLiteral("marker_add"),   QStringLiteral("marker_edit"),  QStringLiteral("marker_remove"),
-                            QStringLiteral("marker_import"), QStringLiteral("split"),        QStringLiteral("remove_range"), QStringLiteral("remove_gap"),
-                            QStringLiteral("insert_space"),  QStringLiteral("group"),        QStringLiteral("ungroup"),      QStringLiteral("speed"),
-                            QStringLiteral("enable")};
+const QStringList batchable{QStringLiteral("import"),        QStringLiteral("remove_asset"),
+                            QStringLiteral("remove_clip"),   QStringLiteral("audio_envelope"),
+                            QStringLiteral("rename_track"),  QStringLiteral("insert"),
+                            QStringLiteral("move"),          QStringLiteral("trim"),
+                            QStringLiteral("reframe"),       QStringLiteral("effect_add"),
+                            QStringLiteral("effect_set"),    QStringLiteral("effect_remove"),
+                            QStringLiteral("title_edit"),    QStringLiteral("marker_add"),
+                            QStringLiteral("marker_edit"),   QStringLiteral("marker_remove"),
+                            QStringLiteral("marker_import"), QStringLiteral("split"),
+                            QStringLiteral("remove_range"),  QStringLiteral("remove_gap"),
+                            QStringLiteral("insert_space"),  QStringLiteral("group"),
+                            QStringLiteral("ungroup"),       QStringLiteral("speed"),
+                            QStringLiteral("enable"),        QStringLiteral("transcript_import"),
+                            QStringLiteral("range_cut")};
 
 bool unitInterval(const QJsonObject &object, const QString &key)
 {
@@ -2944,4 +2958,13 @@ void LiveBridge::writeLog(const QJsonObject &line)
     // A project folder that refuses the write falls back to the data directory.
     const QString fallback = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/mcp-log.jsonl");
     if (!append(path) && path != fallback) append(fallback);
+}
+
+QJsonObject LiveBridge::markerCategoryFor(const QJsonValue &value, int &category)
+{
+    if (value.isNull() || value.isUndefined()) {
+        category = defaultMarkerCategory();
+        return {};
+    }
+    return markerCategory(value, category);
 }

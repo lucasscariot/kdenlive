@@ -37,6 +37,11 @@ struct Command
 };
 
 const QJsonObject markerFormat{{"type", "string"}, {"enum", QJsonArray{"json", "csv", "kdenlive"}}};
+const QJsonObject transcriptFormat{{"type", "string"}, {"enum", QJsonArray{"json", "srt", "vtt", "whisper"}}};
+const QJsonObject silenceProperties{
+    {"thresholdDb", QJsonObject{{"type", "number"}, {"minimum", -120}, {"maximum", 0}, {"description", "Default -35"}}},
+    {"minDuration", QJsonObject{{"type", "number"}, {"minimum", 0.01}, {"maximum", 3600}, {"description", "Seconds, default 0.5"}}},
+    {"padding", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 60}, {"description", "Seconds, default 0.1"}}}};
 
 const QMap<QString, Command> &commands()
 {
@@ -54,6 +59,7 @@ const QMap<QString, Command> &commands()
         const QJsonObject trackList{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"uniqueItems", true}, {"items", frame}};
         const QJsonObject category{{"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "string"}, {"minLength", 1}}}},
                                    {"description", "Category index or name from desktop_capabilities markerCategories"}};
+        const QJsonObject span = objectSchema({{"start", frame}, {"end", frameSchema(1)}});
         const QJsonObject titleItem{
             {"type", "object"},
             {"properties", QJsonObject{{"index", frame},
@@ -122,6 +128,43 @@ const QMap<QString, Command> &commands()
                {"pitchCompensation", flag}},
               {"pitchCompensation"}}},
             {"enable", {{{"clipId", frame}, {"enabled", flag}, {"linked", flag}}, {"linked"}}},
+            {"transcript_import",
+             {{{"binId", bin},
+               {"format", transcriptFormat},
+               {"text", QJsonObject{{"type", "string"}, {"minLength", 1}}},
+               {"language", QJsonObject{{"type", "string"}, {"maxLength", 64}}},
+               {"engine", QJsonObject{{"type", "string"}, {"maxLength", 64}}},
+               {"append", flag}},
+              {"language", "engine", "append"}}},
+            {"range_cut",
+             {{{"ranges", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 1000}, {"items", span}}},
+               {"words", QJsonObject{{"type", "array"},
+                                     {"minItems", 1},
+                                     {"maxItems", 1000},
+                                     {"items", objectSchema({{"from", frame}, {"to", frame}})},
+                                     {"description", "Inclusive word index spans from desktop_transcript, on binId or clipId"}}},
+               {"silences", QJsonObject{{"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}, {"const", true}},
+                                                             objectSchema(silenceProperties, {"thresholdDb", "minDuration", "padding"})}},
+                                        {"description", "true or {thresholdDb, minDuration, padding} as desktop_silence_detect, on binId, clipId or range"}}},
+               {"binId", bin},
+               {"clipId", frame},
+               {"range", span},
+               {"trackIds", trackList},
+               {"allTracks", flag},
+               {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"extract", "lift"}}}},
+               {"keep", flag},
+               {"padding", frame},
+               {"minGap", frame},
+               {"addMarkers", category},
+               {"dryRun", flag}},
+              {"ranges", "words", "silences", "binId", "clipId", "range", "trackIds", "allTracks", "mode", "keep", "padding", "minGap", "addMarkers",
+               "dryRun"}}},
+            {"transcribe",
+             {{{"binId", bin},
+               {"engine", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"whisper", "vosk"}}}},
+               {"model", text},
+               {"language", QJsonObject{{"type", "string"}, {"maxLength", 64}}}},
+              {"engine", "model", "language"}}},
             {"replace_media", {{{"binId", bin}, {"replacementBinId", bin}}}},
             {"insert",
              {{{"binId", bin},
@@ -286,6 +329,25 @@ const QList<Tool> &editingTools()
          "or timecode) or kdenlive (native guide JSON). One Undo step; markers at existing positions are replaced. All entries are validated "
          "first.",
          "marker_import", overwritingRepeatable},
+        {"desktop_transcript_import",
+         "Store a word-level transcript on bin clip binId (source seconds), replacing its transcript, or adding to it with append: true. format json "
+         "(words [{start, end, text, confidence?}] or {language, engine, words}; desktop_transcript output is accepted), srt or vtt (cue timing; "
+         "each cue's duration is split equally between its words, marked interpolated) or whisper (openai-whisper JSON with segments[].words[]). "
+         "Saved in the project and shown in the Text-based edit panel; one Undo step.",
+         "transcript_import", overwriting},
+        {"desktop_range_cut",
+         "Cut many timeline ranges as one Undo step: ranges [{start, end}] in timeline frames, words [{from, to}] (inclusive word indexes from "
+         "desktop_transcript) on binId or clipId, or silences (true or {thresholdDb, minDuration, padding}) on binId, clipId or range. keep: true "
+         "removes everything else inside the clip span (or range). mode extract (default) ripples, lift leaves gaps; on all unlocked tracks unless "
+         "trackIds. Ranges are merged, shrunk by padding frames and dropped below minGap frames. addMarkers (a category) puts a guide at each cut. "
+         "dryRun: true returns removedRanges without editing. Returns removedRanges, removedFrames, newDuration and clipIdsAffected.",
+         "range_cut", overwriting},
+        {"desktop_transcribe",
+         "Start Kdenlive's own speech to text (whisper or vosk, default: the configured engine and model) on a bin clip's audio; poll "
+         "desktop_transcribe_status with the returned jobId. When it finishes the transcript is stored as by desktop_transcript_import, as one "
+         "Undo step. TRANSCRIPTION_UNAVAILABLE (with reason, installedModels and missingDependencies) when the Python environment or a model "
+         "is missing: tell the user what to install; this tool never installs anything.",
+         "transcribe", overwriting},
         {"desktop_render",
          "Start rendering the active sequence to a new file in the project folder or additional media folder. preset defaults to the configured one "
          "(usually MP4-H264/AAC). Poll desktop_render_status.",
@@ -298,7 +360,8 @@ const QList<Tool> &editingTools()
         {"desktop_redo", "Redo in shared Kdenlive history: the next step, count steps, or up to toIndex. Returns redone entries.", "redo", overwriting},
         {"desktop_batch",
          "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
-         "title_edit, marker_*, split, remove_range, remove_gap, insert_space, group, ungroup, speed, enable) as one Undo step. Position-addressed "
+         "title_edit, marker_*, split, remove_range, remove_gap, insert_space, group, ungroup, speed, enable, transcript_import, range_cut) as one "
+         "Undo step. Position-addressed "
          "commands chain well: apply range removals from the last range to the first. Each command has the same fields as desktop_apply commands. Stops and "
          "rolls back everything on the first "
          "failure, reporting failedIndex.",
@@ -375,10 +438,45 @@ QJsonArray McpTools::definitions()
                              "(position in frames and HH:MM:SS:FF timecode, duration, category, categoryName, color, comment) or kdenlive (native guide "
                              "JSON, as Kdenlive's own export). desktop_marker_import reads all three.",
                              {{"format", markerFormat}, {"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, readOnlyTool, {"binId"}));
+    const QJsonObject binId{{"type", "string"}, {"pattern", "^[0-9]+$"}};
+    const QJsonObject range = objectSchema({{"start", frameSchema()}, {"end", frameSchema(1)}});
+    const QJsonObject trackIds{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"uniqueItems", true}, {"items", frameSchema()}};
+    result.append(definition(
+        "desktop_transcript",
+        "Read the word-level transcript of a bin clip (binId: source seconds and frames), of one timeline clip (clipId) or of the clips in a timeline "
+        "range {start, end} (default: unmuted audio tracks, or trackIds), adding timelineStart/timelineEnd from each clip's position, sourceIn and "
+        "speed (time remapping ignored). format words (default; index, text, start, end, sourceStart, sourceEnd, confidence), segments (split on "
+        "stored segments, else punctuation and pauses), text or srt. gaps lists pauses longer than minPause seconds (default 0.5), with the dead air "
+        "at clip edges. NO_TRANSCRIPT when none is stored.",
+        {{"binId", binId},
+         {"clipId", frameSchema()},
+         {"range", range},
+         {"trackIds", trackIds},
+         {"format", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"words", "segments", "text", "srt"}}}},
+         {"minPause", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 3600}}}},
+        readOnlyTool, {"binId", "clipId", "range", "trackIds", "format", "minPause"}));
+    {
+        auto properties = silenceProperties;
+        properties.insert("binId", binId);
+        properties.insert("clipId", frameSchema());
+        properties.insert("range", range);
+        properties.insert("trackIds", trackIds);
+        properties.insert("sourceRange", objectSchema({{"start", QJsonObject{{"type", "number"}, {"minimum", 0}}}, {"end", QJsonObject{{"type", "number"}}}}));
+        result.append(definition(
+            "desktop_silence_detect",
+            "Find silences with ffmpeg silencedetect (below thresholdDb, default -35, for at least minDuration seconds, default 0.5) in a bin clip's "
+            "audio (binId, optionally sourceRange in seconds), one timeline clip (clipId) or a timeline range (range, unmuted audio tracks or trackIds: "
+            "frames where no clip has speech, gaps included). Each silence is shrunk by padding seconds (default 0.1) where it meets speech. Returns "
+            "silences[] and speech[] with source seconds/frames and timelineStart/timelineEnd. At most 2 hours of audio per call (TOO_LONG).",
+            properties, readOnlyTool, {"binId", "clipId", "range", "trackIds", "sourceRange", "thresholdDb", "minDuration", "padding"}));
+    }
+    result.append(definition("desktop_transcribe_status",
+                             "Read state (running, finished, failed), progress, wordCount and errors of desktop_transcribe jobs, or of one jobId.",
+                             {{"jobId", stringSchema()}}, readOnlyTool, {"jobId"}));
     auto fields = editFields();
     QJsonArray variants;
     QJsonArray batchVariants;
-    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "replace_media", "undo", "redo"};
+    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "replace_media", "undo", "redo", "transcribe"};
     for (auto it = commands().begin(); it != commands().end(); ++it) {
         auto properties = it.value().properties;
         properties.insert("type", QJsonObject{{"const", it.key()}, {"type", "string"}});
@@ -420,6 +518,9 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
     if (name == QLatin1String("desktop_title_read")) return engine.titleRead(arguments);
     if (name == QLatin1String("desktop_marker_export")) return engine.markerExport(arguments);
     if (name == QLatin1String("desktop_history")) return engine.history(arguments);
+    if (name == QLatin1String("desktop_transcript")) return engine.transcript(arguments);
+    if (name == QLatin1String("desktop_silence_detect")) return engine.silenceDetect(arguments);
+    if (name == QLatin1String("desktop_transcribe_status")) return engine.transcribeStatus(arguments);
     QJsonObject request;
     if (name == QLatin1String("desktop_apply")) {
         if (arguments.size() != 1 || !arguments.value("request").isObject()) return failure("INVALID_ARGUMENTS", "Expected a request object.");

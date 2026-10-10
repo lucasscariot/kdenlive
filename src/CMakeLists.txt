@@ -88,7 +88,7 @@ if(CRASH_AUTO_TEST)
 endif()
 
 if(KDENLIVE_LIVE_BRIDGE OR KDENLIVE_MCP_API)
-    list(APPEND kdenlive_SRCS livebridge.cpp)
+    list(APPEND kdenlive_SRCS livebridge.cpp livebridgetranscript.cpp)
     set_property(SOURCE core.cpp APPEND PROPERTY COMPILE_DEFINITIONS KDENLIVE_LIVE_BRIDGE)
 endif()
 if(KDENLIVE_MCP_API)
