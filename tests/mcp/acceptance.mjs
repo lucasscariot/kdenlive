@@ -50,6 +50,8 @@ const expectedTools = {
   desktop_project_profile: [false, true, true], desktop_clip_reframe: [false, true, true], desktop_effect_add: [false, false, false],
   desktop_effect_set: [false, true, true], desktop_effect_remove: [false, true, false], desktop_title_edit: [false, true, true],
   desktop_render: [false, false, false], desktop_undo: [false, true, false], desktop_redo: [false, true, false], desktop_batch: [false, true, false],
+  desktop_marker_add: [false, true, true], desktop_marker_edit: [false, true, true], desktop_marker_remove: [false, true, true],
+  desktop_marker_import: [false, true, true], desktop_marker_export: [true, false, true],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -217,6 +219,130 @@ try {
   for (const args of [{ include: ['nope'] }, { include: 'tracks' }, { range: { start: 10, end: 10 } }, { range: { start: 0 } }, { unknown: 1 }])
     assert.equal((await tool('desktop_state', args)).error.code, 'INVALID_ARGUMENTS', JSON.stringify(args));
   assert.equal((await tool('desktop_state', { trackId: 999999 })).error.code, 'UNKNOWN_TRACK');
+
+  // Markers and guides: categories, add/edit/remove with undo, bulk removal as one step, export/import round trips, bin-clip markers.
+  const markerCaps = await ok('desktop_capabilities');
+  for (const operation of ['marker_add', 'marker_edit', 'marker_remove', 'marker_import']) assert(markerCaps.operations.includes(operation), operation);
+  assert.deepEqual(markerCaps.markerCategories.map(category => category.index), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert(markerCaps.markerCategories.every(category => category.name && /^#[0-9a-f]{6}$/.test(category.color)), JSON.stringify(markerCaps.markerCategories));
+  assert.deepEqual([markerCaps.defaultMarkerCategory, markerCaps.markerFormats], [0, ['json', 'csv', 'kdenlive']]);
+  const category = index => markerCaps.markerCategories.find(item => item.index === index);
+  const guide = position => state.markers.find(marker => marker.position === position);
+  const fixtureGuides = state.markers;
+  // Native history entries carry an hh:mm prefix.
+  const undoLabel = () => state.undo.undoText.replace(/^\d\d:\d\d /, '');
+  const sourceBin = () => state.bin.find(item => item.url === source);
+  assert.deepEqual(sourceBin().markers, [{ position: 15, duration: 0, comment: 'Clap', category: 3, categoryName: category(3).name, color: category(3).color }]);
+  assert(state.bin.filter(item => item.url !== source).every(item => item.markers === undefined), 'Bin items without markers, and sequences, omit them');
+  let marker = await edit('desktop_marker_add', { position: 30, comment: 'Cut here', category: 4 });
+  assert.deepEqual([marker.target, marker.replaced, marker.binId], ['guides', false, undefined]);
+  assert.deepEqual(marker.marker, { position: 30, duration: 0, comment: 'Cut here', category: 4, categoryName: category(4).name, color: category(4).color });
+  assert.deepEqual(guide(30), marker.marker); assert.equal(undoLabel(), 'Add guide'); assert.equal(state.counts.markers, 3);
+  marker = await edit('desktop_marker_add', { position: 120, duration: 45, comment: 'Interview', category: category(5).name.toUpperCase() });
+  assert.deepEqual([marker.marker.duration, marker.marker.category], [45, 5], 'Range guide with a case-insensitive category name');
+  marker = await edit('desktop_marker_add', { position: 60 });
+  // Kdenlive reads an empty comment back as its default label.
+  assert.deepEqual([marker.marker.comment, marker.marker.category], ['Marker', markerCaps.defaultMarkerCategory]);
+  await edit('desktop_undo'); assert.equal(guide(60), undefined);
+  await edit('desktop_redo'); assert.equal(guide(60).category, markerCaps.defaultMarkerCategory);
+  marker = await edit('desktop_marker_add', { position: 30, comment: 'Cut here, "v2"', category: 4 });
+  assert.equal(marker.replaced, true); assert.equal(undoLabel(), 'Replace guide'); assert.equal(state.counts.markers, 5);
+  await edit('desktop_undo'); assert.equal(guide(30).comment, 'Cut here');
+  await edit('desktop_redo'); assert.equal(guide(30).comment, 'Cut here, "v2"');
+  marker = await edit('desktop_marker_edit', { position: 120, newPosition: 130, duration: 20, comment: 'Interview B', category: 6 });
+  assert.deepEqual([marker.previous.position, marker.previous.duration, marker.previous.comment, marker.previous.category], [120, 45, 'Interview', 5]);
+  assert.deepEqual([marker.marker.position, marker.marker.duration, marker.marker.comment, marker.marker.category, marker.changed], [130, 20, 'Interview B', 6, true]);
+  assert.equal(undoLabel(), 'Move guide'); assert.equal(guide(120), undefined);
+  await edit('desktop_undo'); assert.deepEqual([guide(120).duration, guide(120).category, guide(130)], [45, 5, undefined]);
+  await edit('desktop_redo'); assert.deepEqual([guide(130).duration, guide(120)], [20, undefined]);
+  await edit('desktop_marker_edit', { position: 130, duration: 0 });
+  assert.deepEqual([guide(130).duration, guide(130).comment, undoLabel()], [0, 'Interview B', 'Edit guide']);
+  await edit('desktop_undo'); assert.equal(guide(130).duration, 20);
+  await edit('desktop_redo'); assert.equal(guide(130).duration, 0);
+  assert.equal(await rejected('desktop_marker_edit', { position: 131, comment: 'nothing here' }), 'UNKNOWN_MARKER');
+  assert.equal(await rejected('desktop_marker_edit', { position: 130, newPosition: 90 }), 'MARKER_EXISTS');
+  assert.equal(await rejected('desktop_marker_edit', { position: 130 }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_marker_add', { position: 10, category: 99 }), 'UNKNOWN_CATEGORY');
+  assert.equal(await rejected('desktop_marker_add', { position: 10, category: 'No such category' }), 'UNKNOWN_CATEGORY');
+  for (const args of [{ position: -1 }, { position: state.profile.duration }, { position: state.profile.duration - 10, duration: 20 }, { position: 1.5 }])
+    assert.equal(await rejected('desktop_marker_add', args), 'INVALID_ARGUMENTS', JSON.stringify(args));
+  assert.equal(await rejected('desktop_marker_edit', { position: 130, newPosition: state.profile.duration }), 'INVALID_ARGUMENTS');
+  assert.equal(await rejected('desktop_marker_add', { position: 10, binId: sequenceAsset.id }), 'SEQUENCE_PROTECTED');
+  assert.equal(await rejected('desktop_marker_remove', { position: 31 }), 'UNKNOWN_MARKER');
+  assert.equal(await rejected('desktop_marker_remove', { category: 7 }), 'UNKNOWN_MARKER');
+  for (const args of [{}, { position: 30, all: true }, { all: true, category: 4 }, { all: false }])
+    assert.equal(await rejected('desktop_marker_remove', args), 'INVALID_COMMAND', JSON.stringify(args));
+  assert.equal(await rejected('desktop_marker_remove', { range: { start: 50, end: 50 } }), 'INVALID_ARGUMENTS');
+  const guideSet = state.markers;
+  assert.deepEqual(guideSet.map(item => item.position), [30, 60, 90, 130, 200]);
+  marker = await edit('desktop_marker_remove', { position: 60 });
+  assert.deepEqual([marker.count, marker.removed[0].position, undoLabel(), guide(60)], [1, 60, 'Remove guide', undefined]);
+  await edit('desktop_undo'); assert.deepEqual(state.markers, guideSet);
+  marker = await edit('desktop_marker_remove', { range: { start: 60, end: 200 } });
+  assert.deepEqual([marker.removed.map(item => item.position), undoLabel()], [[60, 90, 130], 'Remove 3 guides']);
+  await edit('desktop_undo'); assert.deepEqual(state.markers, guideSet);
+  marker = await edit('desktop_marker_remove', { category: category(1).name, range: { start: 0, end: 100 } });
+  assert.deepEqual(marker.removed.map(item => item.position), [90]);
+  await edit('desktop_undo');
+  // Export in every format, remove everything in one Undo step, then import each export back.
+  const exports = {};
+  for (const format of markerCaps.markerFormats) {
+    exports[format] = await ok('desktop_marker_export', { format });
+    assert.deepEqual([exports[format].format, exports[format].target, exports[format].count], [format, 'guides', 5]);
+  }
+  assert.deepEqual(JSON.parse(exports.json.text), guideSet);
+  const csv = exports.csv.text.trimEnd().split('\n');
+  assert.equal(csv[0], 'position,timecode,duration,category,categoryName,color,comment');
+  assert.equal(csv[1], `30,00:00:01:00,0,4,${category(4).name},${category(4).color},"Cut here, ""v2"""`);
+  assert.equal(csv[5], `200,00:00:06:20,30,2,${category(2).name},${category(2).color},Outro`);
+  assert.deepEqual(JSON.parse(exports.kdenlive.text).map(item => [item.pos, item.type, item.duration]), [[30, 4, 0], [60, 0, 0], [90, 1, 0], [130, 6, 0], [200, 2, 30]]);
+  assert.equal((await tool('desktop_marker_export', { format: 'xml' })).error.code, 'INVALID_ARGUMENTS');
+  const beforeRemoveAll = state.undo.index;
+  marker = await edit('desktop_marker_remove', { all: true });
+  assert.deepEqual([marker.count, state.markers, state.counts.markers, undoLabel()], [5, [], 0, 'Remove 5 guides']);
+  assert.equal(state.undo.index, beforeRemoveAll + 1, 'Removing many guides adds one history entry');
+  for (const format of markerCaps.markerFormats) {
+    const imported = await edit('desktop_marker_import', { format, text: exports[format].text });
+    assert.deepEqual([imported.imported, imported.replaced, undoLabel()], [5, 0, 'Import 5 guides'], format);
+    assert.deepEqual(state.markers, guideSet, `${format} export/import round trip`);
+    await edit('desktop_undo'); assert.deepEqual(state.markers, [], `${format} import undoes in one step`);
+  }
+  await edit('desktop_undo'); assert.deepEqual(state.markers, guideSet, 'One undo restores every removed guide');
+  marker = await edit('desktop_marker_import', { format: 'csv', text: `timecode,comment,categoryName\n00:00:03:00,"Title in, again",${category(8).name}\n` });
+  assert.deepEqual([marker.imported, marker.replaced, guide(90).comment, guide(90).category], [1, 1, 'Title in, again', 8]);
+  await edit('desktop_undo'); assert.deepEqual(state.markers, guideSet);
+  for (const [format, text] of [['json', 'not json'], ['json', '[{"position": 10}, {"position": 99999}]'], ['csv', 'comment\nx\n'],
+    ['csv', 'position,comment\n10,"unterminated\n'], ['kdenlive', '[{"position": 10}]'], ['json', '[]']])
+    assert.equal(await rejected('desktop_marker_import', { format, text }), 'INVALID_ARGUMENTS', `${format}: ${text}`);
+  assert.equal(await rejected('desktop_marker_import', { format: 'json', text: '[{"position": 10, "category": "No such category"}]' }), 'UNKNOWN_CATEGORY');
+  assert.deepEqual(state.markers, guideSet, 'Rejected imports change nothing');
+  const markerBatch = await edit('desktop_batch', { commands: [{ type: 'marker_add', position: 10, comment: 'Batch' }, { type: 'marker_remove', position: 30 },
+    { type: 'marker_edit', position: 60, comment: 'Batch edit' }] });
+  assert.deepEqual([markerBatch.results.length, undoLabel(), guide(10).comment, guide(30), guide(60).comment], [3, 'MCP batch (3 edits)', 'Batch', undefined, 'Batch edit']);
+  await edit('desktop_undo'); assert.deepEqual(state.markers, guideSet);
+  // Bin-clip markers use frames relative to the clip and appear on the bin item.
+  const binId = sourceBin().id;
+  marker = await edit('desktop_marker_add', { binId, position: 45, duration: 15, comment: 'Laugh', category: category(2).name });
+  assert.deepEqual([marker.target, marker.binId, undoLabel()], ['clip', binId, 'Add clip marker']);
+  assert.deepEqual(sourceBin().markers.map(item => [item.position, item.duration, item.comment, item.category]), [[15, 0, 'Clap', 3], [45, 15, 'Laugh', 2]]);
+  assert.deepEqual(state.markers, guideSet, 'Clip markers are not guides');
+  await edit('desktop_marker_edit', { binId, position: 45, comment: 'Big laugh' });
+  assert.equal(sourceBin().markers[1].comment, 'Big laugh');
+  await edit('desktop_undo'); assert.equal(sourceBin().markers[1].comment, 'Laugh');
+  const clipExport = await ok('desktop_marker_export', { format: 'csv', binId });
+  assert.deepEqual([clipExport.target, clipExport.binId, clipExport.count], ['clip', binId, 2]);
+  assert.equal(await rejected('desktop_marker_add', { binId, position: sourceBin().duration }), 'INVALID_ARGUMENTS');
+  assert.equal(await rejected('desktop_marker_remove', { binId, position: 16 }), 'UNKNOWN_MARKER');
+  marker = await edit('desktop_marker_remove', { binId, all: true });
+  assert.deepEqual([marker.count, sourceBin().markers, undoLabel()], [2, undefined, 'Remove 2 clip markers']);
+  await edit('desktop_undo'); assert.equal(sourceBin().markers.length, 2);
+  await edit('desktop_marker_import', { binId, format: 'csv', text: clipExport.text });
+  assert.equal(sourceBin().markers.length, 2, 'Clip marker CSV re-import replaces in place');
+  await edit('desktop_marker_remove', { binId, position: 45 });
+  // Restore the fixture guides from the json state shape, extra keys included.
+  await edit('desktop_marker_remove', { all: true });
+  await edit('desktop_marker_import', { format: 'json', text: JSON.stringify(fixtureGuides) });
+  assert.deepEqual(state.markers, fixtureGuides); assert.equal(state.counts.markers, 2);
   const video = state.tracks.find(item => !item.audio && !item.locked);
   const audio = state.tracks.find(item => item.audio && item.clips.length);
   const asset = state.bin.find(item => item.ready && item.url === source);

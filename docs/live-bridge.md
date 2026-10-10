@@ -110,12 +110,23 @@ Supported commands:
 - `effect_remove`: `clipId` or `binId` and `index`.
 - `title_edit`: title `binId`, optional canvas `width`/`height` and `items` by
   `index` with `text`, `x`, `y`, `fontPixelSize` and `alignment`.
+- `marker_add`: `position`, optional `duration` (range marker when above 0),
+  `comment`, `category` (index or name) and `binId`. Adds a sequence guide, or a
+  marker on that bin clip. A marker at the same frame is replaced. Returns
+  `marker` and `replaced`.
+- `marker_edit`: `position`, optional `binId`, and any of `newPosition`,
+  `duration`, `comment` and `category`. Returns `marker` and `previous`.
+- `marker_remove`: optional `binId` and one selection: `position`, `all: true`,
+  or `category` and/or `range` (`start`, `end`). One Undo step. Returns `removed`.
+- `marker_import`: `format` (`json`, `csv` or `kdenlive`), `text` and optional
+  `binId`. Validates every entry, then adds them in one Undo step.
 - `render`: new absolute output `path` and optional `preset` (default: the
   configured render preset). Starts `kdenlive_render` for the whole active
   sequence, one render at a time. Returns `outputs`.
 - `batch`: `commands`, 1 to 200 objects of the types `import`, `remove_asset`,
   `remove_clip`, `audio_envelope`, `rename_track`, `insert`, `move`, `trim`,
-  `reframe`, `effect_add`, `effect_set`, `effect_remove` and `title_edit`. Runs
+  `reframe`, `effect_add`, `effect_set`, `effect_remove`, `title_edit` and the
+  four `marker_*` commands. Runs
   them as one Undo step and returns `results`. On the first failure it rolls
   everything back and returns that error with `failedIndex`.
 - `undo` and `redo`: no additional fields. These use the shared editor history.
@@ -123,8 +134,10 @@ Supported commands:
 Saving, `save_as`, `set_profile` and `render` add no history entry. The folder
 policy for imports, save-as and render outputs is enforced by the native MCP
 server, not by D-Bus `apply()`. Frame
-capture, effect listing, title reading and render status are available only as
-[native MCP](native-mcp.md) tools, not through D-Bus.
+capture, effect listing, title reading, marker export and render status are
+available only as [native MCP](native-mcp.md) tools, not through D-Bus.
+`capabilities()` lists the project's `markerCategories`; see
+[Markers and guides](native-mcp.md#markers-and-guides).
 
 Frames use the project profile. Insertion's source end is exclusive. Readback of
 speed-adjusted existing clips reports their native producer frame range and speed;
@@ -150,7 +163,7 @@ identical request before deciding what happened.
 
 State covers the active sequence (tracks with lock and mute/hide flags, clips
 with groups, linked partners and mixes, gaps, compositions and guides), the
-project bin with folders, and the list of sequences, not the complete native
+project bin with folders and clip markers, and the list of sequences, not the complete native
 document. `state()` and every `apply` result return this default snapshot; the
 native MCP `desktop_state` can add subtitles, per-clip effect ids and media
 properties, or narrow it to a track or frame range. The fields are listed in

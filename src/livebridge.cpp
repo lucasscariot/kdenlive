@@ -50,6 +50,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
+#include <QSet>
 #include <QTimer>
 #include <QUuid>
 #include <cmath>
@@ -118,13 +119,24 @@ LiveBridge::LiveBridge(QObject *parent)
 
 QString LiveBridge::capabilities() const
 {
+    // Marker categories belong to the open project; they name the values marker commands accept as category.
+    QJsonArray categories;
+    for (auto it = pCore->markerTypes.cbegin(); it != pCore->markerTypes.cend(); ++it)
+        categories.append(QJsonObject{{"index", it.key()}, {"name", it.value().displayName}, {"color", it.value().color.name()}});
+    const int defaultCategory = KdenliveSettings::default_marker_type();
     return json({{"ok", true},
                  {"protocolVersion", 1},
                  {"transport", "native-editor"},
-                 {"operations", QJsonArray{"import",     "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track", "save",
-                                           "save_as",    "set_profile",   "insert",      "move",          "trim",           "reframe",      "effect_add",
-                                           "effect_set", "effect_remove", "title_edit",  "render",        "batch",          "undo",         "redo"}},
+                 {"operations", QJsonArray{"import",     "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track",  "save",
+                                           "save_as",    "set_profile",   "insert",      "move",          "trim",           "reframe",       "effect_add",
+                                           "effect_set", "effect_remove", "title_edit",  "marker_add",    "marker_edit",    "marker_remove", "marker_import",
+                                           "render",     "batch",         "undo",        "redo"}},
                  {"insertModes", QJsonArray{"video", "audio"}},
+                 {"markerCategories", categories},
+                 {"defaultMarkerCategory", pCore->markerTypes.contains(defaultCategory) ? QJsonValue(defaultCategory)
+                                           : pCore->markerTypes.isEmpty()               ? QJsonValue(QJsonValue::Null)
+                                                                                        : QJsonValue(pCore->markerTypes.firstKey())},
+                 {"markerFormats", QJsonArray{"json", "csv", "kdenlive"}},
                  {"frameRanges", "sourceOut is exclusive; frames use project FPS"},
                  {"stateScope", "active sequence tracks, clips, compositions, markers, subtitles, project bin and sequence list; not a full project "
                                 "interchange format"},
@@ -235,6 +247,14 @@ QString clipTypeName(ClipType::ProducerType type)
 QJsonValue optionalId(int id)
 {
     return id < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(id);
+}
+
+/** The marker shape shared by sequence guides, bin-clip markers and the json export. */
+QJsonObject markerJson(const CommentedTime &marker, double fps)
+{
+    const auto category = pCore->markerTypes.value(marker.markerType());
+    return {{"position", marker.time().frames(fps)}, {"duration", marker.duration().frames(fps)}, {"comment", marker.comment()},
+            {"category", marker.markerType()},       {"categoryName", category.displayName},      {"color", category.color.name()}};
 }
 
 bool overlaps(int position, int duration, int start, int end)
@@ -464,16 +484,8 @@ QJsonObject LiveBridge::snapshot(const StateScope &requested) const
     if (wants(QStringLiteral("markers"))) {
         QJsonArray markers;
         for (const auto &marker : guides ? guides->getAllMarkers() : QList<CommentedTime>()) {
-            const int position = marker.time().frames(fps);
-            const int duration = marker.duration().frames(fps);
-            if (!overlaps(position, duration, start, end)) continue;
-            const auto category = pCore->markerTypes.value(marker.markerType());
-            markers.append(QJsonObject{{"position", position},
-                                       {"duration", duration},
-                                       {"comment", marker.comment()},
-                                       {"category", marker.markerType()},
-                                       {"categoryName", category.displayName},
-                                       {"color", category.color.name()}});
+            if (!overlaps(marker.time().frames(fps), marker.duration().frames(fps), start, end)) continue;
+            markers.append(markerJson(marker, fps));
         }
         result.insert(QStringLiteral("markers"), markers);
     }
@@ -530,6 +542,14 @@ QJsonObject LiveBridge::snapshot(const StateScope &requested) const
                 item.insert(QStringLiteral("width"), sized ? QJsonValue(size.width()) : QJsonValue(QJsonValue::Null));
                 item.insert(QStringLiteral("height"), sized ? QJsonValue(size.height()) : QJsonValue(QJsonValue::Null));
                 item.insert(QStringLiteral("fps"), clipFps > 0 ? QJsonValue(clipFps) : QJsonValue(QJsonValue::Null));
+            }
+            // Clip markers live in their own model, not in the producer, so a loading clip can report them too.
+            // A sequence clip's marker model is that sequence's guides model, already reported as markers.
+            if (auto clipMarkers = clip->getMarkerModel(); type != ClipType::Timeline && clipMarkers && clipMarkers->rowCount() > 0) {
+                QJsonArray list;
+                for (const auto &marker : clipMarkers->getAllMarkers())
+                    list.append(markerJson(marker, fps));
+                item.insert(QStringLiteral("markers"), list);
             }
             bin.append(item);
         }
@@ -638,6 +658,7 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
     bool handled = false;
     auto production = executeProduction(command, handled);
     if (handled) return production;
+    if (type.startsWith(QLatin1String("marker_"))) return executeMarker(command);
     if (type == QLatin1String("remove_asset")) {
         if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId")})) return invalid();
         const QString id = command.value(QStringLiteral("binId")).toString();
@@ -845,7 +866,8 @@ namespace {
 const QStringList batchable{QStringLiteral("import"),       QStringLiteral("remove_asset"), QStringLiteral("remove_clip"), QStringLiteral("audio_envelope"),
                             QStringLiteral("rename_track"), QStringLiteral("insert"),       QStringLiteral("move"),        QStringLiteral("trim"),
                             QStringLiteral("reframe"),      QStringLiteral("effect_add"),   QStringLiteral("effect_set"),  QStringLiteral("effect_remove"),
-                            QStringLiteral("title_edit")};
+                            QStringLiteral("title_edit"),   QStringLiteral("marker_add"),   QStringLiteral("marker_edit"), QStringLiteral("marker_remove"),
+                            QStringLiteral("marker_import")};
 
 bool unitInterval(const QJsonObject &object, const QString &key)
 {
@@ -1167,6 +1189,464 @@ QJsonObject LiveBridge::executeProduction(const QJsonObject &command, bool &hand
     if (type == QLatin1String("render")) return startRender(command);
     handled = false;
     return {};
+}
+
+namespace {
+QJsonObject invalidMarker(const QString &message)
+{
+    return error(QStringLiteral("INVALID_ARGUMENTS"), message);
+}
+
+const QStringList &markerFormats()
+{
+    static const QStringList result{QStringLiteral("json"), QStringLiteral("csv"), QStringLiteral("kdenlive")};
+    return result;
+}
+
+/** Resolves a category index or name (exact, then case-insensitive) against the project's marker categories. */
+QJsonObject markerCategory(const QJsonValue &value, int &category)
+{
+    const auto unknown = [] {
+        return error(QStringLiteral("UNKNOWN_CATEGORY"), QStringLiteral("Unknown marker category. desktop_capabilities lists markerCategories."));
+    };
+    if (value.isDouble()) {
+        const double number = value.toDouble();
+        if (!std::isfinite(number) || std::floor(number) != number || number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max() ||
+            !pCore->markerTypes.contains(int(number)))
+            return unknown();
+        category = int(number);
+        return {};
+    }
+    if (!value.isString() || value.toString().trimmed().isEmpty())
+        return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("category must be a category index or name."));
+    const QString name = value.toString().trimmed();
+    for (const auto sensitivity : {Qt::CaseSensitive, Qt::CaseInsensitive})
+        for (auto it = pCore->markerTypes.cbegin(); it != pCore->markerTypes.cend(); ++it)
+            if (it.value().displayName.compare(name, sensitivity) == 0) {
+                category = it.key();
+                return {};
+            }
+    return unknown();
+}
+
+int defaultMarkerCategory()
+{
+    const int preferred = KdenliveSettings::default_marker_type();
+    if (pCore->markerTypes.contains(preferred)) return preferred;
+    return pCore->markerTypes.isEmpty() ? -1 : pCore->markerTypes.firstKey();
+}
+
+/** Guides of the active sequence, or the markers of one bin clip (binId). length bounds new marker positions. */
+struct MarkerTarget
+{
+    std::shared_ptr<MarkerListModel> model;
+    int length{0};
+    bool guides{true};
+};
+
+QJsonObject markerTarget(const QJsonObject &object, TimelineItemModel *timeline, MarkerTarget &target)
+{
+    if (!object.contains(QStringLiteral("binId"))) {
+        target.model = timeline->getGuideModel();
+        target.length = timeline->duration();
+        return target.model ? QJsonObject{} : error(QStringLiteral("NOT_READY"), QStringLiteral("The active sequence has no guides model."));
+    }
+    const QString id = object.value(QStringLiteral("binId")).toString();
+    if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(id).hasMatch()) return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("Invalid binId."));
+    auto clip = pCore->projectItemModel()->getClipByBinID(id);
+    if (!clip || !clip->statusReady()) return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is missing or still loading."));
+    if (clip->clipType() == ClipType::Timeline)
+        return error(QStringLiteral("SEQUENCE_PROTECTED"), QStringLiteral("Mark a sequence with guides: omit binId to target the active sequence."));
+    target.model = clip->getMarkerModel();
+    target.length = int(qMin<qint64>(qint64(clip->frameDuration()), std::numeric_limits<int>::max()));
+    target.guides = false;
+    return target.model ? QJsonObject{} : error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Bin clip has no marker model."));
+}
+
+struct MarkerEntry
+{
+    int position{0};
+    int duration{0};
+    QString comment;
+    int category{0};
+};
+
+QJsonObject markerSpan(const MarkerEntry &entry, const MarkerTarget &target)
+{
+    if (entry.position >= target.length || qint64(entry.position) + entry.duration > target.length)
+        return invalidMarker(QStringLiteral("Marker at %1 (duration %2) must lie within the %3 (%4 frames).")
+                                 .arg(entry.position)
+                                 .arg(entry.duration)
+                                 .arg(target.guides ? QStringLiteral("sequence") : QStringLiteral("clip"))
+                                 .arg(target.length));
+    if (entry.comment.size() > 4096) return invalidMarker(QStringLiteral("Marker comments are limited to 4096 characters."));
+    return {};
+}
+
+bool addMarkerTo(const std::shared_ptr<MarkerListModel> &model, const MarkerEntry &entry, double fps, Fun &undo, Fun &redo)
+{
+    const GenTime position(entry.position, fps);
+    // Both native calls replace a marker already at that frame (comment, category and duration).
+    return entry.duration > 0 ? model->addRangeMarker(position, GenTime(entry.duration, fps), entry.comment, entry.category, undo, redo)
+                              : model->addMarker(position, entry.comment, entry.category, undo, redo);
+}
+
+QString markerNoun(const MarkerTarget &target, qsizetype count)
+{
+    const QString noun = target.guides ? QStringLiteral("guide") : QStringLiteral("clip marker");
+    return count == 1 ? noun : QStringLiteral("%1 %2s").arg(count).arg(noun);
+}
+
+QJsonObject markerFrame(const QJsonObject &object, const QString &key, int &value, bool optional)
+{
+    if (!object.contains(key)) return optional ? QJsonObject{} : invalidMarker(QStringLiteral("%1 is required.").arg(key));
+    if (!integer(object, key)) return invalidMarker(QStringLiteral("%1 must be a whole frame number of at least 0.").arg(key));
+    value = object.value(key).toInt();
+    return {};
+}
+
+QString csvField(const QString &value)
+{
+    if (!value.contains(QLatin1Char(',')) && !value.contains(QLatin1Char('"')) && !value.contains(QLatin1Char('\n')) && !value.contains(QLatin1Char('\r')))
+        return value;
+    return QLatin1Char('"') + QString(value).replace(QLatin1Char('"'), QStringLiteral("\"\"")) + QLatin1Char('"');
+}
+
+/** RFC 4180 records: quoted fields may hold commas, doubled quotes and line breaks. Returns false on an unterminated quote. */
+bool parseCsv(const QString &text, QList<QStringList> &rows)
+{
+    QStringList row;
+    QString field;
+    bool quoted = false;
+    bool started = false;
+    const auto endRow = [&] {
+        row << field;
+        if (row.size() > 1 || !row.first().trimmed().isEmpty()) rows << row;
+        row.clear();
+        field.clear();
+        started = false;
+    };
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (quoted) {
+            if (c != QLatin1Char('"'))
+                field += c;
+            else if (i + 1 < text.size() && text.at(i + 1) == QLatin1Char('"'))
+                field += text.at(++i);
+            else
+                quoted = false;
+        } else if (c == QLatin1Char('"') && !started) {
+            quoted = started = true;
+        } else if (c == QLatin1Char(',')) {
+            row << field;
+            field.clear();
+            started = false;
+        } else if (c == QLatin1Char('\n')) {
+            endRow();
+        } else if (c != QLatin1Char('\r')) {
+            field += c;
+            started = true;
+        }
+    }
+    if (quoted) return false;
+    if (started || !field.isEmpty() || !row.isEmpty()) endRow();
+    return true;
+}
+
+/** Parses marker text in one of markerFormats() into entries with resolved categories. */
+QJsonObject parseMarkers(const QString &format, const QString &text, QList<MarkerEntry> &entries)
+{
+    const int fallback = defaultMarkerCategory();
+    const auto entryError = [](qsizetype index, const QString &message) { return invalidMarker(QStringLiteral("Marker %1: %2").arg(index + 1).arg(message)); };
+    if (format == QLatin1String("csv")) {
+        QList<QStringList> rows;
+        if (!parseCsv(text, rows)) return invalidMarker(QStringLiteral("CSV has an unterminated quoted field."));
+        if (rows.isEmpty()) return invalidMarker(QStringLiteral("CSV needs a header row."));
+        QHash<QString, int> columns;
+        for (int i = 0; i < rows.first().size(); ++i)
+            columns.insert(rows.first().at(i).trimmed().toLower(), i);
+        if (!columns.contains(QStringLiteral("position")) && !columns.contains(QStringLiteral("timecode")))
+            return invalidMarker(QStringLiteral("CSV header needs a position (frames) or timecode column."));
+        const QRegularExpression timecode(QStringLiteral("^\\d{2}:\\d{2}:\\d{2}[:;]\\d{2,}$"));
+        for (qsizetype r = 1; r < rows.size(); ++r) {
+            const auto &row = rows.at(r);
+            const auto cell = [&](const QString &name) { return columns.contains(name) ? row.value(columns.value(name)) : QString(); };
+            MarkerEntry entry;
+            bool ok = true;
+            if (!cell(QStringLiteral("position")).trimmed().isEmpty()) {
+                entry.position = cell(QStringLiteral("position")).trimmed().toInt(&ok);
+            } else if (timecode.match(cell(QStringLiteral("timecode")).trimmed()).hasMatch()) {
+                entry.position = pCore->timecode().getFrameCount(cell(QStringLiteral("timecode")).trimmed());
+            } else {
+                ok = false;
+            }
+            if (!ok || entry.position < 0) return entryError(r - 1, QStringLiteral("needs a frame position or an HH:MM:SS:FF timecode."));
+            if (!cell(QStringLiteral("duration")).trimmed().isEmpty()) {
+                entry.duration = cell(QStringLiteral("duration")).trimmed().toInt(&ok);
+                if (!ok || entry.duration < 0) return entryError(r - 1, QStringLiteral("duration must be a frame count of at least 0."));
+            }
+            entry.comment = cell(QStringLiteral("comment"));
+            entry.category = fallback;
+            const QString index = cell(QStringLiteral("category")).trimmed();
+            const QString name = cell(QStringLiteral("categoryname")).trimmed();
+            if (!index.isEmpty() || !name.isEmpty()) {
+                const int number = index.toInt(&ok);
+                if (auto rejected = markerCategory(ok ? QJsonValue(number) : QJsonValue(index.isEmpty() ? name : index), entry.category); !rejected.isEmpty())
+                    return rejected;
+            }
+            entries << entry;
+        }
+    } else {
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(text.toUtf8(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isArray()) return invalidMarker(QStringLiteral("Expected a JSON array of markers."));
+        const bool native = format == QLatin1String("kdenlive");
+        const QString positionKey = native ? QStringLiteral("pos") : QStringLiteral("position");
+        const QString categoryKey = native ? QStringLiteral("type") : QStringLiteral("category");
+        const auto array = document.array();
+        for (qsizetype i = 0; i < array.size(); ++i) {
+            const auto object = array.at(i).toObject();
+            if (!array.at(i).isObject() || !integer(object, positionKey))
+                return entryError(i, QStringLiteral("needs a whole frame %1 of at least 0.").arg(positionKey));
+            MarkerEntry entry{object.value(positionKey).toInt(), 0, QString(), fallback};
+            if (object.contains(QStringLiteral("duration"))) {
+                if (!integer(object, QStringLiteral("duration"))) return entryError(i, QStringLiteral("duration must be a frame count of at least 0."));
+                entry.duration = object.value(QStringLiteral("duration")).toInt();
+            }
+            if (object.contains(QStringLiteral("comment"))) {
+                if (!object.value(QStringLiteral("comment")).isString()) return entryError(i, QStringLiteral("comment must be a string."));
+                entry.comment = object.value(QStringLiteral("comment")).toString();
+            }
+            if (object.contains(categoryKey)) {
+                if (auto rejected = markerCategory(object.value(categoryKey), entry.category); !rejected.isEmpty()) return rejected;
+            }
+            entries << entry;
+        }
+    }
+    if (entries.isEmpty()) return invalidMarker(QStringLiteral("No markers to import."));
+    if (entries.size() > 10000) return invalidMarker(QStringLiteral("At most 10000 markers per import."));
+    if (fallback < 0) return error(QStringLiteral("UNKNOWN_CATEGORY"), QStringLiteral("The project defines no marker categories."));
+    return {};
+}
+} // namespace
+
+QJsonObject LiveBridge::executeMarker(const QJsonObject &command)
+{
+    const QString type = command.value(QStringLiteral("type")).toString();
+    const double fps = pCore->getCurrentFps();
+    const auto invalid = [](const QString &message) { return error(QStringLiteral("INVALID_COMMAND"), message); };
+    if (command.contains(QStringLiteral("comment")) && !command.value(QStringLiteral("comment")).isString())
+        return invalid(QStringLiteral("comment must be a string."));
+    MarkerTarget target;
+    const auto finish = [&](QJsonObject result) {
+        result.insert(QStringLiteral("ok"), true);
+        result.insert(QStringLiteral("target"), target.guides ? QStringLiteral("guides") : QStringLiteral("clip"));
+        if (!target.guides) result.insert(QStringLiteral("binId"), command.value(QStringLiteral("binId")));
+        return result;
+    };
+    const auto lookup = [&](int position, CommentedTime &marker) {
+        bool found = false;
+        marker = target.model->getMarker(GenTime(position, fps), &found);
+        return found ? QJsonObject{} : error(QStringLiteral("UNKNOWN_MARKER"), QStringLiteral("No %1 at frame %2.").arg(markerNoun(target, 1)).arg(position));
+    };
+
+    if (type == QLatin1String("marker_add")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("position"), QStringLiteral("duration"), QStringLiteral("comment"),
+                            QStringLiteral("category"), QStringLiteral("binId")}))
+            return invalid(QStringLiteral("marker_add takes position, optional duration, comment, category and binId."));
+        if (auto rejected = markerTarget(command, m_timeline, target); !rejected.isEmpty()) return rejected;
+        MarkerEntry entry{0, 0, command.value(QStringLiteral("comment")).toString(), defaultMarkerCategory()};
+        if (auto rejected = markerFrame(command, QStringLiteral("position"), entry.position, false); !rejected.isEmpty()) return rejected;
+        if (auto rejected = markerFrame(command, QStringLiteral("duration"), entry.duration, true); !rejected.isEmpty()) return rejected;
+        if (command.contains(QStringLiteral("category"))) {
+            if (auto rejected = markerCategory(command.value(QStringLiteral("category")), entry.category); !rejected.isEmpty()) return rejected;
+        } else if (entry.category < 0) {
+            return error(QStringLiteral("UNKNOWN_CATEGORY"), QStringLiteral("The project defines no marker categories."));
+        }
+        if (auto rejected = markerSpan(entry, target); !rejected.isEmpty()) return rejected;
+        const bool replaced = target.model->hasMarker(GenTime(entry.position, fps));
+        Fun undo = [] { return true; };
+        Fun redo = [] { return true; };
+        if (!addMarkerTo(target.model, entry, fps, undo, redo))
+            return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native marker edit was rejected."));
+        pCore->pushUndo(undo, redo, QStringLiteral("%1 %2").arg(replaced ? QStringLiteral("Replace") : QStringLiteral("Add"), markerNoun(target, 1)));
+        CommentedTime marker;
+        lookup(entry.position, marker);
+        return finish({{"marker", markerJson(marker, fps)}, {"replaced", replaced}});
+    }
+
+    if (type == QLatin1String("marker_edit")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("position"), QStringLiteral("binId"), QStringLiteral("newPosition"),
+                            QStringLiteral("duration"), QStringLiteral("comment"), QStringLiteral("category")}))
+            return invalid(QStringLiteral("marker_edit takes position, optional binId, and newPosition, duration, comment or category."));
+        if (!command.contains(QStringLiteral("newPosition")) && !command.contains(QStringLiteral("duration")) && !command.contains(QStringLiteral("comment")) &&
+            !command.contains(QStringLiteral("category")))
+            return invalid(QStringLiteral("Pass at least one of newPosition, duration, comment or category."));
+        if (auto rejected = markerTarget(command, m_timeline, target); !rejected.isEmpty()) return rejected;
+        int position = 0;
+        if (auto rejected = markerFrame(command, QStringLiteral("position"), position, false); !rejected.isEmpty()) return rejected;
+        CommentedTime current;
+        if (auto rejected = lookup(position, current); !rejected.isEmpty()) return rejected;
+        const MarkerEntry before{position, current.duration().frames(fps), current.comment(), current.markerType()};
+        MarkerEntry entry = before;
+        if (auto rejected = markerFrame(command, QStringLiteral("newPosition"), entry.position, true); !rejected.isEmpty()) return rejected;
+        if (auto rejected = markerFrame(command, QStringLiteral("duration"), entry.duration, true); !rejected.isEmpty()) return rejected;
+        if (command.contains(QStringLiteral("comment"))) entry.comment = command.value(QStringLiteral("comment")).toString();
+        if (command.contains(QStringLiteral("category"))) {
+            if (auto rejected = markerCategory(command.value(QStringLiteral("category")), entry.category); !rejected.isEmpty()) return rejected;
+        }
+        const bool moved = entry.position != before.position;
+        // A marker may already sit past the end of a shortened sequence; only a changed span has to fit.
+        if (moved || entry.duration != before.duration) {
+            if (auto rejected = markerSpan(entry, target); !rejected.isEmpty()) return rejected;
+        } else if (entry.comment.size() > 4096) {
+            return invalidMarker(QStringLiteral("Marker comments are limited to 4096 characters."));
+        }
+        if (moved && target.model->hasMarker(GenTime(entry.position, fps)))
+            return error(QStringLiteral("MARKER_EXISTS"), QStringLiteral("Another %1 is already at frame %2.").arg(markerNoun(target, 1)).arg(entry.position));
+        const bool changed = moved || entry.duration != before.duration || entry.comment != before.comment || entry.category != before.category;
+        if (changed) {
+            Fun undo = [] { return true; };
+            Fun redo = [] { return true; };
+            bool done = !moved || target.model->removeMarker(GenTime(before.position, fps), undo, redo);
+            done = done && addMarkerTo(target.model, entry, fps, undo, redo);
+            if (!done) {
+                undo();
+                return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native marker edit was rejected."));
+            }
+            pCore->pushUndo(undo, redo, QStringLiteral("%1 %2").arg(moved ? QStringLiteral("Move") : QStringLiteral("Edit"), markerNoun(target, 1)));
+        }
+        CommentedTime marker;
+        lookup(entry.position, marker);
+        return finish({{"marker", markerJson(marker, fps)}, {"previous", markerJson(current, fps)}, {"changed", changed}});
+    }
+
+    if (type == QLatin1String("marker_remove")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("position"), QStringLiteral("all"), QStringLiteral("category"),
+                            QStringLiteral("range")}))
+            return invalid(QStringLiteral("marker_remove takes optional binId and one of position, all, or category and/or range."));
+        const bool single = command.contains(QStringLiteral("position"));
+        const bool filtered = command.contains(QStringLiteral("category")) || command.contains(QStringLiteral("range"));
+        if (command.contains(QStringLiteral("all")) && !command.value(QStringLiteral("all")).isBool()) return invalid(QStringLiteral("all must be a boolean."));
+        const bool all = command.value(QStringLiteral("all")).toBool();
+        if (int(single) + int(all) + int(filtered) != 1)
+            return invalid(QStringLiteral("Pass exactly one selection: position, all:true, or category and/or range."));
+        if (auto rejected = markerTarget(command, m_timeline, target); !rejected.isEmpty()) return rejected;
+        QList<CommentedTime> matches;
+        if (single) {
+            int position = 0;
+            if (auto rejected = markerFrame(command, QStringLiteral("position"), position, false); !rejected.isEmpty()) return rejected;
+            CommentedTime marker;
+            if (auto rejected = lookup(position, marker); !rejected.isEmpty()) return rejected;
+            matches << marker;
+        } else {
+            int category = -1;
+            if (command.contains(QStringLiteral("category"))) {
+                if (auto rejected = markerCategory(command.value(QStringLiteral("category")), category); !rejected.isEmpty()) return rejected;
+            }
+            int start = 0;
+            int end = std::numeric_limits<int>::max();
+            if (command.contains(QStringLiteral("range"))) {
+                const auto range = command.value(QStringLiteral("range")).toObject();
+                if (!command.value(QStringLiteral("range")).isObject() || !keys(range, {QStringLiteral("start"), QStringLiteral("end")}) ||
+                    !integer(range, QStringLiteral("start")) || !integer(range, QStringLiteral("end"), 1) ||
+                    range.value(QStringLiteral("start")).toInt() >= range.value(QStringLiteral("end")).toInt())
+                    return invalidMarker(QStringLiteral("range needs whole frames start < end (end exclusive)."));
+                start = range.value(QStringLiteral("start")).toInt();
+                end = range.value(QStringLiteral("end")).toInt();
+            }
+            for (const auto &marker : target.model->getAllMarkers(category)) {
+                const int position = marker.time().frames(fps);
+                if (position >= start && position < end) matches << marker;
+            }
+            if (matches.isEmpty()) return error(QStringLiteral("UNKNOWN_MARKER"), QStringLiteral("No %1 matches.").arg(markerNoun(target, 1)));
+        }
+        Fun undo = [] { return true; };
+        Fun redo = [] { return true; };
+        QJsonArray removed;
+        for (const auto &marker : std::as_const(matches)) {
+            if (!target.model->removeMarker(marker.time(), undo, redo)) {
+                undo();
+                return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native marker removal was rejected."));
+            }
+            removed.append(markerJson(marker, fps));
+        }
+        pCore->pushUndo(undo, redo, QStringLiteral("Remove %1").arg(markerNoun(target, matches.size())));
+        return finish({{"removed", removed}, {"count", removed.size()}});
+    }
+
+    if (type == QLatin1String("marker_import")) {
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("format"), QStringLiteral("text")}) ||
+            !markerFormats().contains(command.value(QStringLiteral("format")).toString()) || !command.value(QStringLiteral("text")).isString())
+            return invalid(QStringLiteral("marker_import takes format (json, csv or kdenlive), text and optional binId."));
+        if (auto rejected = markerTarget(command, m_timeline, target); !rejected.isEmpty()) return rejected;
+        QList<MarkerEntry> entries;
+        if (auto rejected = parseMarkers(command.value(QStringLiteral("format")).toString(), command.value(QStringLiteral("text")).toString(), entries);
+            !rejected.isEmpty())
+            return rejected;
+        QSet<int> positions;
+        int replaced = 0;
+        for (const auto &entry : std::as_const(entries)) {
+            if (auto rejected = markerSpan(entry, target); !rejected.isEmpty()) return rejected;
+            if (!positions.contains(entry.position) && target.model->hasMarker(GenTime(entry.position, fps))) ++replaced;
+            positions.insert(entry.position);
+        }
+        Fun undo = [] { return true; };
+        Fun redo = [] { return true; };
+        for (const auto &entry : std::as_const(entries))
+            if (!addMarkerTo(target.model, entry, fps, undo, redo)) {
+                undo();
+                return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native marker import was rejected."));
+            }
+        pCore->pushUndo(undo, redo, QStringLiteral("Import %1").arg(markerNoun(target, positions.size())));
+        return finish({{"imported", int(positions.size())}, {"replaced", replaced}});
+    }
+    return error(QStringLiteral("UNSUPPORTED_COMMAND"), QStringLiteral("Read capabilities() for supported commands."));
+}
+
+QJsonObject LiveBridge::markerExport(const QJsonObject &arguments)
+{
+    if (!bind()) return error(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline."));
+    const QString format = arguments.value(QStringLiteral("format")).toString();
+    if (!keys(arguments, {QStringLiteral("format"), QStringLiteral("binId")}) || !markerFormats().contains(format) ||
+        (arguments.contains(QStringLiteral("binId")) &&
+         !QRegularExpression(QStringLiteral("^[0-9]+$")).match(arguments.value(QStringLiteral("binId")).toString()).hasMatch()))
+        return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Expected format (json, csv or kdenlive) and optional binId."));
+    MarkerTarget target;
+    if (auto rejected = markerTarget(arguments, m_timeline, target); !rejected.isEmpty()) return rejected;
+    const double fps = pCore->getCurrentFps();
+    const auto markers = target.model->getAllMarkers();
+    QString text;
+    if (format == QLatin1String("kdenlive")) {
+        text = target.model->toJson();
+    } else if (format == QLatin1String("json")) {
+        QJsonArray list;
+        for (const auto &marker : markers)
+            list.append(markerJson(marker, fps));
+        text = QString::fromUtf8(QJsonDocument(list).toJson(QJsonDocument::Indented));
+    } else {
+        QStringList lines{QStringLiteral("position,timecode,duration,category,categoryName,color,comment")};
+        for (const auto &marker : markers) {
+            const auto item = markerJson(marker, fps);
+            const int position = item.value(QStringLiteral("position")).toInt();
+            lines << QStringList{QString::number(position),
+                                 pCore->timecode().getTimecodeFromFrames(position),
+                                 QString::number(item.value(QStringLiteral("duration")).toInt()),
+                                 QString::number(marker.markerType()),
+                                 csvField(item.value(QStringLiteral("categoryName")).toString()),
+                                 item.value(QStringLiteral("color")).toString(),
+                                 csvField(marker.comment())}
+                         .join(QLatin1Char(','));
+        }
+        text = lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
+    }
+    QJsonObject result{{"ok", true},
+                       {"format", format},
+                       {"target", target.guides ? QStringLiteral("guides") : QStringLiteral("clip")},
+                       {"count", int(markers.size())},
+                       {"text", text}};
+    if (!target.guides) result.insert(QStringLiteral("binId"), arguments.value(QStringLiteral("binId")));
+    return result;
 }
 
 QJsonObject LiveBridge::startRender(const QJsonObject &command)
