@@ -20,10 +20,11 @@
 #include "effects/effectstack/model/effectstackmodel.hpp"
 #include "groupsmodel.hpp"
 #include "kdenlivesettings.h"
+#include "magnetictimeline.hpp"
 #include "profiles/profilemodel.hpp"
 #include "snapmodel.hpp"
-#include "timeline2/view/previewmanager.h"
 #include "timeline2/view/dialogs/autotrackcreationdialog.h"
+#include "timeline2/view/previewmanager.h"
 #include "timelinefunctions.hpp"
 
 #include "monitor/monitormanager.h"
@@ -778,7 +779,10 @@ int TimelineModel::getMirrorAudioTrackId(int trackId) const
 
 void TimelineModel::setEditMode(TimelineMode::EditMode mode)
 {
-    m_editMode = mode;
+    if (m_editMode != mode) {
+        m_editMode = mode;
+        Q_EMIT editModeChanged();
+    }
 }
 
 TimelineMode::EditMode TimelineModel::editMode() const
@@ -4823,6 +4827,12 @@ int TimelineModel::requestItemRippleResize(const std::shared_ptr<TimelineItemMod
     int finalPos = right ? in + size : out - size;
     int finalSize;
     int resizedCount = 0;
+    // In magnetic mode, the clips connected to the rippled storyline clips follow them
+    const bool magnetic = logUndo && m_editMode == TimelineMode::MagneticEdit && MagneticTimeline::isStorylineItem(timeline, itemId);
+    MagneticTimeline::Connections magneticConnections;
+    if (magnetic) {
+        magneticConnections = MagneticTimeline::connections(timeline);
+    }
     for (int id : all_items) {
         int trackId = getItemTrackId(id);
         if (trackId > -1 && trackIsLocked(trackId)) {
@@ -4837,6 +4847,9 @@ int TimelineModel::requestItemRippleResize(const std::shared_ptr<TimelineItemMod
         resizedCount++;
     }
     result = result && resizedCount != 0;
+    if (result && magnetic) {
+        result = MagneticTimeline::restoreConnections(timeline, magneticConnections, undo, redo);
+    }
     if (!result) {
         qDebug() << "resize aborted" << result;
         bool undone = undo();
@@ -7353,6 +7366,67 @@ bool TimelineModel::requestClipTimeWarp(int clipId, double speed, bool pitchComp
     }
     TRACE_RES(result);
     return result;
+}
+
+QStringList TimelineModel::trackRoles(bool audio)
+{
+    if (audio) {
+        return {QStringLiteral("dialogue"), QStringLiteral("music"), QStringLiteral("effects")};
+    }
+    return {QStringLiteral("video"), QStringLiteral("titles")};
+}
+
+QString TimelineModel::getTrackRole(int trackId) const
+{
+    READ_LOCK();
+    Q_ASSERT(isTrack(trackId));
+    const auto track = getTrackById_const(trackId);
+    const bool audio = track->isAudioTrack();
+    const QString role = track->getProperty(QStringLiteral("kdenlive:track_role")).toString();
+    if (trackRoles(audio).contains(role)) {
+        return role;
+    }
+    const QString name = track->getProperty(QStringLiteral("kdenlive:track_name")).toString().toLower();
+    auto named = [&name](const QStringList &words) {
+        return std::any_of(words.begin(), words.end(), [&name](const QString &word) { return name.contains(word); });
+    };
+    if (audio) {
+        if (named({QStringLiteral("music"), QStringLiteral("song"), QStringLiteral("score")})) {
+            return QStringLiteral("music");
+        }
+        if (named({QStringLiteral("effect"), QStringLiteral("sfx"), QStringLiteral("fx"), QStringLiteral("ambien")})) {
+            return QStringLiteral("effects");
+        }
+        return QStringLiteral("dialogue");
+    }
+    if (named({QStringLiteral("title"), QStringLiteral("text"), QStringLiteral("caption"), QStringLiteral("lower third")})) {
+        return QStringLiteral("titles");
+    }
+    return QStringLiteral("video");
+}
+
+bool TimelineModel::setTrackRole(int trackId, const QString &role, Fun &undo, Fun &redo)
+{
+    if (!isTrack(trackId) || !trackRoles(isAudioTrack(trackId)).contains(role)) {
+        return false;
+    }
+    const QString previous = getTrackById_const(trackId)->getProperty(QStringLiteral("kdenlive:track_role")).toString();
+    auto apply = [this, trackId](const QString &value) {
+        return [this, trackId, value]() {
+            if (!isTrack(trackId)) {
+                return false;
+            }
+            getTrackById(trackId)->setProperty(QStringLiteral("kdenlive:track_role"), value);
+            const QModelIndex ix = makeTrackIndexFromID(trackId);
+            Q_EMIT dataChanged(ix, ix, {TrackRoleRole});
+            return true;
+        };
+    };
+    Fun local_redo = apply(role);
+    Fun local_undo = apply(previous);
+    local_redo();
+    UPDATE_UNDO_REDO_NOLOCK(local_redo, local_undo, undo, redo);
+    return true;
 }
 
 const QString TimelineModel::getTrackTagById(int trackId) const

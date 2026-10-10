@@ -1557,7 +1557,8 @@ void MainWindow::connectDocument()
     m_timelineTabs->updateWindowTitle();
     setWindowModified(project->isModified());
     m_saveAction->setEnabled(project->isModified());
-    m_normalEditTool->setChecked(true);
+    m_editModeAction->setCurrentItem(qBound(0, KdenliveSettings::timelineEditMode(), 3));
+    showToolMessage();
     connect(m_projectMonitor, &Monitor::durationChanged, this, &MainWindow::slotUpdateProjectDuration);
     connect(m_projectMonitor, &Monitor::zoneDurationChanged, this, &MainWindow::slotUpdateZoneDuration);
     connect(m_effectList2, &EffectListWidget::reloadFavorites, getCurrentTimeline(), &TimelineWidget::updateEffectFavorites);
@@ -2380,7 +2381,10 @@ void MainWindow::slotChangeEdit(QAction *action)
         mode = TimelineMode::OverwriteEdit;
     } else if (action == m_insertEditTool) {
         mode = TimelineMode::InsertEdit;
+    } else if (action == m_magneticEditTool) {
+        mode = TimelineMode::MagneticEdit;
     }
+    KdenliveSettings::setTimelineEditMode(int(mode));
     getCurrentTimeline()->model()->setEditMode(mode);
     showToolMessage();
     if (mode == TimelineMode::InsertEdit) {
@@ -2485,6 +2489,8 @@ void MainWindow::showToolMessage()
             toolLabel.append(i18n("Insert"));
         } else if (mode == TimelineMode::OverwriteEdit) {
             toolLabel.append(i18n("Overwrite"));
+        } else if (mode == TimelineMode::MagneticEdit) {
+            toolLabel.append(i18n("Magnetic"));
         }
     }
 
@@ -3045,6 +3051,9 @@ void MainWindow::applyToolMessageStyling()
         break;
     case TimelineMode::OverwriteEdit:
         m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QStringLiteral("success-fill"), QStringLiteral("on-accent")));
+        break;
+    case TimelineMode::MagneticEdit:
+        m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QStringLiteral("accent-fill"), QStringLiteral("on-accent")));
         break;
     default:
         m_trimLabel->setStyleSheet(DesignPaint::badgeStyleSheet(QStringLiteral("QLabel"), QString(), QStringLiteral("ink-secondary")));

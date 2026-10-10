@@ -33,6 +33,7 @@
 #include "timeline2/model/clipmodel.hpp"
 #include "timeline2/model/compositionmodel.hpp"
 #include "timeline2/model/groupsmodel.hpp"
+#include "timeline2/model/magnetictimeline.hpp"
 #include "timeline2/model/timelinefunctions.hpp"
 #include "timeline2/model/trackmodel.hpp"
 #include "timeline2/view/dialogs/clipdurationdialog.h"
@@ -140,6 +141,30 @@ void TimelineController::setModel(std::shared_ptr<TimelineItemModel> model, bool
     }
     connect(m_model.get(), &TimelineModel::connectPreviewManager, this, &TimelineController::connectPreviewManager);
     connect(m_model.get(), &TimelineModel::selectionModeChanged, this, &TimelineController::colorsChanged);
+    // Edits switch the mode for a moment (the MCP bridge works in normal mode): only report the mode the event loop settles on
+    m_magnetic = m_model->editMode() == TimelineMode::MagneticEdit;
+    connect(
+        m_model.get(), &TimelineModel::editModeChanged, this,
+        [this]() {
+            const bool magnetic = m_model && m_model->editMode() == TimelineMode::MagneticEdit;
+            if (magnetic != m_magnetic) {
+                m_magnetic = magnetic;
+                Q_EMIT magneticChanged();
+                Q_EMIT roleLanesChanged();
+            }
+        },
+        Qt::QueuedConnection);
+    // The timeline index lists tracks and clips, refresh it once edits settle
+    m_indexTimer.setSingleShot(true);
+    m_indexTimer.setInterval(100);
+    connect(&m_indexTimer, &QTimer::timeout, this, &TimelineController::roleLanesChanged, Qt::UniqueConnection);
+    connect(&m_indexTimer, &QTimer::timeout, this, &TimelineController::indexClipsChanged, Qt::UniqueConnection);
+    auto refreshIndex = [this]() { m_indexTimer.start(); };
+    connect(m_model.get(), &QAbstractItemModel::dataChanged, this, refreshIndex);
+    connect(m_model.get(), &QAbstractItemModel::rowsInserted, this, refreshIndex);
+    connect(m_model.get(), &QAbstractItemModel::rowsRemoved, this, refreshIndex);
+    connect(m_model.get(), &QAbstractItemModel::rowsMoved, this, refreshIndex);
+    connect(m_model.get(), &QAbstractItemModel::modelReset, this, refreshIndex);
     connect(DesignTokens::instance(), &DesignTokens::themeChanged, this, &TimelineController::colorsChanged);
     connect(this, &TimelineController::selectionChanged, this, &TimelineController::handleSelectionChange);
     connect(this, &TimelineController::selectionChanged, this, &TimelineController::updateTrimmingMode);
@@ -789,6 +814,18 @@ void TimelineController::deleteSelectedClips()
             m_model->removeMix(m_model->m_selectedMix);
             Q_EMIT m_model->requestClearAssetView(m_model->m_selectedMix);
             m_model->requestClearSelection(true);
+        }
+        return;
+    }
+    if (m_model->m_editMode == TimelineMode::MagneticEdit) {
+        // In magnetic mode, the storyline closes the gap and connected clips leave with their parent
+        m_model->requestClearSelection();
+        Fun undo = []() { return true; };
+        Fun redo = []() { return true; };
+        if (MagneticTimeline::deleteItems(m_model, sel, undo, redo)) {
+            pCore->pushUndo(undo, redo, i18n("Delete selection"));
+        } else {
+            undo();
         }
         return;
     }
@@ -3672,7 +3709,14 @@ bool TimelineController::insertClipZone(const QString &binId, int tid, int posit
     std::function<bool(void)> redo = []() { return true; };
     bool overwrite = m_model->m_editMode == TimelineMode::OverwriteEdit;
     QPoint zone(in, out + 1);
-    bool res = TimelineFunctions::insertZone(m_model, target_tracks, binId, position, zone, overwrite, false, undo, redo);
+    bool res = false;
+    if (m_model->m_editMode == TimelineMode::MagneticEdit) {
+        // A drop joins the storyline at the closest edit point
+        position = MagneticTimeline::insertZone(m_model, target_tracks, binId, position, zone, true, undo, redo);
+        res = position > -1;
+    } else {
+        res = TimelineFunctions::insertZone(m_model, target_tracks, binId, position, zone, overwrite, false, undo, redo);
+    }
     if (res) {
         int newPos = position + (zone.y() - zone.x());
         int currentPos = pCore->getMonitorPosition();
@@ -3742,7 +3786,14 @@ int TimelineController::insertZone(const QString &binId, QPoint zone, bool overw
         pCore->displayMessage(i18n("Please select a target track by clicking on a track's target zone"), ErrorMessage);
         return -1;
     }
-    bool res = TimelineFunctions::insertZone(m_model, target_tracks, binId, insertPoint, sourceZone, overwrite, true, undo, redo);
+    bool res = false;
+    if (m_model->m_editMode == TimelineMode::MagneticEdit && !overwrite) {
+        // Insert at the playhead, splitting the storyline clip under it
+        insertPoint = MagneticTimeline::insertZone(m_model, target_tracks, binId, insertPoint, sourceZone, false, undo, redo);
+        res = insertPoint > -1;
+    } else {
+        res = TimelineFunctions::insertZone(m_model, target_tracks, binId, insertPoint, sourceZone, overwrite, true, undo, redo);
+    }
     if (res) {
         int newPos = insertPoint + (sourceZone.y() - sourceZone.x());
         int currentPos = pCore->getMonitorPosition();
@@ -4854,6 +4905,18 @@ int TimelineController::getItemMovingTrack(int itemId) const
 bool TimelineController::endFakeMove(int clipId, int position, bool updateView, bool logUndo, bool invalidateTimeline)
 {
     int trackId = getItemMovingTrack(clipId);
+    if (m_model->m_editMode == TimelineMode::MagneticEdit && m_model->isClip(clipId)) {
+        Fun undo = []() { return true; };
+        Fun redo = []() { return true; };
+        if (MagneticTimeline::endMove(m_model, clipId, trackId, position, undo, redo)) {
+            if (logUndo) {
+                pCore->pushUndo(undo, redo, i18n("Move item"));
+            }
+            return true;
+        }
+        undo();
+        return false;
+    }
     int subLayer = -1;
     if (m_model->isSubTitle(clipId)) {
         subLayer = m_model->getSubtitleLayer(clipId);
@@ -6442,4 +6505,258 @@ bool TimelineController::createRangeMarkerFromZone(const QString &comment, int t
     }
 
     return success;
+}
+
+bool TimelineController::magnetic() const
+{
+    return m_magnetic;
+}
+
+bool TimelineController::magneticRipple(int itemId) const
+{
+    return m_model && m_model->editMode() == TimelineMode::MagneticEdit && m_model->isClip(itemId) && MagneticTimeline::isStorylineItem(m_model, itemId);
+}
+
+int TimelineController::magneticParent(int itemId) const
+{
+    if (!m_model || m_model->editMode() != TimelineMode::MagneticEdit) {
+        return -1;
+    }
+    return MagneticTimeline::parentOf(m_model, itemId);
+}
+
+void TimelineController::setPrimaryStoryline(int trackId)
+{
+    Fun undo = []() { return true; };
+    Fun redo = []() { return true; };
+    if (MagneticTimeline::setPrimaryTrack(m_model, trackId, undo, redo)) {
+        pCore->pushUndo(undo, redo, i18n("Set primary storyline"));
+        Q_EMIT roleLanesChanged();
+    }
+}
+
+QColor TimelineController::roleColor(const QString &role, bool strip) const
+{
+    // Dialogue shares the blue of the pictures it was recorded with, as in Final Cut Pro
+    QString token = role == QLatin1String("dialogue") ? QStringLiteral("video") : role;
+    if (!TimelineModel::trackRoles(false).contains(token) && !TimelineModel::trackRoles(true).contains(token)) {
+        token = QStringLiteral("video");
+    }
+    return DesignTokens::color(QStringLiteral("role-") + token + (strip ? QStringLiteral("-strip") : QString()));
+}
+
+QVariantMap TimelineController::roleColors() const
+{
+    QVariantMap colors;
+    const QStringList roles = TimelineModel::trackRoles(false) + TimelineModel::trackRoles(true);
+    for (const QString &role : roles) {
+        colors.insert(role, roleColor(role));
+    }
+    return colors;
+}
+
+QString TimelineController::roleLabel(const QString &role) const
+{
+    if (role == QLatin1String("titles")) {
+        return i18n("Titles");
+    }
+    if (role == QLatin1String("dialogue")) {
+        return i18n("Dialogue");
+    }
+    if (role == QLatin1String("music")) {
+        return i18n("Music");
+    }
+    if (role == QLatin1String("effects")) {
+        return i18n("Effects");
+    }
+    return i18n("Video");
+}
+
+QStringList TimelineController::trackRoles(int trackId) const
+{
+    if (!m_model || !m_model->isTrack(trackId)) {
+        return {};
+    }
+    return TimelineModel::trackRoles(m_model->isAudioTrack(trackId));
+}
+
+void TimelineController::setTrackRole(int trackId, const QString &role)
+{
+    Fun undo = []() { return true; };
+    Fun redo = []() { return true; };
+    if (m_model->setTrackRole(trackId, role, undo, redo)) {
+        pCore->pushUndo(undo, redo, i18n("Set track role"));
+        Q_EMIT roleLanesChanged();
+    }
+}
+
+QVariantList TimelineController::roleLanes() const
+{
+    QVariantList result;
+    if (!m_model) {
+        return result;
+    }
+    const int storyline = MagneticTimeline::primaryTrack(m_model);
+    QStringList roles = TimelineModel::trackRoles(false) + TimelineModel::trackRoles(true);
+    for (const QString &role : std::as_const(roles)) {
+        QVariantList lanes;
+        bool enabled = false;
+        bool audio = TimelineModel::trackRoles(true).contains(role);
+        // Lanes from the top of the timeline down
+        for (auto it = m_model->m_allTracks.crbegin(); it != m_model->m_allTracks.crend(); ++it) {
+            const int tid = (*it)->getId();
+            if ((*it)->isAudioTrack() != audio || m_model->getTrackRole(tid) != role) {
+                continue;
+            }
+            const bool disabled = audio ? (*it)->isMute() : (*it)->isHidden();
+            enabled = enabled || !disabled;
+            QVariantMap lane;
+            lane.insert(QStringLiteral("trackId"), tid);
+            lane.insert(QStringLiteral("name"), (*it)->getProperty(QStringLiteral("kdenlive:track_name")).toString());
+            lane.insert(QStringLiteral("tag"), m_model->getTrackTagById(tid));
+            lane.insert(QStringLiteral("disabled"), disabled);
+            lane.insert(QStringLiteral("locked"), (*it)->isLocked());
+            lane.insert(QStringLiteral("storyline"), tid == storyline);
+            lane.insert(QStringLiteral("clips"), int((*it)->getClipsCount()));
+            lanes << lane;
+        }
+        if (lanes.isEmpty()) {
+            continue;
+        }
+        QVariantMap entry;
+        entry.insert(QStringLiteral("role"), role);
+        entry.insert(QStringLiteral("label"), roleLabel(role));
+        entry.insert(QStringLiteral("color"), roleColor(role));
+        entry.insert(QStringLiteral("audio"), audio);
+        entry.insert(QStringLiteral("enabled"), enabled);
+        entry.insert(QStringLiteral("lanes"), lanes);
+        result << entry;
+    }
+    return result;
+}
+
+void TimelineController::setRoleEnabled(const QString &role, bool enabled)
+{
+    QMap<int, QString> previous;
+    QMap<int, QString> next;
+    for (const auto &track : m_model->m_allTracks) {
+        const int tid = track->getId();
+        if (m_model->getTrackRole(tid) != role) {
+            continue;
+        }
+        previous.insert(tid, m_model->getTrackProperty(tid, QStringLiteral("hide")).toString());
+        // The hide property holds what is hidden: video (1), audio (2) or both (3)
+        next.insert(tid, enabled ? (track->isAudioTrack() ? QStringLiteral("1") : QStringLiteral("2")) : QStringLiteral("3"));
+    }
+    if (next.isEmpty()) {
+        return;
+    }
+    auto apply = [this](const QMap<int, QString> &states) {
+        return [this, states]() {
+            for (auto i = states.cbegin(); i != states.cend(); ++i) {
+                if (m_model->isTrack(i.key())) {
+                    m_model->setTrackProperty(i.key(), QStringLiteral("hide"), i.value());
+                }
+            }
+            m_model->updateDuration();
+            return true;
+        };
+    };
+    Fun redo = apply(next);
+    Fun undo = apply(previous);
+    redo();
+    pCore->pushUndo(undo, redo, enabled ? i18n("Enable %1", roleLabel(role)) : i18n("Disable %1", roleLabel(role)));
+}
+
+void TimelineController::soloRole(const QString &role)
+{
+    // Solo when other roles play, otherwise bring every role back
+    bool othersEnabled = false;
+    const QVariantList lanes = roleLanes();
+    for (const QVariant &entry : lanes) {
+        const QVariantMap map = entry.toMap();
+        if (map.value(QStringLiteral("role")).toString() != role && map.value(QStringLiteral("enabled")).toBool()) {
+            othersEnabled = true;
+        }
+    }
+    QMap<int, QString> previous;
+    QMap<int, QString> next;
+    for (const auto &track : m_model->m_allTracks) {
+        const int tid = track->getId();
+        const bool enable = !othersEnabled || m_model->getTrackRole(tid) == role;
+        previous.insert(tid, m_model->getTrackProperty(tid, QStringLiteral("hide")).toString());
+        next.insert(tid, enable ? (track->isAudioTrack() ? QStringLiteral("1") : QStringLiteral("2")) : QStringLiteral("3"));
+    }
+    auto apply = [this](const QMap<int, QString> &states) {
+        return [this, states]() {
+            for (auto i = states.cbegin(); i != states.cend(); ++i) {
+                if (m_model->isTrack(i.key())) {
+                    m_model->setTrackProperty(i.key(), QStringLiteral("hide"), i.value());
+                }
+            }
+            m_model->updateDuration();
+            return true;
+        };
+    };
+    Fun redo = apply(next);
+    Fun undo = apply(previous);
+    redo();
+    pCore->pushUndo(undo, redo, othersEnabled ? i18n("Solo %1", roleLabel(role)) : i18n("Enable all roles"));
+}
+
+QVariantList TimelineController::indexClips(const QString &filter) const
+{
+    struct Row
+    {
+        int id;
+        int start;
+        int trackPos;
+        QVariantMap data;
+    };
+    std::vector<Row> rows;
+    if (!m_model) {
+        return {};
+    }
+    const int storyline = MagneticTimeline::primaryTrack(m_model);
+    for (const auto &clip : m_model->m_allClips) {
+        const int tid = clip.second->getCurrentTrackId();
+        if (tid == -1) {
+            continue;
+        }
+        const QString name = m_model->data(m_model->makeClipIndexFromID(clip.first), TimelineModel::NameRole).toString();
+        if (!filter.isEmpty() && !name.contains(filter, Qt::CaseInsensitive)) {
+            continue;
+        }
+        QVariantMap data;
+        const int start = clip.second->getPosition();
+        const QString role = m_model->getTrackRole(tid);
+        data.insert(QStringLiteral("id"), clip.first);
+        data.insert(QStringLiteral("name"), name);
+        data.insert(QStringLiteral("start"), start);
+        data.insert(QStringLiteral("timecode"), simplifiedTC(start));
+        data.insert(QStringLiteral("duration"), clip.second->getPlaytime());
+        data.insert(QStringLiteral("role"), role);
+        data.insert(QStringLiteral("color"), roleColor(role));
+        data.insert(QStringLiteral("storyline"), tid == storyline);
+        data.insert(QStringLiteral("audio"), m_model->isAudioTrack(tid));
+        data.insert(QStringLiteral("trackId"), tid);
+        rows.push_back({clip.first, start, m_model->getTrackPosition(tid), data});
+    }
+    // Timeline order, from the top lane down at the same frame
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.start != b.start ? a.start < b.start : a.trackPos > b.trackPos; });
+    QVariantList result;
+    for (const Row &row : rows) {
+        result << row.data;
+    }
+    return result;
+}
+
+void TimelineController::revealClip(int clipId)
+{
+    if (!m_model || !m_model->isClip(clipId)) {
+        return;
+    }
+    m_model->requestSetSelection({clipId});
+    setPosition(m_model->getClipPosition(clipId));
+    Q_EMIT centerView();
 }

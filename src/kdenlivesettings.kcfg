@@ -1087,6 +1087,22 @@
       <label>Show clip name and infos in timeline.</label>
       <default>true</default>
     </entry>
+    <entry name="showTimelineIndex" type="Bool">
+      <label>Show the timeline index, listing the timeline clips and the track roles.</label>
+      <default>true</default>
+    </entry>
+    <entry name="timelineIndexTab" type="Int">
+      <label>The page of the timeline index: clips or roles.</label>
+      <default>1</default>
+    </entry>
+    <entry name="compactTrackHeaders" type="Bool">
+      <label>Replace the track headers with a narrow strip in the color of the track role.</label>
+      <default>true</default>
+    </entry>
+    <entry name="timelineEditMode" type="Int">
+      <label>Timeline edit mode: normal, overwrite, insert or magnetic.</label>
+      <default>3</default>
+    </entry>
     <entry name="rippleResize" type="Bool">
       <label>Enable Ripple edit when changing multiple clips duration.</label>
       <default>false</default>

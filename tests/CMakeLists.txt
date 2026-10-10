@@ -20,6 +20,7 @@ set(KdenliveTest_SOURCES
     groupstest.cpp
     hidetest.cpp
     keyframetest.cpp
+    magnetictest.cpp
     markertest.cpp
     mixtest.cpp
     modeltest.cpp

@@ -294,6 +294,8 @@ private:
 
     // Tool message styling state tracking
     TimelineMode::EditMode m_currentEditMode{TimelineMode::NormalEdit};
+    QAction *m_magneticEditTool{nullptr};
+    KSelectAction *m_editModeAction{nullptr};
 
     TimelineTabs *m_timelineTabs{nullptr};
     QVector<Bin *> m_binWidgets;

@@ -10,6 +10,7 @@
 #include "bin/projectitemmodel.h"
 #include "core.h"
 #include "doc/kdenlivedoc.h"
+#include "kdenlivesettings.h"
 #include "mainwindow.h"
 #include "monitor/monitor.h"
 #include "monitor/monitormanager.h"
@@ -346,6 +347,8 @@ void TimelineTabs::updatePreviewAction()
 
 void TimelineTabs::connectTimeline(TimelineWidget *timeline)
 {
+    // The edit mode is chosen once for every sequence
+    timeline->model()->setEditMode(TimelineMode::EditMode(KdenliveSettings::timelineEditMode()));
     int position = pCore->currentDoc()->getSequenceProperty(timeline->getUuid(), QStringLiteral("position"), QString::number(0)).toInt();
     pCore->monitorManager()->projectMonitor()->getControllerProxy()->setCursorPosition(position);
     connect(timeline->controller(), &TimelineController::previewDisabledStateChanged, this, &TimelineTabs::updatePreviewAction, Qt::UniqueConnection);

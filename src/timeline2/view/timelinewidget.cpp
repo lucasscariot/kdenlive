@@ -22,6 +22,7 @@
 #include "kdenlivesettings.h"
 #include "monitor/monitorproxy.h"
 #include "timelinewidget.h"
+#include <QInputDialog>
 
 #include <QAction>
 #include <QActionGroup>
@@ -238,6 +239,24 @@ void TimelineWidget::populateActions(KActionCollection *actions)
     addThumbnailFormat(i18n("All Frames"), QStringLiteral("1"));
     addThumbnailFormat(i18n("No Thumbnails"), QStringLiteral("3"));
     m_headerMenu->addMenu(m_thumbsMenu);
+    // Roles and the magnetic storyline, also reachable from the compact track heads
+    m_headerMenu->addSeparator();
+    m_roleMenu = new QMenu(i18n("Role"), this);
+    m_headerMenu->addMenu(m_roleMenu);
+    m_storylineAction =
+        m_headerMenu->addAction(i18n("Use as Primary Storyline"), this, [this]() { timelineController.setPrimaryStoryline(timelineController.activeTrack()); });
+    m_headerMenu->addAction(i18n("Rename Track…"), this, [this]() {
+        const int tid = timelineController.activeTrack();
+        if (!model()->isTrack(tid)) {
+            return;
+        }
+        bool ok = false;
+        const QString current = model()->getTrackProperty(tid, QStringLiteral("kdenlive:track_name")).toString();
+        const QString name = QInputDialog::getText(this, i18n("Rename Track"), i18n("Track name:"), QLineEdit::Normal, current, &ok);
+        if (ok) {
+            model()->setTrackName(tid, name);
+        }
+    });
     m_editGuideAcion = actions->action(QStringLiteral("edit_sequence_marker"));
     m_addClipMenu = new QMenu(i18n("Add Clip"), this);
     m_addClipMenu->addAction(actions->action(QStringLiteral("add_clip")));
@@ -391,6 +410,23 @@ void TimelineWidget::showHeaderMenu()
 {
     if (!isVisible() || !isEnabled()) {
         return;
+    }
+    const int activeTrack = timelineController.activeTrack();
+    m_roleMenu->clear();
+    if (model()->isTrack(activeTrack)) {
+        const QString currentRole = model()->getTrackRole(activeTrack);
+        auto *roleGroup = new QActionGroup(m_roleMenu);
+        const QStringList roles = timelineController.trackRoles(activeTrack);
+        for (const QString &role : roles) {
+            QAction *action = m_roleMenu->addAction(timelineController.roleLabel(role), this,
+                                                    [this, activeTrack, role]() { timelineController.setTrackRole(activeTrack, role); });
+            action->setCheckable(true);
+            action->setChecked(role == currentRole);
+            roleGroup->addAction(action);
+        }
+        m_storylineAction->setVisible(!model()->isAudioTrack(activeTrack));
+        m_storylineAction->setEnabled(timelineController.magnetic() &&
+                                      !model()->data(model()->makeTrackIndexFromID(activeTrack), TimelineModel::StorylineRole).toBool());
     }
     bool isAudio = timelineController.isActiveTrackAudio();
     QList<QAction *> menuActions = m_headerMenu->actions();

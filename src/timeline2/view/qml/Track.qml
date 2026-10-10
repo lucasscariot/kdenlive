@@ -21,6 +21,8 @@ Item {
     required property bool isDisabled
     required property bool isAudio
     required property bool isLocked
+    required property string trackRole
+    required property bool storyline
     required property int trackInternalId
     required property int trackThumbsFormat
     required property var effectZones
@@ -107,6 +109,9 @@ Item {
             new_duration = trackRoot.timeline.requestItemRippleResize(clip.clipId, newDuration, right, false, trackRoot.snapping, shiftTrim)
             trackRoot.timeline.requestStartTrimmingMode(clip.clipId, false, right);
             trackRoot.timeline.ripplePosChanged(new_duration, right);
+        } else if (trackRoot.timeline.magneticRipple(clip.clipId)) {
+            // Trimming a storyline clip in magnetic mode ripples the clips after it
+            new_duration = trackRoot.timeline.requestItemRippleResize(clip.clipId, newDuration, right, false, trackRoot.snapping, shiftTrim)
         } else {
             new_duration = trackRoot.controller.requestItemResize(clip.clipId, newDuration, right, false, trackRoot.snapping, shiftTrim)
         }
@@ -140,9 +145,10 @@ Item {
     function trimedClip(clip, shiftTrim, controlTrim, right) {
         //bubbleHelp.hide()
         trackRoot.timeline.showToolTip();
-        if (shiftTrim || (trackRoot.groupTrimData == undefined/*TODO > */ || K.Core.activeTool === K.ToolType.RippleTool /* < TODO*/) || controlTrim) {
+        const magneticRipple = K.Core.activeTool === K.ToolType.SelectTool && !controlTrim && trackRoot.timeline.magneticRipple(clip.clipId)
+        if (shiftTrim || magneticRipple || (trackRoot.groupTrimData == undefined/*TODO > */ || K.Core.activeTool === K.ToolType.RippleTool /* < TODO*/) || controlTrim) {
             // We only resize one element
-            if (K.Core.activeTool === K.ToolType.RippleTool) {
+            if (K.Core.activeTool === K.ToolType.RippleTool || magneticRipple) {
                 trackRoot.timeline.requestItemRippleResize(clip.clipId, clip.originalDuration, right, false, 0, shiftTrim)
             } else {
                 trackRoot.controller.requestItemResize(clip.clipId, clip.originalDuration, right, false, 0, shiftTrim)
@@ -157,6 +163,8 @@ Item {
                 if (K.Core.activeTool === K.ToolType.RippleTool) {
                     trackRoot.timeline.requestItemRippleResize(clip.clipId, clip.lastValidDuration, right, true, 0, shiftTrim)
                     trackRoot.timeline.requestEndTrimmingMode();
+                } else if (magneticRipple) {
+                    trackRoot.timeline.requestItemRippleResize(clip.clipId, clip.lastValidDuration, right, true, 0, shiftTrim)
                 } else {
                     trackRoot.controller.requestItemResize(clip.clipId, clip.lastValidDuration, right, true, 0, shiftTrim)
                 }

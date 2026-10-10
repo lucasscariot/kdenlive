@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!DOCTYPE kpartgui SYSTEM "kpartgui.dtd">
-<kpartgui name="kdenlive" version="256" translationDomain="kdenlive">
+<kpartgui name="kdenlive" version="257" translationDomain="kdenlive">
   <MenuBar>
     <Menu name="file">
       <Action name="file_new"/>
@@ -221,6 +221,9 @@
       <Action name="show_markers"/>
       <Action name="snap"/>
       <Separator/>
+      <Action name="timeline_index"/>
+      <Action name="compact_track_headers"/>
+      <Separator/>
       <Action name="view_zoom_in"/>
       <Action name="view_zoom_out"/>
       <Action name="zoom_fit"/>
@@ -230,6 +233,7 @@
       <Action name="normal_mode"/>
       <Action name="overwrite_mode"/>
       <Action name="insert_mode"/>
+      <Action name="magnetic_mode"/>
       <Separator/>
       <Action name="select_tool"/>
       <Action name="razor_tool"/>
@@ -363,6 +367,7 @@
   </ToolBar>
   <ToolBar name="timelineToolBar" fullWidth="true" newline="true" noMerge="1" position="bottom">
     <text>Timeline Toolbar</text>
+    <Action name="timeline_index"/>
     <Action name="timeline_settings"/>
     <Action name="timeline_mode"/>
     <Action name="use_timeline_zone_in_edit"/>

@@ -210,13 +210,23 @@ void MainWindow::setupActions()
     m_insertEditTool->setCheckable(true);
     m_insertEditTool->setChecked(false);
 
+    m_magneticEditTool = new QAction(QIcon::fromTheme(QStringLiteral("timeline-mode-magnetic")), i18n("Magnetic Mode"), this);
+    m_magneticEditTool->setCheckable(true);
+    m_magneticEditTool->setChecked(false);
+    m_magneticEditTool->setWhatsThis(xi18nc("@info:whatsthis",
+                                            "The primary storyline (the lowest video track) never keeps a gap: deleting, moving or trimming its clips "
+                                            "ripples the clips after them. Clips on other tracks are connected to the storyline clip under their start "
+                                            "and follow it."));
+
     KSelectAction *sceneMode = new KSelectAction(i18n("Timeline Edit Mode"), this);
-    sceneMode->setWhatsThis(
-        xi18nc("@info:whatsthis", "Switches between Normal, Overwrite and Insert Mode. Determines the default action when handling clips in the timeline."));
+    sceneMode->setWhatsThis(xi18nc(
+        "@info:whatsthis", "Switches between Normal, Overwrite, Insert and Magnetic Mode. Determines the default action when handling clips in the timeline."));
     sceneMode->addAction(m_normalEditTool);
     sceneMode->addAction(m_overwriteEditTool);
     sceneMode->addAction(m_insertEditTool);
-    sceneMode->setCurrentItem(0);
+    sceneMode->addAction(m_magneticEditTool);
+    m_editModeAction = sceneMode;
+    sceneMode->setCurrentItem(qBound(0, KdenliveSettings::timelineEditMode(), 3));
     connect(sceneMode, &KSelectAction::actionTriggered, this, &MainWindow::slotChangeEdit);
     addAction(QStringLiteral("timeline_mode"), sceneMode);
     actionCollection()->setShortcutsConfigurable(sceneMode, false);
@@ -482,6 +492,21 @@ void MainWindow::setupActions()
     m_buttonShowMarkers->setChecked(KdenliveSettings::showmarkers());
     connect(m_buttonShowMarkers, &QAction::triggered, this, &MainWindow::slotSwitchMarkersComments);
 
+    auto *timelineIndex = new QAction(QIcon::fromTheme(QStringLiteral("timeline-index")), i18n("Timeline Index"), this);
+    timelineIndex->setWhatsThis(xi18nc("@info:whatsthis", "Shows the timeline index, listing the timeline clips and the track roles."));
+    timelineIndex->setCheckable(true);
+    timelineIndex->setChecked(KdenliveSettings::showTimelineIndex());
+    connect(timelineIndex, &QAction::toggled, this, [](bool show) { KdenliveSettings::setShowTimelineIndex(show); });
+    addAction(QStringLiteral("timeline_index"), timelineIndex, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_2));
+
+    auto *compactHeaders = new QAction(i18n("Compact Track Headers"), this);
+    compactHeaders->setWhatsThis(
+        xi18nc("@info:whatsthis", "Replaces the track headers with a narrow strip in the color of the track role. Track controls move to the timeline index."));
+    compactHeaders->setCheckable(true);
+    compactHeaders->setChecked(KdenliveSettings::compactTrackHeaders());
+    connect(compactHeaders, &QAction::toggled, this, [](bool compact) { KdenliveSettings::setCompactTrackHeaders(compact); });
+    addAction(QStringLiteral("compact_track_headers"), compactHeaders);
+
     m_buttonSnap = new QAction(QIcon::fromTheme(QStringLiteral("snap")), i18n("Snap"), this);
     m_buttonSnap->setWhatsThis(xi18nc("@info:whatsthis", "Toggles the snap function (clips snap to playhead, edges, markers, guides and others)."));
     m_buttonSnap->setCheckable(true);
@@ -578,6 +603,7 @@ void MainWindow::setupActions()
     addAction(QStringLiteral("normal_mode"), m_normalEditTool);
     addAction(QStringLiteral("overwrite_mode"), m_overwriteEditTool);
     addAction(QStringLiteral("insert_mode"), m_insertEditTool);
+    addAction(QStringLiteral("magnetic_mode"), m_magneticEditTool);
 
     KActionCategory *toolsActionCategory = new KActionCategory(i18n("Tools"), actionCollection());
     addAction(QStringLiteral("select_tool"), m_buttonSelectTool, Qt::Key_S, toolsActionCategory);
