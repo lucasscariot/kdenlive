@@ -104,81 +104,98 @@ QJsonObject editFields()
             {"requestId", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}};
 }
 
+// MCP tool annotations. Hints describe the edit itself; requestId receipts make any identical retry safe regardless.
+struct Hints
+{
+    bool readOnly = false;
+    bool destructive = true;
+    bool idempotent = false;
+};
+const Hints readOnlyTool{true, false, true};
+const Hints additive{false, false, false};
+const Hints additiveRepeatable{false, false, true};
+const Hints overwriting{false, true, false};
+const Hints overwritingRepeatable{false, true, true};
+
 struct Tool
 {
     QString name;
     QString description;
     QString command;
+    Hints hints;
 };
 
 const QList<Tool> &editingTools()
 {
     static const QList<Tool> result{
         {"desktop_media_import", "Import a local file into the visible project bin. Returns binId; poll desktop_state until ready. Reuses existing paths.",
-         "import"},
-        {"desktop_media_remove", "Remove an unused binId using native Undo. Rejects media used in any sequence. Keeps the source file on disk.",
-         "remove_asset"},
+         "import", additiveRepeatable},
+        {"desktop_media_remove", "Remove an unused binId using native Undo. Rejects media used in any sequence. Keeps the source file on disk.", "remove_asset",
+         overwritingRepeatable},
         {"desktop_clip_insert", "Insert ready bin media into a track. Frames use project FPS; sourceOut is exclusive. Choose audio or video explicitly.",
-         "insert"},
-        {"desktop_clip_remove", "Remove one ungrouped clip without rippling. Keeps its bin asset and source file. Native Undo restores it.", "remove_clip"},
+         "insert", additive},
+        {"desktop_clip_remove", "Remove one ungrouped clip without rippling. Keeps its bin asset and source file. Native Undo restores it.", "remove_clip",
+         overwritingRepeatable},
         {"desktop_media_replace",
          "Replace every use of binId with replacementBinId. Both must be ready with matching streams; replacement must cover the original "
          "duration.",
-         "replace_media"},
-        {"desktop_clip_move", "Move a native clip to a track and frame position, respecting locks, groups and collisions.", "move"},
-        {"desktop_clip_trim", "Trim a clip edge to duration frames. Read actualDuration in the result.", "trim"},
+         "replace_media", overwritingRepeatable},
+        {"desktop_clip_move", "Move a native clip to a track and frame position, respecting locks, groups and collisions.", "move", overwritingRepeatable},
+        {"desktop_clip_trim", "Trim a clip edge to duration frames. Read actualDuration in the result.", "trim", overwritingRepeatable},
         {"desktop_audio_envelope",
          "Add native volume automation to an audio clip. fadeIn/fadeOut use project frames; gainDb is -60..0. Rejects existing volume effects and "
          "overlapping fades.",
-         "audio_envelope"},
-        {"desktop_track_rename", "Rename a native timeline track using Undo.", "rename_track"},
-        {"desktop_project_save", "Save the open project to its existing local file. All bin media must be ready.", "save"},
+         "audio_envelope", additiveRepeatable},
+        {"desktop_track_rename", "Rename a native timeline track using Undo.", "rename_track", overwritingRepeatable},
+        {"desktop_project_save", "Save the open project to its existing local file. All bin media must be ready.", "save", overwritingRepeatable},
         {"desktop_project_save_as",
          "Save the project to a new .kdenlive file in the project folder or additional media folder and keep editing that copy. Use it before "
          "destructive format changes such as desktop_project_profile.",
-         "save_as"},
+         "save_as", additiveRepeatable},
         {"desktop_project_profile",
          "Change the project frame size, e.g. 1080x1920 for vertical video. Keeps the frame rate. Not undoable: save a copy first. Existing clips are "
          "letterboxed until reframed.",
-         "set_profile"},
+         "set_profile", overwritingRepeatable},
         {"desktop_clip_reframe",
          "Fill or fit a video clip in the project frame with a native Transform effect. focusX/focusY (0..1, default 0.5) choose the visible part: 0 "
          "shows the left/top edge, 1 the right/bottom. endFocusX/endFocusY animate a pan to the clip end. zoom scales further. Verify with "
          "desktop_frame_capture.",
-         "reframe"},
+         "reframe", overwritingRepeatable},
         {"desktop_effect_add",
          "Add a native effect by effectId (see desktop_effect_list) with optional MLT parameter strings. Target one timeline clip (clipId) or a bin "
          "clip (binId), whose effects apply to all its timeline instances.",
-         "effect_add"},
+         "effect_add", additive},
         {"desktop_effect_set",
          "Set parameters of the effect at index on a clip (clipId) or bin clip (binId), as MLT strings. Animated values use "
          "'frame=value;frame=value' with frames counted from keyframeOrigin (desktop_effect_list).",
-         "effect_set"},
-        {"desktop_effect_remove", "Remove the effect at index from a timeline clip (clipId) or bin clip (binId).", "effect_remove"},
+         "effect_set", overwritingRepeatable},
+        {"desktop_effect_remove", "Remove the effect at index from a timeline clip (clipId) or bin clip (binId).", "effect_remove", overwriting},
         {"desktop_title_edit",
          "Edit a title clip: canvas width/height (match the project frame after a profile change) and text items by index (text, x, y, "
          "fontPixelSize, alignment). Read items with desktop_title_read first.",
-         "title_edit"},
+         "title_edit", overwritingRepeatable},
         {"desktop_render",
          "Start rendering the active sequence to a new file in the project folder or additional media folder. preset defaults to the configured one "
          "(usually MP4-H264/AAC). Poll desktop_render_status.",
-         "render"},
-        {"desktop_undo", "Undo the latest action in shared Kdenlive history, including manual edits.", "undo"},
-        {"desktop_redo", "Redo the latest action in shared Kdenlive history.", "redo"},
+         "render", additive},
+        {"desktop_undo", "Undo the latest action in shared Kdenlive history, including manual edits.", "undo", overwriting},
+        {"desktop_redo", "Redo the latest action in shared Kdenlive history.", "redo", overwriting},
         {"desktop_batch",
          "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
          "title_edit) as one Undo step. Each command has the same fields as desktop_apply commands. Stops and rolls back everything on the first "
          "failure, reporting failedIndex.",
-         "batch"}};
+         "batch", overwriting}};
     return result;
 }
 
-QJsonObject definition(const QString &name, const QString &description, const QJsonObject &properties, bool readOnly, const QStringList &optional = {})
+QJsonObject definition(const QString &name, const QString &description, const QJsonObject &properties, const Hints &hints, const QStringList &optional = {})
 {
     return {{"name", name},
             {"description", description},
             {"inputSchema", objectSchema(properties, optional)},
-            {"annotations", QJsonObject{{"readOnlyHint", readOnly}, {"destructiveHint", !readOnly}, {"idempotentHint", true}, {"openWorldHint", false}}}};
+            {"annotations",
+             QJsonObject{
+                 {"readOnlyHint", hints.readOnly}, {"destructiveHint", hints.destructive}, {"idempotentHint", hints.idempotent}, {"openWorldHint", false}}}};
 }
 
 QJsonObject failure(const QString &code, const QString &message)
@@ -196,24 +213,25 @@ bool within(const QString &path, const QString &root)
 QJsonArray McpTools::definitions()
 {
     QJsonArray result;
-    result.append(definition("desktop_capabilities", "Read native editing capabilities of this Kdenlive instance.", {}, true));
+    result.append(definition("desktop_capabilities", "Read native editing capabilities of this Kdenlive instance.", {}, readOnlyTool));
     result.append(
         definition("desktop_state",
                    "Read the actual visible sequence, project frame size, bin readiness and usage, native IDs, effect counts, sessionId, revision and "
                    "shared Undo history.",
-                   {}, true));
+                   {}, readOnlyTool));
     result.append(definition("desktop_frame_capture",
                              "Render one frame of the active sequence at a timeline position as a PNG image (default 540 px wide). Does not move the "
                              "playhead.",
-                             {{"position", frameSchema()}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 1920}}}}, true, {"width"}));
+                             {{"position", frameSchema()}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 1920}}}}, readOnlyTool,
+                             {"width"}));
     result.append(definition("desktop_effect_list",
                              "List the effects on a timeline clip (clipId) or bin clip (binId, e.g. text effects on title-like color clips) with their "
                              "parameters and keyframeOrigin, and/or search the effect catalog by query.",
-                             {{"clipId", frameSchema()}, {"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}, {"query", stringSchema()}}, true,
-                             {"clipId", "binId", "query"}));
+                             {{"clipId", frameSchema()}, {"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}, {"query", stringSchema()}},
+                             readOnlyTool, {"clipId", "binId", "query"}));
     result.append(definition("desktop_title_read", "Read a title clip's canvas size, the project frame size and its items (text, position, font size, box).",
-                             {{"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, true));
-    result.append(definition("desktop_render_status", "Read progress, status and errors of renders started with desktop_render.", {}, true));
+                             {{"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, readOnlyTool));
+    result.append(definition("desktop_render_status", "Read progress, status and errors of renders started with desktop_render.", {}, readOnlyTool));
     auto fields = editFields();
     QJsonArray variants;
     QJsonArray batchVariants;
@@ -234,14 +252,14 @@ QJsonArray McpTools::definitions()
     result.append(definition("desktop_apply",
                              "Apply one native operation with sessionId/revision from desktop_state. Retry uncertain outcomes only with the identical "
                              "requestId and payload. Import/replacement load asynchronously. All edits use native Undo; saving does not add history.",
-                             {{"request", objectSchema(fields)}}, false));
+                             {{"request", objectSchema(fields)}}, overwriting));
     for (const auto &tool : editingTools()) {
         auto properties = editFields();
         const auto command = tool.command == QLatin1String("batch") ? Command{batch, {}} : commands().value(tool.command);
         for (auto it = command.properties.begin(); it != command.properties.end(); ++it)
             properties.insert(it.key(), it.value());
         result.append(definition(tool.name, tool.description + QStringLiteral(" Use sessionId/revision from desktop_state and a unique requestId."), properties,
-                                 false, command.optional));
+                                 tool.hints, command.optional));
     }
     return result;
 }

@@ -623,8 +623,14 @@ QJsonObject LiveBridge::executeBatch(const QJsonObject &command)
     }
     stack->endMacro();
     if (failedIndex >= 0) {
-        // Roll back the partial macro so the batch is all-or-nothing.
-        if (stack->index() > before) stack->undo();
+        // Roll back the partial macro so the batch is all-or-nothing, and drop it so Redo cannot re-apply half a batch.
+        if (stack->index() > before) {
+            auto *macro = const_cast<QUndoCommand *>(stack->command(stack->index() - 1));
+            macro->undo();
+            // QUndoStack deletes an obsolete command instead of undoing it again.
+            macro->setObsolete(true);
+            stack->undo();
+        }
         failed.insert(QStringLiteral("failedIndex"), failedIndex);
         return failed;
     }

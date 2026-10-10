@@ -94,7 +94,37 @@ Supported commands:
 - `insert`: the fields above, with `media` equal to `video` or `audio`.
 - `move`: `clipId`, `trackId`, `position`.
 - `trim`: `clipId`, `duration`, `edge` equal to `left` or `right`.
+- `save_as`: new absolute `.kdenlive` `path` in a writable folder. Saves a copy,
+  never overwrites, and keeps editing the copy. Returns `documentUrl`.
+- `set_profile`: even `width` and `height` up to 8192. Changes the frame size and
+  keeps the frame rate, creating a custom profile if none matches. Not undoable.
+  Returns `changed`.
+- `reframe`: video `clipId`, `mode` equal to `fill` or `fit`, optional `focusX`,
+  `focusY`, `endFocusX`, `endFocusY` (0 to 1) and `zoom` (0.1 to 10). Writes a
+  native Transform (`qtblend`) effect, reusing the clip's existing one. Returns
+  `effectIndex` and the `rect` animation.
+- `effect_add`: `effectId` and exactly one of `clipId` (timeline clip) or `binId`
+  (bin clip), with optional `params` of MLT strings. Returns `effectIndex`.
+- `effect_set`: `clipId` or `binId`, `index` and `params`. Rejects built-in
+  effects and parameter names the effect does not have.
+- `effect_remove`: `clipId` or `binId` and `index`.
+- `title_edit`: title `binId`, optional canvas `width`/`height` and `items` by
+  `index` with `text`, `x`, `y`, `fontPixelSize` and `alignment`.
+- `render`: new absolute output `path` and optional `preset` (default: the
+  configured render preset). Starts `kdenlive_render` for the whole active
+  sequence, one render at a time. Returns `outputs`.
+- `batch`: `commands`, 1 to 200 objects of the types `import`, `remove_asset`,
+  `remove_clip`, `audio_envelope`, `rename_track`, `insert`, `move`, `trim`,
+  `reframe`, `effect_add`, `effect_set`, `effect_remove` and `title_edit`. Runs
+  them as one Undo step and returns `results`. On the first failure it rolls
+  everything back and returns that error with `failedIndex`.
 - `undo` and `redo`: no additional fields. These use the shared editor history.
+
+Saving, `save_as`, `set_profile` and `render` add no history entry. The folder
+policy for imports, save-as and render outputs is enforced by the native MCP
+server, not by D-Bus `apply()`. Frame
+capture, effect listing, title reading and render status are available only as
+[native MCP](native-mcp.md) tools, not through D-Bus.
 
 Frames use the project profile. Insertion's source end is exclusive. Readback of
 speed-adjusted existing clips reports their native producer frame range and speed;
@@ -118,7 +148,6 @@ its old revision. Receipts are in memory; process restart, document replacement
 or active-sequence change invalidates the session. On a lost response, retry the
 identical request before deciding what happened.
 
-The bridge exposes no batch, title, general effect-stack or rendering command.
 State covers active-sequence tracks/clips and the project bin, not
 the complete native document. It does not synchronize an offline project model.
 It rejects edits while a modal dialog or mouse drag is active. Native validation
