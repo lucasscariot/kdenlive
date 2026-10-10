@@ -46,6 +46,15 @@
 <property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000003}</property>
     <property name="kdenlive:clipname">Native MCP • 10 seconds</property>
   </producer>
+  <producer id="producer-title" in="0" out="149">
+    <property name="length">150</property>
+    <property name="eof">pause</property>
+    <property name="mlt_service">kdenlivetitle</property>
+    <property name="xmldata">&lt;kdenlivetitle width="1280" height="720" out="149"&gt;&lt;item z-index="0" type="QGraphicsTextItem"&gt;&lt;position x="400" y="300"&gt;&lt;transform&gt;1,0,0,0,1,0,0,0,1&lt;/transform&gt;&lt;/position&gt;&lt;content font-color="255,255,255,255" font-pixel-size="60" font-weight="400" alignment="1" box-width="480" box-height="72"&gt;MCP title&lt;/content&gt;&lt;/item&gt;&lt;item z-index="-1" type="QGraphicsRectItem"&gt;&lt;position x="0" y="600"&gt;&lt;transform&gt;1,0,0,0,1,0,0,0,1&lt;/transform&gt;&lt;/position&gt;&lt;content brushcolor="0,0,0,160" pencolor="0,0,0,0" penwidth="0" rect="0,0,1280,120"/&gt;&lt;/item&gt;&lt;startviewport rect="0,0,1280,720"/&gt;&lt;endviewport rect="0,0,1280,720"/&gt;&lt;background color="0,0,0,0"/&gt;&lt;/kdenlivetitle&gt;</property>
+    <property name="kdenlive:clipname">MCP title</property>
+    <property name="kdenlive:id">4</property>
+<property name="kdenlive:control_uuid">{00000000-0000-4000-8000-000000000004}</property>
+  </producer>
   <producer id="black_track" in="0" out="299">
     <property name="length">2147483647</property>
     <property name="eof">continue</property>
@@ -165,6 +174,7 @@
     <property name="xml_retain">1</property>
     <entry producer="producer0" in="0" out="599"/>
     <entry producer="title-8a34c4f0-e981-477b-8d9b-ab9a1b25458e" in="0" out="239"/>
+    <entry producer="producer-title" in="0" out="149"/>
     <entry producer="{80ce57d5-9ca2-4313-a43e-da9e8f05bc0e}" in="0" out="299"/>
   </playlist>
   <tractor id="project_tractor" in="0" out="299">

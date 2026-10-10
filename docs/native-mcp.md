@@ -44,24 +44,41 @@ replaced.
 
 ## Available tools
 
-| Tools | Purpose |
-| --- | --- |
-| `desktop_capabilities`, `desktop_state` | Read capabilities and the visible project |
-| `desktop_media_import`, `desktop_media_remove` | Add files to the bin or remove unused assets |
-| `desktop_clip_insert`, `desktop_clip_remove` | Add or remove timeline clips |
-| `desktop_media_replace` | Replace an asset while preserving timeline ranges |
-| `desktop_clip_move`, `desktop_clip_trim` | Move clips and trim their edges |
-| `desktop_audio_envelope`, `desktop_track_rename` | Add audio fades/gain and name tracks |
-| `desktop_project_save`, `desktop_undo`, `desktop_redo` | Save and use shared native history |
-| `desktop_project_save_as` | Save a copy and keep editing it |
-| `desktop_project_profile` | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
-| `desktop_clip_reframe` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
-| `desktop_frame_capture` | Return one rendered frame as a PNG image without moving the playhead |
-| `desktop_effect_list`, `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | Search effects and edit them on timeline clips (`clipId`) or bin clips (`binId`) |
-| `desktop_title_read`, `desktop_title_edit` | Read and edit Kdenlive title clips: canvas size, text, position, font size, alignment |
-| `desktop_render`, `desktop_render_status` | Render the active sequence with a preset and follow its progress |
-| `desktop_batch` | Apply up to 200 edits as one Undo step, rolled back on the first failure |
-| `desktop_apply` | Submit any supported operation using the common request envelope |
+Parameters below are in addition to `sessionId`, `expectedRevision` and
+`requestId`, which every editing tool requires. Clip and track IDs are integers
+from `desktop_state`; bin IDs are numeric strings.
+
+| Tools | Parameters | Purpose |
+| --- | --- | --- |
+| `desktop_capabilities`, `desktop_state` | none | Read capabilities and the visible project |
+| `desktop_frame_capture` | `position`, optional `width` (64 to 1920, default 540) | Return one rendered frame as a PNG image without moving the playhead |
+| `desktop_effect_list` | optional `clipId` or `binId`, optional `query` | List a clip's effects with parameters and `keyframeOrigin`, and/or search the effect catalog |
+| `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
+| `desktop_render_status` | none | Follow the progress of renders started by `desktop_render` |
+| `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
+| `desktop_clip_insert`, `desktop_clip_remove` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media`; `clipId` | Add or remove timeline clips |
+| `desktop_media_replace` | `binId`, `replacementBinId` | Replace an asset while preserving timeline ranges |
+| `desktop_clip_move`, `desktop_clip_trim` | `clipId`, `trackId`, `position`; `clipId`, `duration`, `edge` | Move clips and trim their edges |
+| `desktop_audio_envelope`, `desktop_track_rename` | `clipId`, `fadeIn`, `fadeOut`, `gainDb`; `trackId`, `name` | Add audio fades/gain and name tracks |
+| `desktop_project_save`, `desktop_undo`, `desktop_redo` | none | Save and use shared native history |
+| `desktop_project_save_as` | `path` | Save a copy and keep editing it |
+| `desktop_project_profile` | `width`, `height` (even, 16 to 8192) | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
+| `desktop_clip_reframe` | `clipId`, `mode` (`fill`/`fit`), optional `focusX`, `focusY`, `endFocusX`, `endFocusY`, `zoom` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
+| `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | `clipId` or `binId`; `effectId` and optional `params`; `index` and `params`; `index` | Edit effects on timeline clips or bin clips with MLT parameter strings |
+| `desktop_title_edit` | `binId`, optional `width`, `height`, `items` (`index`, `text`, `x`, `y`, `fontPixelSize`, `alignment`) | Edit a title clip's canvas size and text items |
+| `desktop_render` | `path`, optional `preset` | Render the active sequence with a preset |
+| `desktop_batch` | `commands` (1 to 200 `desktop_apply` commands) | Apply edits as one Undo step, rolled back on the first failure |
+| `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
+
+Tool annotations follow the MCP hints. The six reading tools are
+`readOnlyHint`. `desktop_media_import`, `desktop_clip_insert`,
+`desktop_audio_envelope`, `desktop_project_save_as`, `desktop_effect_add` and
+`desktop_render` only add content and are not `destructiveHint`; every other
+editing tool is. Repeating `desktop_clip_insert`, `desktop_effect_add`,
+`desktop_effect_remove`, `desktop_render`, `desktop_undo`, `desktop_redo`,
+`desktop_batch` or `desktop_apply` with new edit fields has a further effect,
+so they are not `idempotentHint`. Independently of the hints, an identical retry
+with the same `requestId` returns the saved result.
 
 Read `desktop_state` before editing. Each edit needs its `sessionId`, the
 `expectedRevision`, and a unique `requestId`. Frame values use the project FPS;
@@ -124,6 +141,23 @@ request limits, optional and network token checks, client configuration formats,
 The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable editor
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
+
+**Acceptance checks.** The run calls all 28 tools. It checks the catalog against
+the expected tool names and annotations, then: inserting, moving, trimming and
+removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
+`REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
+importing, removing and replacing media; the audio envelope and track rename;
+saving and reopening, which yields a new session. It then captures frames and
+checks the PNG image block and its size; searches the effect catalog; adds,
+sets, removes and undoes an effect, with unknown effects, indexes and parameters
+rejected; reads and edits a title clip from the fixture, with undo/redo; runs
+`desktop_apply`; applies a batch as one Undo step and checks that a failing batch
+leaves the timeline, bin and history unchanged; saves a copy, with a path outside
+the allowed folders refused; switches to 1080x1920 at the same frame rate; pans
+and fits a clip with `desktop_clip_reframe`; resizes the title canvas; and
+renders the 1080x1920 sequence, polling `desktop_render_status` until the file
+is finished, with bad paths, an unknown preset and a second render refused. It
+takes about 30 seconds.
 
 Codex's HTTP configuration fields are documented in its
 [configuration reference](https://developers.openai.com/codex/config-reference).
