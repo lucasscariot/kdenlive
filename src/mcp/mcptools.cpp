@@ -4,6 +4,7 @@
 */
 #include "mcptools.h"
 #include "livebridge.h"
+#include "mcpserver.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -110,8 +111,10 @@ const QMap<QString, Command> &commands()
              {{{"clipId", frame}, {"fadeIn", frame}, {"fadeOut", frame}, {"gainDb", QJsonObject{{"type", "number"}, {"minimum", -60}, {"maximum", 0}}}}}},
             {"rename_track", {{{"trackId", frame}, {"name", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}}}}},
             {"save", {}},
-            {"undo", {}},
-            {"redo", {}}};
+            {"undo",
+             {{{"count", frameSchema(1)}, {"toIndex", frame}, {"revertSession", QJsonObject{{"type", "boolean"}, {"const", true}}}},
+              {"count", "toIndex", "revertSession"}}},
+            {"redo", {{{"count", frameSchema(1)}, {"toIndex", frame}}, {"count", "toIndex"}}}};
     }();
     return result;
 }
@@ -215,8 +218,12 @@ const QList<Tool> &editingTools()
          "Start rendering the active sequence to a new file in the project folder or additional media folder. preset defaults to the configured one "
          "(usually MP4-H264/AAC). Poll desktop_render_status.",
          "render", additive},
-        {"desktop_undo", "Undo the latest action in shared Kdenlive history, including manual edits.", "undo", overwriting},
-        {"desktop_redo", "Redo the latest action in shared Kdenlive history.", "redo", overwriting},
+        {"desktop_undo",
+         "Undo in shared Kdenlive history, including manual edits: the latest step, count steps, or down to toIndex (an undo index from "
+         "desktop_history). revertSession: true undoes every edit this MCP connection made in the current editing session, only when no other edit "
+         "lies between them (otherwise HISTORY_INTERLEAVED lists the blocking entries). Returns undone entries.",
+         "undo", overwriting},
+        {"desktop_redo", "Redo in shared Kdenlive history: the next step, count steps, or up to toIndex. Returns redone entries.", "redo", overwriting},
         {"desktop_batch",
          "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
          "title_edit, marker_*) as one Undo step. Each command has the same fields as desktop_apply commands. Stops and rolls back everything on the first "
@@ -277,6 +284,18 @@ QJsonArray McpTools::definitions()
     result.append(definition("desktop_title_read", "Read a title clip's canvas size, the project frame size and its items (text, position, font size, box).",
                              {{"binId", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}, readOnlyTool));
     result.append(definition("desktop_render_status", "Read progress, status and errors of renders started with desktop_render.", {}, readOnlyTool));
+    result.append(
+        definition("desktop_history",
+                   "Read the shared Undo history as a change log, oldest first: each entry's undoIndex, text, state (applied/undone) and origin (mcp, user or "
+                   "unknown). MCP entries add sessionId, requestId, command, tool, client, revisions, a summary of affected ids and, for desktop_batch, "
+                   "children. Filters: origin, sessionId, since (an undoIndex, exclusive, or an ISO 8601 time) and includeUndone; limit keeps the newest "
+                   "(default 50). Also returns counts and the logFile path.",
+                   {{"limit", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 1000}}},
+                    {"origin", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"all", "mcp", "user", "unknown"}}}},
+                    {"sessionId", stringSchema()},
+                    {"since", QJsonObject{{"anyOf", QJsonArray{frameSchema(), QJsonObject{{"type", "string"}, {"format", "date-time"}}}}}},
+                    {"includeUndone", QJsonObject{{"type", "boolean"}}}},
+                   readOnlyTool, {"limit", "origin", "sessionId", "since", "includeUndone"}));
     result.append(definition("desktop_marker_export",
                              "Export the active sequence guides, or with binId a bin clip's markers, as text: json (the desktop_state marker shape), csv "
                              "(position in frames and HH:MM:SS:FF timecode, duration, category, categoryName, color, comment) or kdenlive (native guide "
@@ -314,7 +333,7 @@ QJsonArray McpTools::definitions()
     return result;
 }
 
-QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonObject &arguments, const QString &additionalMediaRoot)
+QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonObject &arguments, const QString &additionalMediaRoot, const McpCaller &caller)
 {
     if (name == QLatin1String("desktop_state")) return engine.stateFor(arguments);
     if (name == QLatin1String("desktop_capabilities") || name == QLatin1String("desktop_render_status")) {
@@ -326,6 +345,7 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
     if (name == QLatin1String("desktop_effect_list")) return engine.effectList(arguments);
     if (name == QLatin1String("desktop_title_read")) return engine.titleRead(arguments);
     if (name == QLatin1String("desktop_marker_export")) return engine.markerExport(arguments);
+    if (name == QLatin1String("desktop_history")) return engine.history(arguments);
     QJsonObject request;
     if (name == QLatin1String("desktop_apply")) {
         if (arguments.size() != 1 || !arguments.value("request").isObject()) return failure("INVALID_ARGUMENTS", "Expected a request object.");
@@ -390,6 +410,9 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
         }
         return check(command);
     };
-    return QJsonDocument::fromJson(engine.applyAuthorized(QString::fromUtf8(QJsonDocument(request).toJson(QJsonDocument::Compact)), authorize).toUtf8())
+    return QJsonDocument::fromJson(engine
+                                       .applyAuthorized(QString::fromUtf8(QJsonDocument(request).toJson(QJsonDocument::Compact)), authorize,
+                                                        {name, caller.client, caller.clientName})
+                                       .toUtf8())
         .object();
 }

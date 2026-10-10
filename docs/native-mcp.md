@@ -57,12 +57,14 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
 | `desktop_render_status` | none | Follow the progress of renders started by `desktop_render` |
 | `desktop_marker_export` | `format` (`json`, `csv`, `kdenlive`), optional `binId` | Return the sequence guides, or a bin clip's markers, as text |
+| `desktop_history` | optional `limit` (1 to 1000, default 50), `origin` (`all`, `mcp`, `user`, `unknown`), `sessionId`, `since` (undo index or ISO 8601 time), `includeUndone` (default true) | Read the shared Undo history as a change log; see [Change log](#change-log) |
 | `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
 | `desktop_clip_insert`, `desktop_clip_remove` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media`; `clipId` | Add or remove timeline clips |
 | `desktop_media_replace` | `binId`, `replacementBinId` | Replace an asset while preserving timeline ranges |
 | `desktop_clip_move`, `desktop_clip_trim` | `clipId`, `trackId`, `position`; `clipId`, `duration`, `edge` | Move clips and trim their edges |
 | `desktop_audio_envelope`, `desktop_track_rename` | `clipId`, `fadeIn`, `fadeOut`, `gainDb`; `trackId`, `name` | Add audio fades/gain and name tracks |
-| `desktop_project_save`, `desktop_undo`, `desktop_redo` | none | Save and use shared native history |
+| `desktop_project_save` | none | Save the project to its file |
+| `desktop_undo`, `desktop_redo` | optional `count` or `toIndex`; `desktop_undo` also `revertSession: true` | Move through shared native history; see [Change log](#change-log) |
 | `desktop_project_save_as` | `path` | Save a copy and keep editing it |
 | `desktop_project_profile` | `width`, `height` (even, 16 to 8192) | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
 | `desktop_clip_reframe` | `clipId`, `mode` (`fill`/`fit`), optional `focusX`, `focusY`, `endFocusX`, `endFocusY`, `zoom` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
@@ -76,7 +78,7 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_batch` | `commands` (1 to 200 `desktop_apply` commands) | Apply edits as one Undo step, rolled back on the first failure |
 | `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
 
-Tool annotations follow the MCP hints. The seven reading tools are
+Tool annotations follow the MCP hints. The eight reading tools are
 `readOnlyHint`. `desktop_media_import`, `desktop_clip_insert`,
 `desktop_audio_envelope`, `desktop_project_save_as`, `desktop_effect_add` and
 `desktop_render` only add content and are not `destructiveHint`; every other
@@ -129,6 +131,69 @@ positions, durations and ranges that are not whole frames or leave the sequence
 fit; an existing guide past a shortened sequence can still be edited in place
 or removed. Malformed fields fail with `INVALID_COMMAND`.
 
+## Change log
+
+Every MCP edit lands on Kdenlive's shared Undo stack, next to the user's own
+edits. The editor watches that stack and records where each entry came from:
+
+- `origin: "mcp"`: pushed while an MCP edit request ran. The entry carries
+  `sessionId` (the editing session), `requestId`, `command` (the engine command
+  type, such as `move`, `marker_add` or `batch`), `tool` (such as
+  `desktop_clip_move`), `client` (a 12-character digest that identifies one MCP
+  connection without revealing its session id) and `clientName` (its
+  `clientInfo.name`), `revisionBefore` and `revisionAfter`, and a `summary` of
+  the ids and positions the command named or returned (`clipId`, `binId`,
+  `trackId`, `position`, `marker`, `effectIndex`...). A `desktop_batch` entry
+  has `summary.commands` and `children[]` (`type`, `summary`) from the batch
+  plan and its results.
+- `origin: "user"`: any other entry, such as a GUI edit or an asynchronous
+  change; it carries only the common fields.
+- `origin: "unknown"`: entries already on the stack when the editor first saw
+  the project, or several entries that appeared at once.
+
+Every entry has `undoIndex` (the Undo index once it is applied, so an edit's
+entry has the `undo.index` its result reports), `text` (without Kdenlive's
+`hh:mm` prefix), `rawText`, `timestamp` (ISO 8601, UTC; when the editor first
+saw it) and `state`: `applied`, or `undone` when its `undoIndex` is above the
+current Undo index. A new edit after Undo discards the undone entries, as the
+stack does. The record lives as long as the project stays open; another
+document starts a new one, and switching sequences keeps it.
+
+`desktop_history` returns `entries[]` oldest first (the newest `limit`
+matching ones), `matched`, `undo` (`index`, `count`), `counts` (`applied`,
+`undone`, `mcp`, `user`, `unknown` over the whole stack) and `logFile`.
+`since` takes an undo index, returning later entries only, or an ISO 8601
+time, returning entries seen at or after it. Bad filters fail with
+`INVALID_ARGUMENTS`. `desktop_state` `include: ["history"]` embeds the last 10
+entries.
+
+To revert, `desktop_undo` and `desktop_redo` take `count` (steps) or `toIndex`
+(undo down to, or redo up to, that Undo index; `undoIndex - 1` undoes back to
+just before an entry). `desktop_undo` with `revertSession: true` undoes every
+edit the calling MCP connection made in the current editing session, back to
+the oldest one still applied, but only when every entry above it is also
+theirs. Otherwise it fails with `HISTORY_INTERLEAVED`, lists the entries in the
+way as `blocking` and returns the `toIndex` a full revert would need, so the
+user can decide. Results list the `undone` or `redone` entries with `steps`
+and the final `undoIndex`. Asking for more steps than exist, or a revert with
+nothing to revert, fails with `EMPTY_HISTORY`; `toIndex` in the wrong direction
+fails with `INVALID_ARGUMENTS`. Reverting moves the shared stack like the Undo
+button; nothing is rewritten. Kdenlive merges repeated changes of one effect
+parameter made within a few seconds into one entry, which keeps the origin of
+the first change.
+
+**Log file.** With **Write a change log of MCP edits** on (the default, in
+the MCP API settings, `mcpWriteLog`), each MCP edit appends one JSON line to
+`.kdenlive-mcp-log.jsonl` in the project's folder, or to `mcp-log.jsonl` in
+Kdenlive's data directory (`~/.local/share/kdenlive`) when that folder is not
+writable. Untitled projects are never logged. An `edit` line holds
+`documentUrl`, `sessionId`, `requestId`, `command`, `tool`, `client`,
+`clientName`, `undoIndex`, `text`, `timestamp`, `revisionBefore`,
+`revisionAfter`, `summary` and, for batches, `children`. MCP undo, redo, save,
+save-as, profile changes and renders, which add no entry, are logged as events
+of those names (`undo` and `redo` lines list the moved `entries`). The file is
+only appended to; delete it to clear it.
+
 ## State snapshot
 
 `desktop_state` and every successful edit return the same snapshot shape.
@@ -139,7 +204,9 @@ These fields are always present: `sessionId`, `revision`, `sequenceId` (the
 active sequence UUID), `documentUrl`, `modified`, `fps` (`numerator`,
 `denominator`), `profile` (`width`, `height`, `description`, `duration`),
 `playhead`, `activeTrackId`, `undo` (`index`, `canUndo`, `canRedo`,
-`undoText`, `redoText`), `sections` (the sections returned) and `counts`
+`undoText`, `redoText`), `lastChange` (the newest MCP-made history entry still
+on the stack: `undoIndex`, `command`, `text`, `requestId`, `applied`; null when
+there is none), `sections` (the sections returned) and `counts`
 (`tracks`, `clips`, `compositions`, `markers`, `subtitles`, `bin` for the whole
 sequence, whatever the filters; `markers` counts guides only). A filtered read also returns `filter`.
 
@@ -154,6 +221,7 @@ sequence, whatever the filters; `markers` counts guides only). A filtered read a
 | `subtitles` | no | `subtitles[]` sorted by start: `id`, `layer`, `start`, `end`, `text`; empty when the sequence has no subtitles |
 | `effects` | no | `tracks[].clips[].effects[]`: `effectId`, `name`, `enabled`, in stack order; implies `clips` |
 | `media` | no | `width`, `height`, `fps`, `hasVideo`, `hasAudio` on ready bin items (null when not applicable); implies `bin` |
+| `history` | no | `history[]`: the last 10 history entries, as `desktop_history` returns them |
 
 Clip types are `av`, `video`, `audio`, `image`, `color`, `title`, `text`,
 `slideshow`, `playlist`, `animation`, `sequence` or `other`. `clips`,
@@ -221,7 +289,7 @@ The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable edit
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
-**Acceptance checks.** The run calls all 33 tools. It checks the catalog against
+**Acceptance checks.** The run calls all 34 tools. It checks the catalog against
 the expected tool names and annotations, then reads the fixture's state:
 track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
 a dissolve composition, two guides, two subtitles, bin folders and types, and
@@ -236,7 +304,14 @@ marker error codes. It then tests inserting, moving,
 trimming and removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
 `REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
 importing, removing and replacing media; the audio envelope and track rename;
-saving and reopening, which yields a new session. It then captures frames and
+saving and reopening, which yields a new session. After the restart it checks
+the change log: `lastChange`, entry origins, commands, tools, summaries and
+batch children, applied and undone states through `count` and `toIndex`
+undo/redo, the history filters and their errors, the `history` state section,
+`revertSession` refused with `HISTORY_INTERLEAVED` while a second MCP
+connection's edit sits in between (the offscreen editor has no GUI input, so
+that connection stands in for another editor) and succeeding once it is gone,
+and the lines of both editor sessions in `.kdenlive-mcp-log.jsonl`. It then captures frames and
 checks the PNG image block and its size; searches the effect catalog; adds,
 sets, removes and undoes an effect and reads it in the `effects` section, with
 unknown effects, indexes and parameters rejected; reads and edits a title clip from the fixture, with undo/redo; runs

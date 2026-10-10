@@ -9,8 +9,9 @@
 #include <QString>
 
 class LiveBridge;
+struct McpCaller;
 
 namespace McpTools {
 QJsonArray definitions();
-QJsonObject call(LiveBridge &engine, const QString &name, const QJsonObject &arguments, const QString &additionalMediaRoot);
+QJsonObject call(LiveBridge &engine, const QString &name, const QJsonObject &arguments, const QString &additionalMediaRoot, const McpCaller &caller);
 } // namespace McpTools

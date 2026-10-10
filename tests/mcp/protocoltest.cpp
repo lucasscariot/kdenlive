@@ -23,6 +23,7 @@ private:
     QByteArray token;
     quint16 port;
     int calls{0};
+    McpCaller lastCaller;
     struct Reply
     {
         int status;
@@ -72,8 +73,9 @@ private Q_SLOTS:
         server = std::make_unique<McpServer>(
             QJsonArray{QJsonObject{{"name", "probe"}, {"inputSchema", QJsonObject{{"type", "object"}}}},
                        QJsonObject{{"name", "picture"}, {"inputSchema", QJsonObject{{"type", "object"}}}}},
-            [this](const QString &name, const QJsonObject &, const QString &) {
+            [this](const QString &name, const QJsonObject &, const QString &, const McpCaller &caller) {
                 ++calls;
+                lastCaller = caller;
                 if (name == QLatin1String("picture"))
                     return QJsonObject{{"ok", true}, {"width", 1}, {"image", QJsonObject{{"data", "iVBORw0KGgo="}, {"mimeType", "image/png"}}}};
                 return QJsonObject{{"ok", true}, {"calls", calls}};
@@ -101,6 +103,17 @@ private Q_SLOTS:
         QCOMPARE(tool.status, 200);
         QCOMPARE(calls, 1);
         QVERIFY(QJsonDocument::fromJson(tool.body).object()["result"].toObject()["structuredContent"].toObject()["ok"].toBool());
+        // Tools learn which connection called them through an opaque digest and the clientInfo name, never the session id.
+        QCOMPARE(lastCaller.client.size(), 12);
+        QVERIFY(!QString::fromLatin1(session).contains(lastCaller.client));
+        QCOMPARE(lastCaller.clientName, QStringLiteral("test"));
+        const auto firstClient = lastCaller.client;
+        const auto other = initialize();
+        QCOMPARE(send(R"({"jsonrpc":"2.0","method":"notifications/initialized"})", other).status, 202);
+        send(R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"probe","arguments":{}}})", other);
+        QVERIFY(lastCaller.client != firstClient);
+        send(R"({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"probe","arguments":{}}})", session);
+        QCOMPARE(lastCaller.client, firstClient);
         const auto picture =
             QJsonDocument::fromJson(send(R"({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"picture","arguments":{}}})", session).body)
                 .object()["result"]

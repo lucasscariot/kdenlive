@@ -4,6 +4,7 @@
 */
 #include "mcpserver.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -284,7 +285,9 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
         const QString requested = params.value("protocolVersion").toString();
         const QString version = versions.contains(requested) ? requested : versions.first();
         const QByteArray allocated = QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1();
-        m_sessions.insert(allocated, {version, false, now});
+        // History entries name the connection by a digest, so reading them never reveals a usable session id.
+        const QString client = QString::fromLatin1(QCryptographicHash::hash(allocated, QCryptographicHash::Sha256).toHex().left(12));
+        m_sessions.insert(allocated, {version, false, now, {client, params.value("clientInfo").toObject().value("name").toString().left(64)}});
         return response(
             {{"jsonrpc", "2.0"},
              {"id", id},
@@ -319,7 +322,9 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
     for (const auto &tool : m_tools)
         if (tool.toObject().value("name").toString() == name) known = true;
     if (!known || (params.contains("arguments") && !params.value("arguments").isObject())) return rpcError(id, -32602, "Unknown tool or invalid arguments.");
-    auto result = m_callTool(name, params.value("arguments").toObject(), m_mediaRoot);
+    // Copy the caller: a tool that spins the event loop may let other requests change m_sessions.
+    const McpCaller caller = session->caller;
+    auto result = m_callTool(name, params.value("arguments").toObject(), m_mediaRoot, caller);
     // Images travel as MCP image content, not inside the structured JSON.
     const auto image = result.take("image").toObject();
     const bool ok = result.value("ok").toBool();

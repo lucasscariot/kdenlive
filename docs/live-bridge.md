@@ -129,13 +129,20 @@ Supported commands:
   four `marker_*` commands. Runs
   them as one Undo step and returns `results`. On the first failure it rolls
   everything back and returns that error with `failedIndex`.
-- `undo` and `redo`: no additional fields. These use the shared editor history.
+- `undo` and `redo`: optional `count` (steps) or `toIndex` (target Undo
+  index); `undo` also takes `revertSession: true`. These use the shared editor
+  history and return the `undone` or `redone` entries. See
+  [Change log](native-mcp.md#change-log).
 
-Saving, `save_as`, `set_profile` and `render` add no history entry. The folder
+Saving, `save_as`, `set_profile` and `render` add no history entry. History
+entries created by `apply()` are recorded with `origin: "mcp"` and
+`client: "dbus"`, so every D-Bus caller counts as one connection for
+`revertSession`, and written to the change log file like MCP edits. The folder
 policy for imports, save-as and render outputs is enforced by the native MCP
 server, not by D-Bus `apply()`. Frame
-capture, effect listing, title reading, marker export and render status are
-available only as [native MCP](native-mcp.md) tools, not through D-Bus.
+capture, effect listing, title reading, marker export, render status and the
+`desktop_history` change log are available only as [native MCP](native-mcp.md)
+tools, not through D-Bus. `state()` includes `lastChange`.
 `capabilities()` lists the project's `markerCategories`; see
 [Markers and guides](native-mcp.md#markers-and-guides).
 

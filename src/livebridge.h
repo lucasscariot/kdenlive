@@ -5,11 +5,13 @@
 #pragma once
 
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
 #include <QStringList>
+#include <QUndoStack>
 #include <functional>
 #include <limits>
 
@@ -24,8 +26,17 @@ class LiveBridge final : public QObject
 
 public:
     explicit LiveBridge(QObject *parent);
+    /** Who submitted an edit, recorded on the history entries it creates. client identifies one connection (an MCP session digest, or "dbus"). */
+    struct Caller
+    {
+        QString tool;
+        QString client;
+        QString clientName;
+    };
     /** Policy runs only for a new, revision-checked request, never for a receipt replay. */
-    QString applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize);
+    QString applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize, const Caller &caller);
+    /** The shared Undo history with the origin of each entry (mcp, user or unknown); see docs/native-mcp.md "Change log". */
+    QJsonObject history(const QJsonObject &arguments);
     /** Read-only production helpers; each validates its own arguments. */
     QJsonObject frameCapture(const QJsonObject &arguments);
     QJsonObject effectList(const QJsonObject &arguments);
@@ -68,6 +79,40 @@ private:
     QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;
 
+    /** One QUndoStack command as seen by the bridge; row i of m_history is stack->command(i). */
+    struct HistoryEntry
+    {
+        const QUndoCommand *command{nullptr};
+        QString text;
+        QString origin;
+        qint64 time{0};
+        // Only for origin "mcp".
+        QString sessionId;
+        QString requestId;
+        QString type;
+        Caller caller;
+        qint64 revisionBefore{0};
+        qint64 revisionAfter{0};
+        QJsonObject summary;
+        QJsonArray children;
+    };
+    /** The edit request being executed; history entries pushed meanwhile belong to it. */
+    struct Request
+    {
+        QString requestId;
+        QString type;
+        Caller caller;
+        qint64 revisionBefore{0};
+        QList<const QUndoCommand *> created;
+    };
+    void attachHistory(KdenliveDoc *document);
+    void syncHistory();
+    void finishRequest(const QJsonObject &command, const QJsonObject &result);
+    QJsonObject historyJson(int row) const;
+    QJsonObject executeHistoryStep(const QJsonObject &command);
+    QString logPath() const;
+    void writeLog(const QJsonObject &line);
+
     QPointer<KdenliveDoc> m_document;
     QPointer<TimelineItemModel> m_timeline;
     QList<QMetaObject::Connection> m_connections;
@@ -93,4 +138,9 @@ private:
     };
     QMap<QString, RenderState> m_renders;
     bool m_renderTracking{false};
+    QList<HistoryEntry> m_history;
+    QPointer<QUndoStack> m_historyStack;
+    QList<QMetaObject::Connection> m_historyConnections;
+    bool m_historySeeded{false};
+    Request *m_request{nullptr};
 };

@@ -51,7 +51,7 @@ const expectedTools = {
   desktop_effect_set: [false, true, true], desktop_effect_remove: [false, true, false], desktop_title_edit: [false, true, true],
   desktop_render: [false, false, false], desktop_undo: [false, true, false], desktop_redo: [false, true, false], desktop_batch: [false, true, false],
   desktop_marker_add: [false, true, true], desktop_marker_edit: [false, true, true], desktop_marker_remove: [false, true, true],
-  desktop_marker_import: [false, true, true], desktop_marker_export: [true, false, true],
+  desktop_marker_import: [false, true, true], desktop_marker_export: [true, false, true], desktop_history: [true, false, true],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -114,6 +114,13 @@ async function ready(binId, url) {
   }
   throw Error(`Asset did not become ready: ${binId}`);
 }
+async function connect(name) {
+  const token = (await readFile(join(root, 'config/kdenlive/mcp-token'), 'utf8')).trim();
+  const connection = { client: new Client({ name, version: '1.0' }) };
+  connection.transport = new StreamableHTTPClientTransport(endpoint, { requestInit: { headers: { Authorization: `Bearer ${token}` } } });
+  await connection.client.connect(connection.transport);
+  return connection;
+}
 async function launch() {
   log = createWriteStream(join(root, `editor-${Date.now()}.log`));
   editor = spawn(binary, ['--config', config, '--no-welcome', project], { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -173,6 +180,7 @@ try {
   assert.deepEqual(state.counts, { tracks: 4, clips: 3, compositions: 1, markers: 2, subtitles: 2, bin: 4 });
   assert.equal(state.subtitles, undefined, 'Subtitles are opt-in');
   assert.equal(state.playhead, 0);
+  assert.equal(state.lastChange, null, 'No MCP edit yet');
   const [v1, a1, titles] = state.tracks;
   assert.deepEqual(state.tracks.map(track => [track.name, track.type, track.locked, track.muted, track.hidden]),
     [['V1', 'video', false, false, false], ['A1', 'audio', false, false, false], ['Titles', 'video', false, false, false], ['Muted', 'audio', true, true, false]]);
@@ -238,6 +246,7 @@ try {
   assert.deepEqual([marker.target, marker.replaced, marker.binId], ['guides', false, undefined]);
   assert.deepEqual(marker.marker, { position: 30, duration: 0, comment: 'Cut here', category: 4, categoryName: category(4).name, color: category(4).color });
   assert.deepEqual(guide(30), marker.marker); assert.equal(undoLabel(), 'Add guide'); assert.equal(state.counts.markers, 3);
+  assert.deepEqual(state.lastChange, { undoIndex: state.undo.index, command: 'marker_add', text: 'Add guide', requestId: marker.requestId, applied: true });
   marker = await edit('desktop_marker_add', { position: 120, duration: 45, comment: 'Interview', category: category(5).name.toUpperCase() });
   assert.deepEqual([marker.marker.duration, marker.marker.category], [45, 5], 'Range guide with a case-insensitive category name');
   marker = await edit('desktop_marker_add', { position: 60 });
@@ -406,12 +415,113 @@ try {
   assert(state.tracks.flatMap(track => track.clips).some(item => item.position === 420 && item.duration === 45 && item.sourceIn === 30));
   assert.equal(state.tracks.find(track => track.name === 'MCP Music').clips[0].effectCount, 1);
   assert.equal((await tool('desktop_clip_insert', insertion)).error.code, 'SESSION_CHANGED');
+
+  // Change log: entries made through MCP carry their request, tool, connection and affected ids; undo and redo move them between applied
+  // and undone; revertSession undoes one connection's edits unless another connection's edit lies in between.
+  await refresh();
+  assert.equal(state.lastChange, null, 'A restarted editor starts a new history');
+  const historyStart = state.undo.index;
+  const historyTrack = state.tracks.find(track => !track.audio && !track.locked);
+  const h1 = await edit('desktop_marker_add', { position: 33, comment: 'History one' });
+  const h2 = await edit('desktop_track_rename', { trackId: historyTrack.id, name: 'History V' });
+  const h3 = await edit('desktop_batch', { commands: [{ type: 'marker_add', position: 34, comment: 'History batch' }, { type: 'marker_edit', position: 33, comment: 'History one, edited' }] });
+  assert.deepEqual(state.lastChange, { undoIndex: historyStart + 3, command: 'batch', text: 'MCP batch (2 edits)', requestId: h3.requestId, applied: true });
+  let changes = await ok('desktop_history', { since: historyStart });
+  assert.deepEqual(changes.entries.map(entry => [entry.undoIndex, entry.origin, entry.command, entry.tool, entry.state, entry.requestId, entry.text]), [
+    [historyStart + 1, 'mcp', 'marker_add', 'desktop_marker_add', 'applied', h1.requestId, 'Add guide'],
+    [historyStart + 2, 'mcp', 'rename_track', 'desktop_track_rename', 'applied', h2.requestId, 'Rename Track'],
+    [historyStart + 3, 'mcp', 'batch', 'desktop_batch', 'applied', h3.requestId, 'MCP batch (2 edits)']]);
+  const [e1, e2, e3] = changes.entries;
+  assert.match(e1.rawText, /^\d\d:\d\d Add guide$/); assert.equal(e3.rawText, 'MCP batch (2 edits)');
+  assert.deepEqual(e1.summary, { position: 33, replaced: false, marker: { position: 33, duration: 0 } });
+  assert.deepEqual(e2.summary, { trackId: historyTrack.id, name: 'History V' });
+  assert.deepEqual([e3.summary, e3.children], [{ commands: 2 }, [
+    { type: 'marker_add', summary: { position: 34, replaced: false, marker: { position: 34, duration: 0 } } },
+    { type: 'marker_edit', summary: { position: 33, marker: { position: 33, duration: 0 } } }]]);
+  assert.equal(e1.children, undefined);
+  assert(h3.results.every(result => result.historySummary === undefined));
+  for (const entry of changes.entries) {
+    assert.deepEqual([entry.sessionId, entry.clientName, entry.client], [state.sessionId, 'native-acceptance', e1.client]);
+    assert(entry.revisionAfter > entry.revisionBefore, JSON.stringify(entry));
+    assert(!Number.isNaN(Date.parse(entry.timestamp)) && entry.timestamp.endsWith('Z'), entry.timestamp);
+  }
+  assert.match(e1.client, /^[0-9a-f]{12}$/);
+  assert.equal(e3.revisionAfter, state.revision);
+  assert.deepEqual([changes.undo.index, changes.matched, changes.counts.applied, changes.counts.undone], [historyStart + 3, 3, historyStart + 3, 0]);
+  assert.equal(changes.counts.mcp + changes.counts.user + changes.counts.unknown, historyStart + 3);
+  assert.equal(changes.logFile, join(root, '.kdenlive-mcp-log.jsonl'));
+  const twoBack = await edit('desktop_undo', { count: 2 });
+  assert.deepEqual([twoBack.steps, twoBack.undoIndex, twoBack.undone.map(entry => [entry.undoIndex, entry.state])],
+    [2, historyStart + 1, [[historyStart + 3, 'undone'], [historyStart + 2, 'undone']]]);
+  assert.deepEqual([guide(34), guide(33).comment, state.tracks.find(track => track.id === historyTrack.id).name], [undefined, 'History one', historyTrack.name]);
+  assert.deepEqual([state.lastChange.undoIndex, state.lastChange.applied], [historyStart + 3, false]);
+  changes = await ok('desktop_history', { since: historyStart });
+  assert.deepEqual([changes.entries.map(entry => entry.state), changes.counts.undone], [['applied', 'undone', 'undone'], 2]);
+  assert.deepEqual((await ok('desktop_history', { since: historyStart, includeUndone: false })).entries.map(entry => entry.undoIndex), [historyStart + 1]);
+  const forward = await edit('desktop_redo', { toIndex: historyStart + 3 });
+  assert.deepEqual([forward.steps, forward.redone.map(entry => [entry.undoIndex, entry.state])], [2, [[historyStart + 2, 'applied'], [historyStart + 3, 'applied']]]);
+  assert.deepEqual([guide(34).comment, guide(33).comment], ['History batch', 'History one, edited']);
+  await edit('desktop_undo', { toIndex: historyStart + 2 }); assert.equal(guide(34), undefined);
+  await edit('desktop_redo'); assert.equal(guide(34).comment, 'History batch');
+  assert.deepEqual((await ok('desktop_history', { since: historyStart, limit: 1 })).entries.map(entry => entry.command), ['batch']);
+  const sinceTime = await ok('desktop_history', { since: e2.timestamp });
+  assert(sinceTime.entries.every(entry => entry.timestamp >= e2.timestamp) && sinceTime.entries.some(entry => entry.requestId === h3.requestId));
+  assert.deepEqual((await ok('desktop_history', { sessionId: randomUUID() })).entries, []);
+  assert.deepEqual((await ok('desktop_history', { origin: 'mcp', since: historyStart })).entries.length, 3);
+  assert((await ok('desktop_history', { origin: 'user' })).entries.every(entry => entry.origin === 'user' && entry.requestId === undefined));
+  for (const args of [{ limit: 0 }, { limit: 1001 }, { origin: 'robot' }, { since: 'yesterday' }, { since: -1 }, { includeUndone: 'yes' }, { extra: 1 }])
+    assert.equal((await tool('desktop_history', args)).error.code, 'INVALID_ARGUMENTS', JSON.stringify(args));
+  assert.equal(await rejected('desktop_undo', { count: state.undo.index + 1 }), 'EMPTY_HISTORY');
+  assert.equal(await rejected('desktop_redo', { count: 1 }), 'EMPTY_HISTORY');
+  assert.equal(await rejected('desktop_undo', { count: 1, toIndex: 0 }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_undo', { revertSession: false }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_redo', { revertSession: true }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_undo', { toIndex: state.undo.index + 1 }), 'INVALID_ARGUMENTS');
+  assert.equal(await rejected('desktop_redo', { toIndex: 0 }), 'INVALID_ARGUMENTS');
+  const withHistory = await ok('desktop_state', { include: ['history'] });
+  assert.deepEqual([withHistory.sections, withHistory.tracks], [['history'], undefined]);
+  assert(withHistory.history.length <= 10);
+  assert.deepEqual(withHistory.history.at(-1), (await ok('desktop_history', { limit: 1 })).entries[0]);
+  // A second MCP connection stands in for another editor: the offscreen test editor has no GUI input, so no user-origin entry can be made.
+  const second = await connect('second-agent');
+  await refresh();
+  const other = (await second.client.callTool({ name: 'desktop_marker_add', arguments: { ...fields(), position: 35, comment: 'Other agent' } })).structuredContent;
+  assert.equal(other.ok, true, JSON.stringify(other));
+  const otherEntry = (await ok('desktop_history', { limit: 1 })).entries[0];
+  assert.deepEqual([otherEntry.requestId, otherEntry.clientName, otherEntry.origin, otherEntry.undoIndex], [other.data.requestId, 'second-agent', 'mcp', historyStart + 4]);
+  assert.notEqual(otherEntry.client, e1.client);
+  await refresh();
+  const interleaved = await tool('desktop_undo', { ...fields(), revertSession: true });
+  assert.deepEqual([interleaved.ok, interleaved.error.code, interleaved.toIndex], [false, 'HISTORY_INTERLEAVED', historyStart]);
+  assert.deepEqual(interleaved.blocking.map(entry => [entry.undoIndex, entry.requestId]), [[historyStart + 4, other.data.requestId]]);
+  await refresh(); assert.equal(guide(35).comment, 'Other agent', 'A refused revert changes nothing');
+  const otherRevert = (await second.client.callTool({ name: 'desktop_undo', arguments: { ...fields(), revertSession: true } })).structuredContent;
+  assert.deepEqual([otherRevert.ok, otherRevert.data?.steps, otherRevert.data?.undone.map(entry => entry.requestId)], [true, 1, [other.data.requestId]]);
+  await second.transport.terminateSession().catch(() => {}); await second.client.close();
+  const reverted = await edit('desktop_undo', { revertSession: true });
+  assert.deepEqual([reverted.steps, reverted.undoIndex, reverted.undone.map(entry => entry.requestId)], [3, historyStart, [h3.requestId, h2.requestId, h1.requestId]]);
+  assert.deepEqual([guide(33), guide(34), guide(35), state.tracks.find(track => track.id === historyTrack.id).name], [undefined, undefined, undefined, historyTrack.name]);
+  assert.equal(await rejected('desktop_undo', { revertSession: true }), 'EMPTY_HISTORY');
+  // The JSON lines log next to the project keeps both editor sessions.
+  const logLines = (await readFile(join(root, '.kdenlive-mcp-log.jsonl'), 'utf8')).trimEnd().split('\n').map(line => JSON.parse(line));
+  const h1Line = logLines.find(line => line.requestId === h1.requestId);
+  assert.deepEqual([h1Line.event, h1Line.command, h1Line.tool, h1Line.text, h1Line.undoIndex, h1Line.sessionId, h1Line.documentUrl, h1Line.clientName, h1Line.summary],
+    ['edit', 'marker_add', 'desktop_marker_add', 'Add guide', historyStart + 1, state.sessionId, state.documentUrl, 'native-acceptance', e1.summary]);
+  assert(h1Line.revisionAfter > h1Line.revisionBefore && !Number.isNaN(Date.parse(h1Line.timestamp)));
+  assert.deepEqual(logLines.find(line => line.requestId === h3.requestId).children, e3.children);
+  assert.equal(logLines.find(line => line.requestId === other.data.requestId).clientName, 'second-agent');
+  const revertLine = logLines.find(line => line.requestId === reverted.requestId);
+  assert.deepEqual([revertLine.event, revertLine.summary.revertSession, revertLine.summary.steps, revertLine.entries.map(entry => entry.undoIndex)],
+    ['undo', true, 3, [historyStart + 3, historyStart + 2, historyStart + 1]]);
+  assert(logLines.some(line => line.sessionId === previousSession && line.event === 'edit' && line.command === 'insert'), 'First editor session is logged');
+  assert(logLines.some(line => line.sessionId === previousSession && line.event === 'save'));
+  assert(!logLines.some(line => line.requestId === undefined || line.documentUrl !== pathToFileURL(project).href), 'Every line names the project');
   // Tools for reworking a project's format: capabilities, capture, effects, titles, batch, save-as, profile, reframe, render.
   const capabilities = await ok('desktop_capabilities');
   for (const operation of ['save_as', 'set_profile', 'reframe', 'effect_add', 'effect_set', 'effect_remove', 'title_edit', 'render', 'batch'])
     assert(capabilities.operations.includes(operation), `capabilities lacks ${operation}`);
   assert.deepEqual(capabilities.defaultStateSections, state.sections);
-  assert.deepEqual(capabilities.stateSections, ['tracks', 'clips', 'compositions', 'markers', 'subtitles', 'bin', 'sequences', 'effects', 'media']);
+  assert.deepEqual(capabilities.stateSections, ['tracks', 'clips', 'compositions', 'markers', 'subtitles', 'bin', 'sequences', 'effects', 'media', 'history']);
   const videoTrack = state.tracks.find(track => !track.audio && track.clips.some(item => item.position === 420));
   const clipId = videoTrack.clips.find(item => item.position === 420).id;
   const vclip = () => clip(clipId);
@@ -575,7 +685,9 @@ try {
   assert.equal((await stat(rendered)).size, job.bytes);
   const { stdout: dimensions } = await promisify(execFile)('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', rendered]);
   assert.equal(dimensions.trim(), '1080,1920');
-  await writeFile(join(root, 'report.json'), JSON.stringify({ passed: true, transport: 'native Streamable HTTP', legacyBridge: false, tools: catalog.tools.map(tool => tool.name), timings, finalState: state }, null, 2));
+  const finalHistory = await ok('desktop_history', { limit: 1000 });
+  assert.equal(finalHistory.logFile, join(root, '.kdenlive-mcp-log.jsonl'), 'save_as keeps logging in the shared project folder');
+  await writeFile(join(root, 'report.json'), JSON.stringify({ passed: true, transport: 'native Streamable HTTP', legacyBridge: false, tools: catalog.tools.map(tool => tool.name), timings, history: finalHistory, finalState: state }, null, 2));
   console.log(`Native MCP acceptance passed: ${root}/report.json`);
 } catch (error) {
   console.error(`Failed after: ${timings.slice(-5).map(item => item.tool).join(' -> ')}; logs in ${root}`);
