@@ -22,6 +22,7 @@
 #include "effects/effectstack/model/effectitemmodel.hpp"
 #include "effects/effectstack/model/effectstackmodel.hpp"
 #include "kdenlivesettings.h"
+#include "macros.hpp"
 #include "mainwindow.h"
 #include "profiles/profilemodel.hpp"
 #include "profiles/profilerepository.hpp"
@@ -31,6 +32,7 @@
 #include "renderpresets/renderpresetmodel.hpp"
 #include "renderpresets/renderpresetrepository.hpp"
 #include "timeline2/model/compositionmodel.hpp"
+#include "timeline2/model/timelinefunctions.hpp"
 #include "timeline2/model/timelineitemmodel.hpp"
 #include "timeline2/view/timelinecontroller.h"
 #include "timeline2/view/timelinewidget.h"
@@ -132,11 +134,14 @@ QString LiveBridge::capabilities() const
     return json({{"ok", true},
                  {"protocolVersion", 1},
                  {"transport", "native-editor"},
-                 {"operations", QJsonArray{"import",     "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track",  "save",
-                                           "save_as",    "set_profile",   "insert",      "move",          "trim",           "reframe",       "effect_add",
-                                           "effect_set", "effect_remove", "title_edit",  "marker_add",    "marker_edit",    "marker_remove", "marker_import",
-                                           "render",     "batch",         "undo",        "redo"}},
+                 {"operations", QJsonArray{"import",       "remove_asset",  "remove_clip", "replace_media", "audio_envelope", "rename_track",  "save",
+                                           "save_as",      "set_profile",   "insert",      "move",          "trim",           "reframe",       "effect_add",
+                                           "effect_set",   "effect_remove", "title_edit",  "marker_add",    "marker_edit",    "marker_remove", "marker_import",
+                                           "render",       "batch",         "undo",        "redo",          "split",          "remove_range",  "remove_gap",
+                                           "insert_space", "group",         "ungroup",     "speed",         "enable"}},
                  {"insertModes", QJsonArray{"video", "audio"}},
+                 {"editModes", QJsonArray{"normal", "overwrite", "insert"}},
+                 {"removeModes", QJsonArray{"lift", "extract"}},
                  {"markerCategories", categories},
                  {"defaultMarkerCategory", pCore->markerTypes.contains(defaultCategory) ? QJsonValue(defaultCategory)
                                            : pCore->markerTypes.isEmpty()               ? QJsonValue(QJsonValue::Null)
@@ -672,7 +677,11 @@ QString LiveBridge::applyAuthorized(const QString &request, const std::function<
     syncHistory();
     Request context{requestId, command.value(QStringLiteral("type")).toString(), caller, m_revision, {}};
     QScopedValueRollback<Request *> current(m_request, &context);
+    // Insert and overwrite are explicit per command; the GUI's edit mode toggle must not change what a command does.
+    const auto editMode = m_timeline->editMode();
+    m_timeline->setEditMode(TimelineMode::NormalEdit);
     auto result = execute(command);
+    if (m_timeline) m_timeline->setEditMode(editMode);
     const bool succeeded = result.value(QStringLiteral("ok")).toBool();
     // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
     if (succeeded) contentChanged();
@@ -710,6 +719,8 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
     auto production = executeProduction(command, handled);
     if (handled) return production;
     if (type.startsWith(QLatin1String("marker_"))) return executeMarker(command);
+    auto timeline = executeTimeline(command, handled);
+    if (handled) return timeline;
     if (type == QLatin1String("remove_asset")) {
         if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId")})) return invalid();
         const QString id = command.value(QStringLiteral("binId")).toString();
@@ -725,17 +736,6 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         if (!pCore->projectItemModel()->requestBinClipDeletion(clip, undo, redo))
             return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native asset removal was rejected."));
         pCore->pushUndo(undo, redo, QStringLiteral("Remove media asset"));
-        return {{"ok", true}};
-    }
-    if (type == QLatin1String("remove_clip")) {
-        if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId")}) || !integer(command, QStringLiteral("clipId"))) return invalid();
-        const int id = command.value(QStringLiteral("clipId")).toInt();
-        if (!m_timeline->isClip(id)) return error(QStringLiteral("UNKNOWN_CLIP"), QStringLiteral("Timeline clip does not exist."));
-        if (m_timeline->isInGroup(id)) return error(QStringLiteral("GROUPED_CLIP"), QStringLiteral("Ungroup the clip before removing it individually."));
-        const int track = m_timeline->getClipTrackId(id);
-        if (m_timeline->data(m_timeline->makeTrackIndexFromID(track), TimelineModel::IsLockedRole).toBool())
-            return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Track is locked."));
-        if (!m_timeline->requestItemDeletion(id, true)) return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native clip removal was rejected."));
         return {{"ok", true}};
     }
     if (type == QLatin1String("rename_track")) {
@@ -837,35 +837,12 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         return {{"ok", true}};
     }
     if (type == QLatin1String("undo") || type == QLatin1String("redo")) return executeHistoryStep(command);
-    if (type == QLatin1String("insert") || type == QLatin1String("move")) {
+    if (type == QLatin1String("move")) {
         if (!integer(command, QStringLiteral("trackId")) || !integer(command, QStringLiteral("position"))) return invalid();
         const int trackId = command.value(QStringLiteral("trackId")).toInt();
         if (!m_timeline->isTrack(trackId)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
         if (m_timeline->data(m_timeline->makeTrackIndexFromID(trackId), TimelineModel::IsLockedRole).toBool())
             return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Target track is locked."));
-    }
-    if (type == QLatin1String("insert")) {
-        if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("trackId"), QStringLiteral("position"), QStringLiteral("sourceIn"),
-                            QStringLiteral("sourceOut"), QStringLiteral("media")}) ||
-            !integer(command, QStringLiteral("sourceIn")) || !integer(command, QStringLiteral("sourceOut"), 1))
-            return invalid();
-        const auto binId = command.value(QStringLiteral("binId")).toString();
-        const auto mode = command.value(QStringLiteral("media")).toString();
-        if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() || (mode != QLatin1String("video") && mode != QLatin1String("audio")))
-            return invalid();
-        auto clip = pCore->projectItemModel()->getClipByBinID(binId);
-        if (!clip || !clip->statusReady()) return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is missing or still loading."));
-        const int start = command.value(QStringLiteral("sourceIn")).toInt();
-        const int end = command.value(QStringLiteral("sourceOut")).toInt();
-        const int position = command.value(QStringLiteral("position")).toInt();
-        if (end <= start || size_t(end) > clip->frameDuration() || qint64(position) + end - start > std::numeric_limits<int>::max()) return invalid();
-        const auto nativeId =
-            QStringLiteral("%1%2/%3/%4").arg(mode == QLatin1String("video") ? QStringLiteral("V") : QStringLiteral("A"), binId).arg(start).arg(end - 1);
-        int id = -1;
-        // finalMove=0 suppresses prompts to create missing audio tracks; native validation still applies.
-        if (!m_timeline->requestClipInsertion(nativeId, command.value(QStringLiteral("trackId")).toInt(), position, id, true, true, false, 0) || id < 0)
-            return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native insertion rejected the range, track type or collision."));
-        return {{"ok", true}, {"clipId", id}};
     }
     if (type == QLatin1String("move") || type == QLatin1String("trim")) {
         if (!integer(command, QStringLiteral("clipId"))) return invalid();
@@ -874,6 +851,8 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         const int sourceTrack = m_timeline->getClipTrackId(id);
         if (m_timeline->data(m_timeline->makeTrackIndexFromID(sourceTrack), TimelineModel::IsLockedRole).toBool())
             return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Source track is locked."));
+        // A GUI selection groups its clips; it must not widen the edit.
+        m_timeline->requestClearSelection();
         if (type == QLatin1String("move")) {
             if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("trackId"), QStringLiteral("position")})) return invalid();
             const int position = command.value(QStringLiteral("position")).toInt();
@@ -905,11 +884,13 @@ QJsonObject LiveBridge::editableClip(int clipId) const
 }
 
 namespace {
-const QStringList batchable{QStringLiteral("import"),       QStringLiteral("remove_asset"), QStringLiteral("remove_clip"), QStringLiteral("audio_envelope"),
-                            QStringLiteral("rename_track"), QStringLiteral("insert"),       QStringLiteral("move"),        QStringLiteral("trim"),
-                            QStringLiteral("reframe"),      QStringLiteral("effect_add"),   QStringLiteral("effect_set"),  QStringLiteral("effect_remove"),
-                            QStringLiteral("title_edit"),   QStringLiteral("marker_add"),   QStringLiteral("marker_edit"), QStringLiteral("marker_remove"),
-                            QStringLiteral("marker_import")};
+const QStringList batchable{QStringLiteral("import"),        QStringLiteral("remove_asset"), QStringLiteral("remove_clip"),  QStringLiteral("audio_envelope"),
+                            QStringLiteral("rename_track"),  QStringLiteral("insert"),       QStringLiteral("move"),         QStringLiteral("trim"),
+                            QStringLiteral("reframe"),       QStringLiteral("effect_add"),   QStringLiteral("effect_set"),   QStringLiteral("effect_remove"),
+                            QStringLiteral("title_edit"),    QStringLiteral("marker_add"),   QStringLiteral("marker_edit"),  QStringLiteral("marker_remove"),
+                            QStringLiteral("marker_import"), QStringLiteral("split"),        QStringLiteral("remove_range"), QStringLiteral("remove_gap"),
+                            QStringLiteral("insert_space"),  QStringLiteral("group"),        QStringLiteral("ungroup"),      QStringLiteral("speed"),
+                            QStringLiteral("enable")};
 
 bool unitInterval(const QJsonObject &object, const QString &key)
 {
@@ -1231,6 +1212,711 @@ QJsonObject LiveBridge::executeProduction(const QJsonObject &command, bool &hand
     if (type == QLatin1String("render")) return startRender(command);
     handled = false;
     return {};
+}
+
+// Timeline primitives. Each command validates first, then runs Kdenlive's own model or TimelineFunctions calls into one undo/redo pair and
+// pushes it once, so every command (and a batch of them) is one Undo step tagged as an MCP entry.
+namespace {
+QJsonObject invalidTimeline(const QString &message)
+{
+    return error(QStringLiteral("INVALID_COMMAND"), message);
+}
+
+/** Reads an optional boolean; false when the key holds anything else. */
+bool optionalBool(const QJsonObject &object, const QString &key, bool &value)
+{
+    if (!object.contains(key)) return true;
+    if (!object.value(key).isBool()) return false;
+    value = object.value(key).toBool();
+    return true;
+}
+
+QJsonArray idArray(const QList<int> &ids)
+{
+    QJsonArray result;
+    for (int id : ids)
+        result.append(id);
+    return result;
+}
+
+QList<int> sortedIds(const QSet<int> &ids)
+{
+    QList<int> result(ids.cbegin(), ids.cend());
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+/** Runs one native step on its own accumulator and appends it to undo/redo on success. Kdenlive's steps revert their own partial work when they fail. */
+template <typename Step> bool runStep(Fun &undo, Fun &redo, Step &&step)
+{
+    Fun localUndo = [] { return true; };
+    Fun localRedo = [] { return true; };
+    if (!step(localUndo, localRedo)) return false;
+    UPDATE_UNDO_REDO_NOLOCK(localRedo, localUndo, undo, redo);
+    return true;
+}
+} // namespace
+
+std::shared_ptr<TimelineItemModel> LiveBridge::sharedTimeline() const
+{
+    return std::static_pointer_cast<TimelineItemModel>(m_timeline->shared_from_this());
+}
+
+QJsonObject LiveBridge::editableTrack(int trackId) const
+{
+    if (!m_timeline->isTrack(trackId)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
+    if (m_timeline->trackIsLocked(trackId)) return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Track is locked."));
+    return {};
+}
+
+QList<int> LiveBridge::unlockedTracks() const
+{
+    QList<int> result;
+    for (int row = 0; row < m_timeline->rowCount(); ++row) {
+        const int trackId = int(m_timeline->index(row, 0).internalId());
+        if (!m_timeline->trackIsLocked(trackId)) result.append(trackId);
+    }
+    return result;
+}
+
+QList<LiveBridge::ClipSpan> LiveBridge::trackClips(int trackId) const
+{
+    QList<ClipSpan> result;
+    const auto track = m_timeline->makeTrackIndexFromID(trackId);
+    for (int i = 0; i < m_timeline->rowCount(track); ++i) {
+        const int id = int(m_timeline->index(i, 0, track).internalId());
+        if (!m_timeline->isClip(id)) continue;
+        const int start = m_timeline->getClipPosition(id);
+        result.append({id, start, start + m_timeline->getClipPlaytime(id)});
+    }
+    std::sort(result.begin(), result.end(), [](const ClipSpan &a, const ClipSpan &b) { return a.start < b.start; });
+    return result;
+}
+
+QSet<int> LiveBridge::allClipIds() const
+{
+    QSet<int> result;
+    for (int row = 0; row < m_timeline->rowCount(); ++row)
+        for (const auto &span : trackClips(int(m_timeline->index(row, 0).internalId())))
+            result.insert(span.id);
+    return result;
+}
+
+QJsonObject LiveBridge::executeTimeline(const QJsonObject &command, bool &handled)
+{
+    handled = true;
+    const QString type = command.value(QStringLiteral("type")).toString();
+    using Handler = QJsonObject (LiveBridge::*)(const QJsonObject &);
+    static const QHash<QString, Handler> handlers{
+        {QStringLiteral("insert"), &LiveBridge::insertClip},    {QStringLiteral("remove_clip"), &LiveBridge::removeClip},
+        {QStringLiteral("split"), &LiveBridge::splitClips},     {QStringLiteral("remove_range"), &LiveBridge::removeRange},
+        {QStringLiteral("remove_gap"), &LiveBridge::removeGap}, {QStringLiteral("insert_space"), &LiveBridge::insertSpace},
+        {QStringLiteral("group"), &LiveBridge::groupClips},     {QStringLiteral("ungroup"), &LiveBridge::ungroupClips},
+        {QStringLiteral("speed"), &LiveBridge::clipSpeed},      {QStringLiteral("enable"), &LiveBridge::clipEnable}};
+    const auto handler = handlers.value(type);
+    if (!handler) {
+        handled = false;
+        return {};
+    }
+    // A GUI selection is a group of its own: grouped deletion, cutting and moving would otherwise extend to every selected clip.
+    m_timeline->requestClearSelection();
+    return (this->*handler)(command);
+}
+
+QJsonObject LiveBridge::insertClip(const QJsonObject &command)
+{
+    const auto invalid = [] { return invalidTimeline(QStringLiteral("Invalid command fields or frame range.")); };
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("trackId"), QStringLiteral("position"), QStringLiteral("sourceIn"),
+                        QStringLiteral("sourceOut"), QStringLiteral("media"), QStringLiteral("mode"), QStringLiteral("linked"), QStringLiteral("audioTrackId"),
+                        QStringLiteral("allTracks")}) ||
+        !integer(command, QStringLiteral("trackId")) || !integer(command, QStringLiteral("position")) || !integer(command, QStringLiteral("sourceIn")) ||
+        !integer(command, QStringLiteral("sourceOut"), 1) ||
+        (command.contains(QStringLiteral("audioTrackId")) && !integer(command, QStringLiteral("audioTrackId"))))
+        return invalid();
+    const int trackId = command.value(QStringLiteral("trackId")).toInt();
+    if (auto rejected = editableTrack(trackId); !rejected.isEmpty()) return rejected;
+    const auto binId = command.value(QStringLiteral("binId")).toString();
+    const auto media = command.value(QStringLiteral("media")).toString();
+    const QString mode = command.value(QStringLiteral("mode")).toString(QStringLiteral("normal"));
+    bool allTracks = false;
+    if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() || (media != QLatin1String("video") && media != QLatin1String("audio")) ||
+        !QStringList{QStringLiteral("normal"), QStringLiteral("overwrite"), QStringLiteral("insert")}.contains(mode) ||
+        !optionalBool(command, QStringLiteral("allTracks"), allTracks) || (allTracks && mode != QLatin1String("insert")))
+        return invalid();
+    if (command.contains(QStringLiteral("linked")) && !command.value(QStringLiteral("linked")).isBool()) return invalid();
+    auto clip = pCore->projectItemModel()->getClipByBinID(binId);
+    if (!clip || !clip->statusReady()) return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is missing or still loading."));
+    const int start = command.value(QStringLiteral("sourceIn")).toInt();
+    const int end = command.value(QStringLiteral("sourceOut")).toInt();
+    const int position = command.value(QStringLiteral("position")).toInt();
+    if (end <= start || size_t(end) > clip->frameDuration() || qint64(position) + end - start > std::numeric_limits<int>::max()) return invalid();
+    if (m_timeline->isAudioTrack(trackId) != (media == QLatin1String("audio")))
+        return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("media video needs a video track and media audio an audio track."));
+    const bool linkRequested = command.value(QStringLiteral("linked")).toBool(false);
+    if ((linkRequested || command.contains(QStringLiteral("audioTrackId"))) && media != QLatin1String("video"))
+        return invalidTimeline(QStringLiteral("linked and audioTrackId apply to media video; the audio goes to an audio track."));
+    if (command.contains(QStringLiteral("audioTrackId")) && command.contains(QStringLiteral("linked")) && !linkRequested)
+        return invalidTimeline(QStringLiteral("audioTrackId needs linked insertion."));
+    // Linked insertion places the audio of an A/V clip on an audio track and links both halves, as dropping the clip in the GUI does.
+    int audioTrack = -1;
+    const bool canLink = media == QLatin1String("video") && clip->hasAudioAndVideo();
+    if (command.contains(QStringLiteral("audioTrackId"))) {
+        audioTrack = command.value(QStringLiteral("audioTrackId")).toInt();
+        if (auto rejected = editableTrack(audioTrack); !rejected.isEmpty()) return rejected;
+        if (!m_timeline->isAudioTrack(audioTrack)) return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("audioTrackId must be an audio track."));
+    } else if (canLink && command.value(QStringLiteral("linked")).toBool(true)) {
+        // The GUI's mirror track first, else the nearest unlocked audio track.
+        const int mirror = m_timeline->getMirrorTrackId(trackId);
+        if (mirror >= 0 && m_timeline->isAudioTrack(mirror) && !m_timeline->trackIsLocked(mirror)) {
+            audioTrack = mirror;
+        } else {
+            const int from = m_timeline->getTrackPosition(trackId);
+            int best = std::numeric_limits<int>::max();
+            for (int candidate : unlockedTracks()) {
+                const int distance = qAbs(m_timeline->getTrackPosition(candidate) - from);
+                if (m_timeline->isAudioTrack(candidate) && distance < best) {
+                    best = distance;
+                    audioTrack = candidate;
+                }
+            }
+        }
+    }
+    if (linkRequested && !canLink)
+        return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Linked insertion needs a bin clip with audio and video."));
+    if (linkRequested && audioTrack < 0) return error(QStringLiteral("NO_AUDIO_TRACK"), QStringLiteral("No unlocked audio track for the linked audio."));
+    const bool linked = canLink && audioTrack >= 0 && command.value(QStringLiteral("linked")).toBool(true);
+    const int duration = end - start;
+    QList<int> targets{trackId};
+    if (linked) targets.append(audioTrack);
+    if (mode == QLatin1String("normal")) {
+        for (int target : std::as_const(targets))
+            for (const auto &span : trackClips(target))
+                if (span.start < position + duration && span.end > position)
+                    return error(
+                        QStringLiteral("OVERLAP"),
+                        QStringLiteral("Clip %1 occupies the range on track %2. Use mode overwrite or insert, or another position.").arg(span.id).arg(target));
+    }
+    auto timeline = sharedTimeline();
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    const QPoint zone(position, position + duration);
+    bool ok = true;
+    if (mode == QLatin1String("overwrite")) {
+        // Kdenlive's overwrite: lift the range from the receiving tracks.
+        ok = runStep(undo, redo, [&](Fun &u, Fun &r) {
+            bool result = TimelineFunctions::breakAffectedGroups(timeline, QVector<int>(targets.cbegin(), targets.cend()), zone, u, r);
+            for (int target : std::as_const(targets))
+                result = result && TimelineFunctions::liftZone(timeline, target, zone, u, r);
+            return result;
+        });
+    } else if (mode == QLatin1String("insert")) {
+        // Kdenlive's insert (TimelineFunctions::insertZone): cut at the position and push later items right on the rippled tracks.
+        const QList<int> rippled = allTracks ? unlockedTracks() : targets;
+        const QVector<int> tracks(rippled.cbegin(), rippled.cend());
+        ok = runStep(undo, redo, [&](Fun &u, Fun &r) { return TimelineFunctions::breakAffectedGroups(timeline, tracks, zone, u, r); });
+        for (int target : rippled) {
+            const int cut = m_timeline->getClipByPosition(target, position);
+            if (ok && cut >= 0 && m_timeline->getClipPosition(cut) < position)
+                ok = runStep(undo, redo, [&](Fun &u, Fun &r) { return TimelineFunctions::requestClipCut(timeline, cut, position, u, r); });
+        }
+        ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) { return TimelineFunctions::requestInsertSpace(timeline, zone, u, r, tracks); });
+    }
+    int id = -1;
+    int audioId = -1;
+    int groupId = -1;
+    // finalMove=0 keeps native validation without prompting to create audio tracks.
+    ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) {
+             return m_timeline->requestClipInsertion(QStringLiteral("%1%2/%3/%4")
+                                                         .arg(media == QLatin1String("video") ? QStringLiteral("V") : QStringLiteral("A"), binId)
+                                                         .arg(start)
+                                                         .arg(end - 1),
+                                                     trackId, position, id, true, true, false, u, r, {}, 0) &&
+                    id >= 0;
+         });
+    if (ok && linked) {
+        ok = runStep(undo, redo, [&](Fun &u, Fun &r) {
+            return m_timeline->requestClipInsertion(QStringLiteral("A%1/%2/%3").arg(binId).arg(start).arg(end - 1), audioTrack, position, audioId, true, true,
+                                                    false, u, r, {}, 0) &&
+                   audioId >= 0;
+        });
+        ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) {
+                 groupId = m_timeline->requestClipsGroup({id, audioId}, u, r, GroupType::AVSplit);
+                 return groupId >= 0;
+             });
+    }
+    if (!ok) {
+        undo();
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native insertion rejected the range, track type or collision."));
+    }
+    pCore->pushUndo(undo, redo,
+                    mode == QLatin1String("insert")      ? QStringLiteral("Insert clip (ripple)")
+                    : mode == QLatin1String("overwrite") ? QStringLiteral("Overwrite clip")
+                                                         : QStringLiteral("Insert Clip"));
+    QJsonObject result{{"ok", true}, {"clipId", id}, {"mode", mode}, {"linked", linked}};
+    if (linked) {
+        result.insert(QStringLiteral("audioClipId"), audioId);
+        result.insert(QStringLiteral("groupId"), m_timeline->getItemGroupId(id));
+    }
+    return result;
+}
+
+QJsonObject LiveBridge::removeClip(const QJsonObject &command)
+{
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("mode"), QStringLiteral("group"), QStringLiteral("allTracks")}) ||
+        !integer(command, QStringLiteral("clipId")))
+        return invalidTimeline(QStringLiteral("Invalid command fields."));
+    const QString mode = command.value(QStringLiteral("mode")).toString(QStringLiteral("lift"));
+    const QString group = command.value(QStringLiteral("group")).toString(QStringLiteral("whole"));
+    bool allTracks = false;
+    if ((mode != QLatin1String("lift") && mode != QLatin1String("extract")) || (group != QLatin1String("whole") && group != QLatin1String("single")) ||
+        !optionalBool(command, QStringLiteral("allTracks"), allTracks) || (allTracks && mode != QLatin1String("extract")))
+        return invalidTimeline(QStringLiteral("mode is lift or extract, group whole or single; allTracks needs mode extract."));
+    const int id = command.value(QStringLiteral("clipId")).toInt();
+    if (auto rejected = editableClip(id); !rejected.isEmpty()) return rejected;
+    const bool grouped = m_timeline->getItemGroupId(id) >= 0;
+    const bool whole = grouped && group == QLatin1String("whole");
+    QSet<int> members{id};
+    if (whole)
+        for (int item : m_timeline->getGroupElements(id))
+            members.insert(item);
+    for (int item : std::as_const(members))
+        if (m_timeline->trackIsLocked(m_timeline->getItemTrackId(item)))
+            return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("Item %1 of the group is on a locked track. Use group single.").arg(item));
+    const auto before = allClipIds();
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    bool ok = true;
+    if (grouped && !whole) ok = runStep(undo, redo, [&](Fun &u, Fun &r) { return m_timeline->requestRemoveFromGroup(id, u, r); });
+    QJsonArray ranges;
+    if (mode == QLatin1String("lift")) {
+        ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) { return m_timeline->requestItemDeletion(id, u, r, true); });
+    } else {
+        // Extract as the GUI's Extract does: each clip's own range on its own track; allTracks extracts the whole range from every unlocked
+        // track, as Extract zone does.
+        QList<std::pair<int, QPoint>> zones;
+        int first = std::numeric_limits<int>::max();
+        int last = 0;
+        for (int item : std::as_const(members)) {
+            if (!m_timeline->isClip(item)) continue;
+            const int start = m_timeline->getClipPosition(item);
+            const QPoint zone(start, start + m_timeline->getClipPlaytime(item));
+            zones.append({m_timeline->getClipTrackId(item), zone});
+            first = qMin(first, zone.x());
+            last = qMax(last, zone.y());
+        }
+        if (allTracks) {
+            const auto tracks = unlockedTracks();
+            ok = ok && runStep(undo, redo,
+                               [&](Fun &u, Fun &r) { return rippleRemove(QVector<int>(tracks.cbegin(), tracks.cend()), QPoint(first, last), false, u, r); });
+            ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) { return rippleGuides(QPoint(first, last), u, r); });
+            ranges.append(QJsonObject{{"trackId", QJsonValue::Null}, {"start", first}, {"end", last}});
+        } else {
+            for (const auto &item : std::as_const(zones)) {
+                ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) { return rippleRemove({item.first}, item.second, false, u, r); });
+                ranges.append(QJsonObject{{"trackId", item.first}, {"start", item.second.x()}, {"end", item.second.y()}});
+            }
+        }
+    }
+    if (!ok) {
+        undo();
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native clip removal was rejected."));
+    }
+    const bool extract = mode == QLatin1String("extract");
+    pCore->pushUndo(undo, redo,
+                    extract ? (allTracks ? QStringLiteral("Extract zone") : QStringLiteral("Extract clip"))
+                    : whole ? QStringLiteral("Remove group")
+                            : QStringLiteral("Delete Clip"));
+    const auto removed = idArray(sortedIds(before - allClipIds()));
+    QJsonObject result{{"ok", true}, {"mode", mode}, {"removedClipIds", removed}, {"historySummary", QJsonObject{{"removedClipIds", removed}}}};
+    if (extract) {
+        result.insert(QStringLiteral("ranges"), ranges);
+        result.insert(QStringLiteral("guidesMoved"), allTracks && guidesFollowRipple());
+    }
+    return result;
+}
+
+bool LiveBridge::rippleRemove(const QVector<int> &tracks, QPoint zone, bool liftOnly, Fun &undo, Fun &redo)
+{
+    // TimelineFunctions::extractZoneWithUndo, except that the rippled tracks are the given ones, not the GUI's active tracks.
+    auto timeline = sharedTimeline();
+    bool result = TimelineFunctions::breakAffectedGroups(timeline, tracks, zone, undo, redo);
+    for (int track : tracks)
+        result = result && TimelineFunctions::liftZone(timeline, track, zone, undo, redo);
+    return result && (liftOnly || TimelineFunctions::removeSpace(timeline, zone, undo, redo, tracks, false));
+}
+
+bool LiveBridge::guidesFollowRipple() const
+{
+    // As the GUI's Extract zone: only when every track ripples and Kdenlive's "Lock guides" setting is off (it is on by default).
+    return !KdenliveSettings::lockedGuides() && unlockedTracks().size() == m_timeline->getTracksCount();
+}
+
+bool LiveBridge::rippleGuides(QPoint zone, Fun &undo, Fun &redo)
+{
+    if (!guidesFollowRipple()) return true;
+    auto guides = m_timeline->getGuideModel();
+    const double fps = pCore->getCurrentFps();
+    bool result = true;
+    for (const auto &guide : guides->getMarkersInRange(zone.x(), zone.y()))
+        result = result && guides->removeMarker(guide.time(), undo, redo);
+    const auto later = guides->getMarkersInRange(zone.y(), -1);
+    if (result && !later.isEmpty()) result = guides->moveMarkers(later, GenTime(zone.y(), fps), GenTime(zone.x(), fps), undo, redo);
+    return result;
+}
+
+QJsonObject LiveBridge::splitClips(const QJsonObject &command)
+{
+    if (!keys(command,
+              {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("trackId"), QStringLiteral("position"), QStringLiteral("allTracks")}) ||
+        !integer(command, QStringLiteral("position")) || (command.contains(QStringLiteral("clipId")) && !integer(command, QStringLiteral("clipId"))) ||
+        (command.contains(QStringLiteral("trackId")) && !integer(command, QStringLiteral("trackId"))))
+        return invalidTimeline(QStringLiteral("Invalid command fields."));
+    bool allTracks = false;
+    if (!optionalBool(command, QStringLiteral("allTracks"), allTracks) ||
+        int(command.contains(QStringLiteral("clipId"))) + int(command.contains(QStringLiteral("trackId"))) + int(allTracks) != 1)
+        return invalidTimeline(QStringLiteral("Pass exactly one of clipId, trackId or allTracks: true."));
+    const int position = command.value(QStringLiteral("position")).toInt();
+    const auto inside = [this, position](int id) {
+        const int start = m_timeline->getClipPosition(id);
+        return start < position && position < start + m_timeline->getClipPlaytime(id);
+    };
+    const auto notSplittable = [] {
+        return error(QStringLiteral("NOT_SPLITTABLE"), QStringLiteral("No clip spans the position: a cut needs a frame strictly inside a clip."));
+    };
+    QList<int> targets;
+    if (command.contains(QStringLiteral("clipId"))) {
+        const int id = command.value(QStringLiteral("clipId")).toInt();
+        if (auto rejected = editableClip(id); !rejected.isEmpty()) return rejected;
+        if (!inside(id)) return notSplittable();
+        targets.append(id);
+    } else {
+        QList<int> tracks;
+        if (allTracks) {
+            tracks = unlockedTracks();
+        } else {
+            tracks.append(command.value(QStringLiteral("trackId")).toInt());
+            if (auto rejected = editableTrack(tracks.first()); !rejected.isEmpty()) return rejected;
+        }
+        for (int track : std::as_const(tracks))
+            for (const auto &span : trackClips(track))
+                if (span.start < position && position < span.end) targets.append(span.id);
+        if (targets.isEmpty()) return notSplittable();
+    }
+    // Every clip that will be cut: the targets and, as in the GUI, their group members under the position on unlocked tracks.
+    QList<int> cut;
+    for (int id : std::as_const(targets)) {
+        const auto members = m_timeline->getItemGroupId(id) >= 0 ? m_timeline->getGroupElements(id) : std::unordered_set<int>{id};
+        for (int item : members)
+            if (m_timeline->isClip(item) && !m_timeline->trackIsLocked(m_timeline->getClipTrackId(item)) && inside(item) && !cut.contains(item))
+                cut.append(item);
+    }
+    const auto before = allClipIds();
+    auto timeline = sharedTimeline();
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    for (int id : std::as_const(targets)) {
+        // Cutting a grouped target already cut its group members.
+        if (!inside(id)) continue;
+        if (!TimelineFunctions::requestClipCut(timeline, id, position, undo, redo))
+            // requestClipCut reverts everything accumulated so far when it fails.
+            return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native cut was rejected."));
+    }
+    pCore->pushUndo(undo, redo, allTracks ? QStringLiteral("Cut all clips") : QStringLiteral("Cut clip"));
+    QJsonArray pieces;
+    QJsonArray summary;
+    int right = -1;
+    for (int id : std::as_const(cut)) {
+        const int track = m_timeline->getClipTrackId(id);
+        const int piece = m_timeline->getClipByStartPosition(track, position);
+        pieces.append(QJsonObject{{"trackId", track}, {"leftClipId", id}, {"rightClipId", piece}});
+        summary.append(QJsonArray{id, piece});
+        if (id == targets.first()) right = piece;
+    }
+    QJsonObject result{{"ok", true},
+                       {"position", position},
+                       {"pieces", pieces},
+                       {"newClipIds", idArray(sortedIds(allClipIds() - before))},
+                       {"historySummary", QJsonObject{{"pieces", summary}}}};
+    if (!allTracks) {
+        result.insert(QStringLiteral("leftClipId"), targets.first());
+        result.insert(QStringLiteral("rightClipId"), right);
+    }
+    return result;
+}
+
+namespace {
+/** trackIds (a non-empty array of distinct ids) or allTracks: true; trackId is accepted where one track is meant. */
+QJsonObject rippleTracks(const QJsonObject &command, const QString &listKey, QList<int> &tracks, bool &allTracks)
+{
+    allTracks = false;
+    if (!optionalBool(command, QStringLiteral("allTracks"), allTracks)) return invalidTimeline(QStringLiteral("allTracks must be a boolean."));
+    if (allTracks == command.contains(listKey)) return invalidTimeline(QStringLiteral("Pass exactly one of %1 or allTracks: true.").arg(listKey));
+    if (allTracks) return {};
+    const auto value = command.value(listKey);
+    if (listKey == QLatin1String("trackId")) {
+        if (!integer(command, listKey)) return invalidTimeline(QStringLiteral("Invalid trackId."));
+        tracks.append(value.toInt());
+        return {};
+    }
+    if (!value.isArray() || value.toArray().isEmpty() || value.toArray().size() > 64)
+        return invalidTimeline(QStringLiteral("trackIds must list 1 to 64 tracks."));
+    for (const auto &item : value.toArray()) {
+        if (!item.isDouble() || item.toDouble() < 0 || std::floor(item.toDouble()) != item.toDouble() || tracks.contains(item.toInt()))
+            return invalidTimeline(QStringLiteral("trackIds must be distinct track ids."));
+        tracks.append(item.toInt());
+    }
+    return {};
+}
+} // namespace
+
+QJsonObject LiveBridge::removeRange(const QJsonObject &command)
+{
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("start"), QStringLiteral("end"), QStringLiteral("trackIds"), QStringLiteral("allTracks"),
+                        QStringLiteral("mode")}) ||
+        !integer(command, QStringLiteral("start")) || !integer(command, QStringLiteral("end"), 1) ||
+        command.value(QStringLiteral("start")).toInt() >= command.value(QStringLiteral("end")).toInt())
+        return invalidTimeline(QStringLiteral("Expected start < end (end exclusive)."));
+    const QString mode = command.value(QStringLiteral("mode")).toString(QStringLiteral("lift"));
+    if (mode != QLatin1String("lift") && mode != QLatin1String("extract")) return invalidTimeline(QStringLiteral("mode is lift or extract."));
+    QList<int> tracks;
+    bool allTracks = false;
+    if (auto rejected = rippleTracks(command, QStringLiteral("trackIds"), tracks, allTracks); !rejected.isEmpty()) return rejected;
+    for (int track : std::as_const(tracks))
+        if (auto rejected = editableTrack(track); !rejected.isEmpty()) return rejected;
+    if (allTracks) tracks = unlockedTracks();
+    const QPoint zone(command.value(QStringLiteral("start")).toInt(), command.value(QStringLiteral("end")).toInt());
+    const bool extract = mode == QLatin1String("extract");
+    const auto before = allClipIds();
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    bool ok = runStep(undo, redo, [&](Fun &u, Fun &r) { return rippleRemove(QVector<int>(tracks.cbegin(), tracks.cend()), zone, !extract, u, r); });
+    if (ok && extract && allTracks) ok = runStep(undo, redo, [&](Fun &u, Fun &r) { return rippleGuides(zone, u, r); });
+    if (!ok) {
+        undo();
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native lift/extract was rejected."));
+    }
+    pCore->pushUndo(undo, redo, extract ? QStringLiteral("Extract zone") : QStringLiteral("Lift zone"));
+    const auto after = allClipIds();
+    const auto removed = idArray(sortedIds(before - after));
+    const auto created = idArray(sortedIds(after - before));
+    return {{"ok", true},
+            {"mode", mode},
+            {"trackIds", idArray(tracks)},
+            {"removedClipIds", removed},
+            {"newClipIds", created},
+            {"guidesMoved", extract && allTracks && guidesFollowRipple()},
+            {"historySummary", QJsonObject{{"removedClipIds", removed}, {"newClipIds", created}}}};
+}
+
+QJsonObject LiveBridge::removeGap(const QJsonObject &command)
+{
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("position"), QStringLiteral("trackId"), QStringLiteral("allTracks")}) ||
+        !integer(command, QStringLiteral("position")))
+        return invalidTimeline(QStringLiteral("Invalid command fields."));
+    QList<int> tracks;
+    bool allTracks = false;
+    if (auto rejected = rippleTracks(command, QStringLiteral("trackId"), tracks, allTracks); !rejected.isEmpty()) return rejected;
+    const int position = command.value(QStringLiteral("position")).toInt();
+    const int trackId = allTracks ? -1 : tracks.first();
+    if (!allTracks) {
+        if (auto rejected = editableTrack(trackId); !rejected.isEmpty()) return rejected;
+    }
+    // The blank around position on each checked track, and the first clip after it, so the result can be verified and reported.
+    int next = -1;
+    int nextStart = std::numeric_limits<int>::max();
+    for (int track : allTracks ? unlockedTracks() : tracks) {
+        int after = -1;
+        for (const auto &span : trackClips(track)) {
+            if (span.start <= position && position < span.end)
+                return error(QStringLiteral("NO_GAP"), QStringLiteral("Track %1 has a clip at the position, not a gap.").arg(track));
+            if (span.start > position && after < 0) after = span.id;
+        }
+        if (after >= 0 && m_timeline->getClipPosition(after) < nextStart) {
+            next = after;
+            nextStart = m_timeline->getClipPosition(after);
+        }
+    }
+    if (next < 0) return error(QStringLiteral("NO_GAP"), QStringLiteral("No clip follows the position, so there is no gap to close."));
+    // The GUI's Remove space: it refuses a gap between two clips of one group and moves guides only when "Lock guides" is off.
+    if (!TimelineFunctions::requestDeleteBlankAt(sharedTimeline(), trackId, position, allTracks) || m_timeline->getClipPosition(next) >= nextStart)
+        return error(QStringLiteral("EDIT_REJECTED"),
+                     QStringLiteral("Native space removal was rejected: the gap may lie inside a group or not be blank on every track."));
+    return {{"ok", true},
+            {"position", position},
+            {"removed", nextStart - m_timeline->getClipPosition(next)},
+            {"guidesMoved", !KdenliveSettings::lockedGuides()},
+            {"historySummary", QJsonObject{{"removed", nextStart - m_timeline->getClipPosition(next)}, {"firstMovedClipId", next}}}};
+}
+
+QJsonObject LiveBridge::insertSpace(const QJsonObject &command)
+{
+    if (!keys(command,
+              {QStringLiteral("type"), QStringLiteral("position"), QStringLiteral("duration"), QStringLiteral("trackId"), QStringLiteral("allTracks")}) ||
+        !integer(command, QStringLiteral("position")) || !integer(command, QStringLiteral("duration"), 1))
+        return invalidTimeline(QStringLiteral("Invalid command fields."));
+    QList<int> tracks;
+    bool allTracks = false;
+    if (auto rejected = rippleTracks(command, QStringLiteral("trackId"), tracks, allTracks); !rejected.isEmpty()) return rejected;
+    const int trackId = allTracks ? -1 : tracks.first();
+    if (!allTracks) {
+        if (auto rejected = editableTrack(trackId); !rejected.isEmpty()) return rejected;
+    }
+    const int position = command.value(QStringLiteral("position")).toInt();
+    const int duration = command.value(QStringLiteral("duration")).toInt();
+    if (qint64(m_timeline->duration()) + duration > std::numeric_limits<int>::max()) return invalidTimeline(QStringLiteral("duration is too large."));
+    auto timeline = sharedTimeline();
+    // The GUI's Insert space: items at or after position (a clip spanning it moves whole), with their groups, move right.
+    const int first = TimelineFunctions::requestSpacerStartOperation(timeline, trackId, position).first;
+    if (first < 0) return error(QStringLiteral("NOTHING_TO_MOVE"), QStringLiteral("No item at or after the position on the chosen tracks."));
+    const int start = m_timeline->getItemPosition(first);
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    const bool guides = allTracks && !KdenliveSettings::lockedGuides();
+    if (!TimelineFunctions::requestSpacerEndOperation(timeline, first, start, start + duration, trackId, guides ? start : -1, undo, redo))
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native space insertion was rejected."));
+    return {{"ok", true},
+            {"position", position},
+            {"duration", duration},
+            {"firstMovedClipId", first},
+            {"guidesMoved", guides},
+            {"historySummary", QJsonObject{{"firstMovedClipId", first}}}};
+}
+
+QJsonObject LiveBridge::groupClips(const QJsonObject &command)
+{
+    const auto list = command.value(QStringLiteral("clipIds"));
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipIds")}) || !list.isArray() || list.toArray().size() < 2 || list.toArray().size() > 200)
+        return invalidTimeline(QStringLiteral("clipIds must list 2 to 200 timeline clips."));
+    std::unordered_set<int> ids;
+    for (const auto &value : list.toArray()) {
+        if (!value.isDouble() || value.toDouble() < 0 || std::floor(value.toDouble()) != value.toDouble() || ids.count(value.toInt()))
+            return invalidTimeline(QStringLiteral("clipIds must be distinct clip ids."));
+        if (auto rejected = editableClip(value.toInt()); !rejected.isEmpty()) return rejected;
+        ids.insert(value.toInt());
+    }
+    const int first = list.toArray().first().toInt();
+    QSet<int> roots;
+    for (int id : ids)
+        roots.insert(m_timeline->getItemGroupId(id));
+    if (roots.size() == 1 && !roots.contains(-1)) return {{"ok", true}, {"groupId", *roots.cbegin()}, {"changed", false}};
+    // Grouping a video and an audio clip of the same bin clip links them (an A/V group), as in the GUI.
+    if (m_timeline->requestClipsGroup(ids, true) < 0) return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native grouping was rejected."));
+    const int groupId = m_timeline->getItemGroupId(first);
+    const auto members = m_timeline->getGroupElements(first);
+    QList<int> clipIds(members.cbegin(), members.cend());
+    std::sort(clipIds.begin(), clipIds.end());
+    return {{"ok", true}, {"groupId", groupId}, {"changed", true}, {"clipIds", idArray(clipIds)}, {"linked", m_timeline->getClipSplitPartner(first) >= 0}};
+}
+
+QJsonObject LiveBridge::ungroupClips(const QJsonObject &command)
+{
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("groupId")}) ||
+        command.contains(QStringLiteral("clipId")) == command.contains(QStringLiteral("groupId")) ||
+        !integer(command, command.contains(QStringLiteral("clipId")) ? QStringLiteral("clipId") : QStringLiteral("groupId")))
+        return invalidTimeline(QStringLiteral("Pass exactly one of clipId or groupId."));
+    int item = -1;
+    int groupId = -1;
+    if (command.contains(QStringLiteral("clipId"))) {
+        item = command.value(QStringLiteral("clipId")).toInt();
+        if (!m_timeline->isClip(item)) return error(QStringLiteral("UNKNOWN_CLIP"), QStringLiteral("Timeline clip does not exist."));
+        groupId = m_timeline->getItemGroupId(item);
+        if (groupId < 0) return error(QStringLiteral("UNKNOWN_GROUP"), QStringLiteral("The clip is not grouped."));
+    } else {
+        groupId = command.value(QStringLiteral("groupId")).toInt();
+        // Only a topmost group, as desktop_state reports them.
+        if (m_timeline->isGroup(groupId))
+            for (int member : m_timeline->getGroupElements(groupId))
+                if (m_timeline->getItemGroupId(member) == groupId) item = member;
+        if (item < 0) return error(QStringLiteral("UNKNOWN_GROUP"), QStringLiteral("No such group; use a groupId from desktop_state."));
+    }
+    const auto members = m_timeline->getGroupElements(item);
+    QList<int> clipIds;
+    for (int member : members)
+        if (m_timeline->isClip(member)) clipIds.append(member);
+    std::sort(clipIds.begin(), clipIds.end());
+    // Ungrouping an A/V group unlinks its audio and video, as in the GUI.
+    if (!m_timeline->requestClipUngroup(item, true)) return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native ungrouping was rejected."));
+    return {{"ok", true}, {"groupId", groupId}, {"clipIds", idArray(clipIds)}, {"historySummary", QJsonObject{{"clipIds", idArray(clipIds)}}}};
+}
+
+QJsonObject LiveBridge::clipSpeed(const QJsonObject &command)
+{
+    const auto speedValue = command.value(QStringLiteral("speed"));
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("speed"), QStringLiteral("pitchCompensation")}) ||
+        !integer(command, QStringLiteral("clipId")) || !speedValue.isDouble() || !std::isfinite(speedValue.toDouble()) || qAbs(speedValue.toDouble()) < 0.01 ||
+        qAbs(speedValue.toDouble()) > 100 ||
+        (command.contains(QStringLiteral("pitchCompensation")) && !command.value(QStringLiteral("pitchCompensation")).isBool()))
+        return invalidTimeline(QStringLiteral("speed is a factor with 0.01 <= |speed| <= 100 (1 normal, 0.5 half, 2 double, negative reverse)."));
+    const int id = command.value(QStringLiteral("clipId")).toInt();
+    if (auto rejected = editableClip(id); !rejected.isEmpty()) return rejected;
+    const int partner = m_timeline->getClipSplitPartner(id);
+    if (partner >= 0 && m_timeline->trackIsLocked(m_timeline->getClipTrackId(partner)))
+        return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("The linked clip is on a locked track."));
+    auto binClip = pCore->projectItemModel()->getClipByBinID(m_timeline->getClipBinId(id));
+    if (!binClip || !binClip->hasLimitedDuration())
+        return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Speed changes need video or audio media with a fixed duration."));
+    const double speed = speedValue.toDouble();
+    const double previous = m_timeline->getClipSpeed(id);
+    const int previousDuration = m_timeline->getClipPlaytime(id);
+    const bool pitch = command.value(QStringLiteral("pitchCompensation")).toBool(m_timeline->getClipProducer(id)->get_int("warp_pitch") != 0);
+    if (qFuzzyCompare(speed, previous) && pitch == (m_timeline->getClipProducer(id)->get_int("warp_pitch") != 0))
+        return {{"ok", true}, {"clipId", id}, {"speed", previous}, {"duration", previousDuration}, {"changed", false}};
+    // The clip keeps its source range, so its duration scales; a longer clip must fit before the next clip on its track.
+    for (int item : {id, partner}) {
+        if (item < 0) continue;
+        const int duration = m_timeline->getClipPlaytime(item);
+        const int wanted = qMax(1, int(qRound64(double(duration) * std::fabs(m_timeline->getClipSpeed(item) / speed))));
+        if (wanted > duration && wanted - duration > m_timeline->getBlankSizeNearClip(item, true))
+            return error(QStringLiteral("OVERLAP"), QStringLiteral("At this speed clip %1 would run into the next clip on its track.").arg(item));
+    }
+    // As the GUI's Change speed: the linked clip changes too, in one Undo step.
+    Fun undo = [] { return true; };
+    Fun redo = [] { return true; };
+    bool ok = true;
+    for (int item : {partner, id}) {
+        if (item < 0) continue;
+        ok = ok && runStep(undo, redo, [&](Fun &u, Fun &r) { return m_timeline->requestClipTimeWarp(item, speed, pitch, true, u, r); });
+    }
+    if (!ok) {
+        undo();
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native speed change was rejected."));
+    }
+    pCore->pushUndo(undo, redo, QStringLiteral("Change clip speed"));
+    return {
+        {"ok", true},
+        {"clipId", id},
+        {"speed", m_timeline->getClipSpeed(id)},
+        {"duration", m_timeline->getClipPlaytime(id)},
+        {"linkedClipId", optionalId(partner)},
+        {"changed", true},
+        {"historySummary", QJsonObject{{"previousSpeed", previous}, {"previousDuration", previousDuration}, {"newDuration", m_timeline->getClipPlaytime(id)}}}};
+}
+
+QJsonObject LiveBridge::clipEnable(const QJsonObject &command)
+{
+    bool linked = true;
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("clipId"), QStringLiteral("enabled"), QStringLiteral("linked")}) ||
+        !integer(command, QStringLiteral("clipId")) || !command.value(QStringLiteral("enabled")).isBool() ||
+        !optionalBool(command, QStringLiteral("linked"), linked))
+        return invalidTimeline(QStringLiteral("Expected clipId, enabled (boolean) and optional linked (boolean)."));
+    const int id = command.value(QStringLiteral("clipId")).toInt();
+    if (auto rejected = editableClip(id); !rejected.isEmpty()) return rejected;
+    const bool enabled = command.value(QStringLiteral("enabled")).toBool();
+    std::unordered_set<int> ids{id};
+    const int partner = m_timeline->getClipSplitPartner(id);
+    if (linked && partner >= 0) {
+        if (m_timeline->trackIsLocked(m_timeline->getClipTrackId(partner)))
+            return error(QStringLiteral("TRACK_LOCKED"), QStringLiteral("The linked clip is on a locked track; pass linked: false."));
+        ids.insert(partner);
+    }
+    QList<int> clipIds(ids.cbegin(), ids.cend());
+    std::sort(clipIds.begin(), clipIds.end());
+    bool changed = false;
+    for (int item : ids)
+        changed = changed || (m_timeline->getClipState(item).first != PlaylistState::Disabled) != enabled;
+    if (changed && !TimelineFunctions::setClipsEnabled(sharedTimeline(), ids, enabled))
+        return error(QStringLiteral("EDIT_REJECTED"), QStringLiteral("Native clip state change was rejected."));
+    return {{"ok", true}, {"clipIds", idArray(clipIds)}, {"enabled", enabled}, {"changed", changed}};
 }
 
 namespace {
@@ -1974,10 +2660,13 @@ QJsonObject historySummary(const QJsonObject &command, const QJsonObject &result
 {
     static const QStringList commandKeys = QStringLiteral("clipId binId trackId position newPosition duration edge media sourceIn sourceOut "
                                                           "replacementBinId effectId index name path width height mode format category all range "
-                                                          "count toIndex revertSession")
+                                                          "count toIndex revertSession start end trackIds allTracks clipIds groupId group linked "
+                                                          "audioTrackId speed pitchCompensation enabled")
                                                .split(QLatin1Char(' '));
     static const QStringList resultKeys =
-        QStringLiteral("clipId binId actualDuration effectIndex count imported replaced existing steps undoIndex documentUrl").split(QLatin1Char(' '));
+        QStringLiteral("clipId binId actualDuration effectIndex count imported replaced existing steps undoIndex documentUrl mode linked audioClipId groupId "
+                       "leftClipId rightClipId")
+            .split(QLatin1Char(' '));
     QJsonObject summary;
     for (const auto &key : commandKeys)
         if (command.contains(key)) summary.insert(key, command.value(key));

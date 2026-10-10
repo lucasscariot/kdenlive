@@ -78,9 +78,11 @@ Supported commands:
 - `remove_asset`: `binId`. Removes an unused asset from the bin with native
   undo. Rejects assets used in any sequence and protects sequences themselves.
   The original file stays on disk. Bin state exposes `inUse`.
-- `remove_clip`: `clipId`. Removes one ungrouped timeline clip without rippling.
-  Rejects locked tracks; retains the bin asset and source file. Native undo
-  restores its original position and effects.
+- `remove_clip`: `clipId`, optional `mode` (`lift`, default, or `extract`),
+  `group` (`whole`, default, or `single`) and `allTracks` (with `extract`).
+  Removes the clip, or its whole group, leaving a gap or rippling. Rejects
+  locked tracks; retains the bin asset and source file. Native undo restores
+  positions and effects. Returns `removedClipIds`.
 - `replace_media`: `binId` and `replacementBinId` of two ready bin clips.
   Uses native Replace Clip, preserving timeline positions, ranges and effects
   for every instance of the target. The replacement must have matching audio/video
@@ -91,7 +93,20 @@ Supported commands:
   and `gainDb` from -60 to 0. Adds a native keyframed volume effect, rejecting
   clips that already have one. Fades must not overlap. Undo removes the effect.
 - `rename_track`: `trackId` and `name`, using native undoable track renaming.
-- `insert`: the fields above, with `media` equal to `video` or `audio`.
+- `insert`: the fields above, with `media` equal to `video` or `audio`, and
+  optional `mode` (`normal`, `overwrite`, `insert`), `linked`, `audioTrackId`
+  and `allTracks` (insert mode). An A/V clip inserted as video is linked with
+  its audio by default. Returns `clipId`, and `audioClipId` and `groupId` when
+  linked.
+- `split`: `position` and one of `clipId`, `trackId` or `allTracks: true`.
+  Returns `pieces`.
+- `remove_range`: `start`, `end`, `trackIds` or `allTracks: true`, optional
+  `mode` (`lift` or `extract`). Returns `removedClipIds` and `newClipIds`.
+- `remove_gap`: `position` and `trackId` or `allTracks: true`. Returns `removed`.
+- `insert_space`: `position`, `duration` and `trackId` or `allTracks: true`.
+- `group`: `clipIds`. `ungroup`: `clipId` or `groupId`.
+- `speed`: `clipId`, `speed` (factor) and optional `pitchCompensation`.
+- `enable`: `clipId`, `enabled` and optional `linked`.
 - `move`: `clipId`, `trackId`, `position`.
 - `trim`: `clipId`, `duration`, `edge` equal to `left` or `right`.
 - `save_as`: new absolute `.kdenlive` `path` in a writable folder. Saves a copy,
@@ -125,8 +140,9 @@ Supported commands:
   sequence, one render at a time. Returns `outputs`.
 - `batch`: `commands`, 1 to 200 objects of the types `import`, `remove_asset`,
   `remove_clip`, `audio_envelope`, `rename_track`, `insert`, `move`, `trim`,
-  `reframe`, `effect_add`, `effect_set`, `effect_remove`, `title_edit` and the
-  four `marker_*` commands. Runs
+  `reframe`, `effect_add`, `effect_set`, `effect_remove`, `title_edit`, the
+  four `marker_*` commands, `split`, `remove_range`, `remove_gap`,
+  `insert_space`, `group`, `ungroup`, `speed` and `enable`. Runs
   them as one Undo step and returns `results`. On the first failure it rolls
   everything back and returns that error with `failedIndex`.
 - `undo` and `redo`: optional `count` (steps) or `toIndex` (target Undo
@@ -150,7 +166,9 @@ Frames use the project profile. Insertion's source end is exclusive. Readback of
 speed-adjusted existing clips reports their native producer frame range and speed;
 do not interpret that range as original-media time without applying the speed.
 Trim reports its actual resulting duration. IDs are native runtime IDs and may
-change when a project is reopened. Operations preserve native grouping behavior.
+change when a project is reopened. Operations preserve native grouping behavior;
+see [Timeline editing](native-mcp.md#timeline-editing) for insert modes, lift
+and extract, groups and guides.
 
 The bridge runs native editing operations on the GUI thread and refreshes the
 timeline/monitor. It checks session and revision immediately before editing.

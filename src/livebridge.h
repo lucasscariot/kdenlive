@@ -8,12 +8,16 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QPoint>
 #include <QPointer>
 #include <QQueue>
+#include <QSet>
 #include <QStringList>
 #include <QUndoStack>
+#include <QVector>
 #include <functional>
 #include <limits>
+#include <memory>
 
 class KdenliveDoc;
 class TimelineItemModel;
@@ -75,6 +79,36 @@ private:
     QJsonObject executeBatch(const QJsonObject &command);
     QJsonObject executeProduction(const QJsonObject &command, bool &handled);
     QJsonObject executeMarker(const QJsonObject &command);
+    /** Split, ripple, insert modes, groups, speed and enable; sets handled when the command is one of them. */
+    QJsonObject executeTimeline(const QJsonObject &command, bool &handled);
+    QJsonObject insertClip(const QJsonObject &command);
+    QJsonObject removeClip(const QJsonObject &command);
+    QJsonObject splitClips(const QJsonObject &command);
+    QJsonObject removeRange(const QJsonObject &command);
+    QJsonObject removeGap(const QJsonObject &command);
+    QJsonObject insertSpace(const QJsonObject &command);
+    QJsonObject groupClips(const QJsonObject &command);
+    QJsonObject ungroupClips(const QJsonObject &command);
+    QJsonObject clipSpeed(const QJsonObject &command);
+    QJsonObject clipEnable(const QJsonObject &command);
+    /** Lift a range from the given tracks and, unless liftOnly, close it (ripple); accumulates into undo/redo. */
+    bool rippleRemove(const QVector<int> &tracks, QPoint zone, bool liftOnly, std::function<bool()> &undo, std::function<bool()> &redo);
+    /** Whether guides follow a ripple across all tracks, as in the GUI. */
+    bool guidesFollowRipple() const;
+    bool rippleGuides(QPoint zone, std::function<bool()> &undo, std::function<bool()> &redo);
+    std::shared_ptr<TimelineItemModel> sharedTimeline() const;
+    /** UNKNOWN_TRACK or TRACK_LOCKED for a track an edit would change, otherwise empty. */
+    QJsonObject editableTrack(int trackId) const;
+    QList<int> unlockedTracks() const;
+    /** Clip ids on a track with their [start, end) frames, by position. */
+    struct ClipSpan
+    {
+        int id;
+        int start;
+        int end;
+    };
+    QList<ClipSpan> trackClips(int trackId) const;
+    QSet<int> allClipIds() const;
     QJsonObject startRender(const QJsonObject &command);
     QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;

@@ -44,7 +44,7 @@ const expectedTools = {
   desktop_capabilities: [true, false, true], desktop_state: [true, false, true], desktop_frame_capture: [true, false, true],
   desktop_effect_list: [true, false, true], desktop_title_read: [true, false, true], desktop_render_status: [true, false, true],
   desktop_apply: [false, true, false], desktop_media_import: [false, false, true], desktop_media_remove: [false, true, true],
-  desktop_clip_insert: [false, false, false], desktop_clip_remove: [false, true, true], desktop_media_replace: [false, true, true],
+  desktop_clip_insert: [false, true, false], desktop_clip_remove: [false, true, true], desktop_media_replace: [false, true, true],
   desktop_clip_move: [false, true, true], desktop_clip_trim: [false, true, true], desktop_audio_envelope: [false, false, true],
   desktop_track_rename: [false, true, true], desktop_project_save: [false, true, true], desktop_project_save_as: [false, false, true],
   desktop_project_profile: [false, true, true], desktop_clip_reframe: [false, true, true], desktop_effect_add: [false, false, false],
@@ -52,6 +52,9 @@ const expectedTools = {
   desktop_render: [false, false, false], desktop_undo: [false, true, false], desktop_redo: [false, true, false], desktop_batch: [false, true, false],
   desktop_marker_add: [false, true, true], desktop_marker_edit: [false, true, true], desktop_marker_remove: [false, true, true],
   desktop_marker_import: [false, true, true], desktop_marker_export: [true, false, true], desktop_history: [true, false, true],
+  desktop_clip_split: [false, true, true], desktop_range_remove: [false, true, false], desktop_gap_remove: [false, true, false],
+  desktop_space_insert: [false, true, false], desktop_clip_group: [false, false, true], desktop_clip_ungroup: [false, true, true],
+  desktop_clip_speed: [false, true, true], desktop_clip_enable: [false, true, true],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -164,6 +167,7 @@ async function stop() {
 try {
   await launch();
   const catalog = await client.listTools();
+  assert.equal(catalog.tools.length, 42);
   const names = catalog.tools.map(item => item.name).sort();
   const expectedNames = Object.keys(expectedTools).sort();
   assert.deepEqual(names, expectedNames, `Tool catalog mismatch. Missing: ${expectedNames.filter(name => !names.includes(name)).join(', ') || 'none'}; unexpected: ${names.filter(name => !expectedNames.includes(name)).join(', ') || 'none'}`);
@@ -352,11 +356,184 @@ try {
   await edit('desktop_marker_remove', { all: true });
   await edit('desktop_marker_import', { format: 'json', text: JSON.stringify(fixtureGuides) });
   assert.deepEqual(state.markers, fixtureGuides); assert.equal(state.counts.markers, 2);
+  // Timeline primitives: split, lift and extract, gaps and space, insert modes with linked A/V, groups, speed and enable. Every edit is undone
+  // again, so the fixture layout comes back at the end of the section.
+  await refresh();
+  const timelineCaps = await ok('desktop_capabilities');
+  for (const operation of ['split', 'remove_range', 'remove_gap', 'insert_space', 'group', 'ungroup', 'speed', 'enable'])
+    assert(timelineCaps.operations.includes(operation), operation);
+  assert.deepEqual([timelineCaps.editModes, timelineCaps.removeModes], [['normal', 'overwrite', 'insert'], ['lift', 'extract']]);
+  const lane = name => state.tracks.find(item => item.name === name);
+  const spans = name => lane(name).clips.map(item => [item.position, item.duration]);
+  const layout = () => state.tracks.map(item => [item.name, item.gaps, item.compositions.map(c => [c.id, c.position, c.duration]),
+    item.clips.map(c => [c.id, c.position, c.duration, c.sourceIn, c.sourceOut, c.speed, c.enabled, c.linkedClipId, c.grouped])]);
+  const timelineStart = layout();
+  const timelineIndex = state.undo.index;
+  const [V1, A1, Titles, Muted] = ['V1', 'A1', 'Titles', 'Muted'].map(lane);
+  const [pairV, pairA, colorClip] = [V1.clips[0].id, A1.clips[0].id, Titles.clips[0].id];
+  const lastSummary = async () => (await ok('desktop_history', { limit: 1 })).entries[0];
+  // Split one clip of the linked pair: both halves are cut and form two linked pairs; Undo restores one clip.
+  let cut = await edit('desktop_clip_split', { clipId: pairV, position: 100 });
+  assert.equal(undoLabel(), 'Cut clip');
+  assert.deepEqual([spans('V1'), spans('A1')], [[[0, 100], [100, 200]], [[0, 100], [100, 200]]]);
+  const [leftV, rightV] = lane('V1').clips;
+  const [leftA, rightA] = lane('A1').clips;
+  assert.deepEqual([cut.leftClipId, cut.rightClipId, leftV.id, leftA.id], [pairV, rightV.id, pairV, pairA]);
+  assert.deepEqual(cut.pieces.map(piece => [piece.trackId, piece.leftClipId, piece.rightClipId]).sort(),
+    [[V1.id, pairV, rightV.id], [A1.id, pairA, rightA.id]].sort());
+  assert.deepEqual(cut.newClipIds, [rightV.id, rightA.id].sort((a, b) => a - b));
+  assert.deepEqual([leftV.linkedClipId, rightV.linkedClipId, rightV.speed, rightV.sourceIn], [pairA, rightA.id, 0.5, leftV.sourceOut]);
+  assert.notEqual(leftV.groupId, rightV.groupId); assert.equal(rightV.groupId, rightA.groupId);
+  assert.deepEqual((await lastSummary()).summary.pieces.sort(), [[pairV, rightV.id], [pairA, rightA.id]].sort());
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart, 'Undo restores the unsplit pair');
+  for (const [args, code] of [[{ clipId: pairV, position: 0 }, 'NOT_SPLITTABLE'], [{ clipId: pairV, position: 300 }, 'NOT_SPLITTABLE'],
+    [{ trackId: Titles.id, position: 10 }, 'NOT_SPLITTABLE'], [{ trackId: Muted.id, position: 10 }, 'TRACK_LOCKED'], [{ position: 10 }, 'INVALID_COMMAND'],
+    [{ clipId: pairV, allTracks: true, position: 10 }, 'INVALID_COMMAND'], [{ clipId: 999999, position: 10 }, 'UNKNOWN_CLIP']])
+    assert.equal(await rejected('desktop_clip_split', args), code, JSON.stringify(args));
+  cut = await edit('desktop_clip_split', { position: 150, allTracks: true });
+  assert.deepEqual([cut.pieces.length, cut.newClipIds.length, cut.leftClipId, undoLabel()], [3, 3, undefined, 'Cut all clips']);
+  assert.deepEqual([spans('V1'), spans('Titles')], [[[0, 150], [150, 150]], [[30, 120], [150, 120]]]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  // Lift leaves a gap; extract closes it on the clip's track; the whole group goes unless group is single.
+  await edit('desktop_clip_split', { clipId: pairV, position: 100 });
+  const rightPieces = [lane('V1').clips[1].id, lane('A1').clips[1].id];
+  let removed = await edit('desktop_clip_remove', { clipId: pairV });
+  assert.deepEqual([removed.mode, removed.removedClipIds, undoLabel()], ['lift', [pairV, pairA].sort((a, b) => a - b), 'Remove group']);
+  assert.deepEqual([lane('V1').gaps, lane('A1').gaps, spans('V1')], [[{ position: 0, duration: 100 }], [{ position: 0, duration: 100 }], [[100, 200]]]);
+  assert.deepEqual((await lastSummary()).summary.removedClipIds, removed.removedClipIds);
+  await edit('desktop_undo');
+  removed = await edit('desktop_clip_remove', { clipId: pairV, mode: 'extract' });
+  assert.deepEqual([undoLabel(), spans('V1'), spans('A1'), spans('Titles')], ['Extract clip', [[0, 200]], [[0, 200]], [[30, 240]]]);
+  assert.deepEqual(removed.ranges.map(range => [range.start, range.end]), [[0, 100], [0, 100]]);
+  assert.deepEqual([lane('V1').clips[0].id, lane('V1').clips[0].linkedClipId], [rightPieces[0], rightPieces[1]], 'Later clips move and stay linked');
+  await edit('desktop_undo');
+  removed = await edit('desktop_clip_remove', { clipId: pairV, mode: 'extract', group: 'single' });
+  assert.deepEqual([removed.removedClipIds, spans('V1'), spans('A1')], [[pairV], [[0, 200]], [[0, 100], [100, 200]]]);
+  assert.equal(clip(pairA).linkedClipId, null, 'single takes the clip out of its group');
+  await edit('desktop_undo');
+  removed = await edit('desktop_clip_remove', { clipId: pairV, mode: 'extract', allTracks: true });
+  assert.deepEqual([undoLabel(), spans('V1'), spans('Titles'), lane('Titles').compositions, removed.guidesMoved], ['Extract zone', [[0, 200]], [[0, 170]], [], false]);
+  assert.deepEqual(state.markers.map(item => item.position), [90, 200], 'Guides stay while Kdenlive locks guides');
+  await edit('desktop_undo'); await edit('desktop_undo');
+  assert.deepEqual(layout(), timelineStart);
+  for (const [args, code] of [[{ clipId: pairV, mode: 'ripple' }, 'INVALID_COMMAND'], [{ clipId: pairV, allTracks: true }, 'INVALID_COMMAND'],
+    [{ clipId: pairV, group: 'some' }, 'INVALID_COMMAND']])
+    assert.equal(await rejected('desktop_clip_remove', args), code, JSON.stringify(args));
+  // Range removal: a split and an extract in one batch are one Undo step; ranges on linked tracks keep the pairs linked.
+  const timelineBatch = await edit('desktop_batch', { commands: [{ type: 'split', trackId: V1.id, position: 100 },
+    { type: 'remove_range', start: 100, end: 150, trackIds: [V1.id, A1.id], mode: 'extract' }] });
+  assert.deepEqual([undoLabel(), state.undo.index, spans('V1'), spans('A1'), spans('Titles')],
+    ['MCP batch (2 edits)', timelineIndex + 1, [[0, 100], [100, 150]], [[0, 100], [100, 150]], [[30, 240]]]);
+  assert.deepEqual(lane('V1').clips.map(item => clip(item.linkedClipId).position), [0, 100]);
+  const batchEntry = await lastSummary();
+  assert.deepEqual(batchEntry.children.map(child => child.type), ['split', 'remove_range']);
+  assert.equal(batchEntry.children[0].summary.pieces.length, 2);
+  assert.deepEqual(batchEntry.children[1].summary.removedClipIds, timelineBatch.results[1].removedClipIds);
+  assert.deepEqual([timelineBatch.results[1].removedClipIds.length, timelineBatch.results[1].newClipIds.length], [2, 2]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart, 'One Undo reverts the split and the extract');
+  let range = await edit('desktop_range_remove', { start: 50, end: 80, trackIds: [V1.id, A1.id] });
+  assert.deepEqual([range.mode, undoLabel(), lane('V1').gaps, lane('A1').gaps, spans('V1')], ['lift', 'Lift zone', [{ position: 50, duration: 30 }], [{ position: 50, duration: 30 }], [[0, 50], [80, 220]]]);
+  // Close the gap on V1: its linked audio moves with it.
+  const gap = await edit('desktop_gap_remove', { trackId: V1.id, position: 60 });
+  assert.deepEqual([gap.removed, undoLabel(), spans('V1'), spans('A1')], [30, 'Remove space', [[0, 50], [50, 220]], [[0, 50], [50, 220]]]);
+  await edit('desktop_undo'); await edit('desktop_undo');
+  range = await edit('desktop_range_remove', { start: 0, end: 60, allTracks: true, mode: 'extract' });
+  // As in the GUI, a composition overlapping a lifted range is removed with it.
+  assert.deepEqual([undoLabel(), spans('V1'), spans('Titles'), lane('Titles').compositions], ['Extract zone', [[0, 240]], [[0, 210]], []]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  for (const [args, code] of [[{ start: 10, end: 10, allTracks: true }, 'INVALID_COMMAND'], [{ start: 0, end: 10 }, 'INVALID_COMMAND'],
+    [{ start: 0, end: 10, trackIds: [Muted.id] }, 'TRACK_LOCKED'], [{ start: 0, end: 10, trackIds: [999999] }, 'UNKNOWN_TRACK']])
+    assert.equal(await rejected('desktop_range_remove', args), code, JSON.stringify(args));
+  // Gaps and space: the Titles gap before its clip, a composition moving with it, and refusals.
+  await edit('desktop_gap_remove', { trackId: Titles.id, position: 10 });
+  assert.deepEqual([spans('Titles'), lane('Titles').gaps, lane('Titles').compositions[0].position], [[[0, 240]], [], 0]);
+  await edit('desktop_undo');
+  for (const [args, code] of [[{ trackId: V1.id, position: 10 }, 'NO_GAP'], [{ trackId: Titles.id, position: 280 }, 'NO_GAP'],
+    [{ allTracks: true, position: 10 }, 'NO_GAP'], [{ trackId: Muted.id, position: 10 }, 'TRACK_LOCKED'], [{ position: 10 }, 'INVALID_COMMAND']])
+    assert.equal(await rejected('desktop_gap_remove', args), code, JSON.stringify(args));
+  let space = await edit('desktop_space_insert', { trackId: Titles.id, position: 0, duration: 20 });
+  assert.deepEqual([undoLabel(), spans('Titles'), spans('V1'), space.guidesMoved], ['Insert space', [[50, 240]], [[0, 300]], false]);
+  await edit('desktop_undo');
+  space = await edit('desktop_space_insert', { allTracks: true, position: 0, duration: 10 });
+  assert.deepEqual([spans('V1'), spans('A1'), spans('Titles')], [[[10, 300]], [[10, 300]], [[40, 240]]]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  for (const [args, code] of [[{ trackId: Titles.id, position: 280, duration: 5 }, 'NOTHING_TO_MOVE'], [{ trackId: Muted.id, position: 0, duration: 5 }, 'TRACK_LOCKED'],
+    [{ trackId: V1.id, position: 0, duration: 0 }, 'INVALID_COMMAND'], [{ trackId: V1.id, allTracks: true, position: 0, duration: 5 }, 'INVALID_COMMAND']])
+    assert.equal(await rejected('desktop_space_insert', args), code, JSON.stringify(args));
+  // Linked insertion places the audio on the nearest unlocked audio track and links both halves.
+  const sourceAsset = state.bin.find(item => item.ready && item.url === source);
+  const place = { binId: sourceAsset.id, trackId: V1.id, sourceIn: 0, sourceOut: 60, media: 'video' };
+  let placed = await edit('desktop_clip_insert', { ...place, position: 400 });
+  assert.deepEqual([placed.mode, placed.linked, undoLabel(), clip(placed.audioClipId).position, clip(placed.audioClipId).duration], ['normal', true, 'Insert Clip', 400, 60]);
+  assert.equal(lane('A1').clips.some(item => item.id === placed.audioClipId), true);
+  assert.deepEqual([clip(placed.clipId).linkedClipId, clip(placed.audioClipId).linkedClipId, clip(placed.clipId).groupId, clip(placed.audioClipId).groupId],
+    [placed.audioClipId, placed.clipId, placed.groupId, placed.groupId]);
+  const insertEntry = await lastSummary();
+  assert.deepEqual([insertEntry.summary.clipId, insertEntry.summary.audioClipId, insertEntry.summary.groupId, insertEntry.summary.mode], [placed.clipId, placed.audioClipId, placed.groupId, 'normal']);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  assert.equal(await rejected('desktop_clip_insert', { ...place, position: 100 }), 'OVERLAP');
+  placed = await edit('desktop_clip_insert', { ...place, position: 100, mode: 'insert' });
+  assert.deepEqual([undoLabel(), spans('V1'), spans('A1'), spans('Titles')], ['Insert clip (ripple)', [[0, 100], [100, 60], [160, 200]], [[0, 100], [100, 60], [160, 200]], [[30, 240]]]);
+  assert.deepEqual([lane('V1').clips[1].id, lane('A1').clips[1].id], [placed.clipId, placed.audioClipId], 'Later clips shift right');
+  assert.equal(clip(lane('V1').clips[2].id).linkedClipId, lane('A1').clips[2].id);
+  await edit('desktop_undo');
+  await edit('desktop_clip_insert', { ...place, position: 100, mode: 'insert', allTracks: true });
+  assert.deepEqual(spans('Titles'), [[30, 70], [160, 170]], 'allTracks ripples every unlocked track');
+  await edit('desktop_undo');
+  placed = await edit('desktop_clip_insert', { ...place, position: 100, mode: 'overwrite' });
+  assert.deepEqual([undoLabel(), spans('V1'), spans('A1')], ['Overwrite clip', [[0, 100], [100, 60], [160, 140]], [[0, 100], [100, 60], [160, 140]]]);
+  await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  placed = await edit('desktop_clip_insert', { ...place, trackId: A1.id, position: 400, media: 'audio' });
+  assert.deepEqual([placed.linked, clip(placed.clipId).position, lane('A1').clips.at(-1).id], [false, 400, placed.clipId], 'Audio-only insertion');
+  await edit('desktop_undo');
+  placed = await edit('desktop_clip_insert', { ...place, position: 400, linked: false });
+  assert.deepEqual([placed.linked, placed.audioClipId, clip(placed.clipId).linkedClipId], [false, undefined, null]);
+  await edit('desktop_undo');
+  const colorAsset = state.bin.find(item => item.type === 'color');
+  for (const [args, code] of [[{ ...place, position: 400, media: 'audio' }, 'INCOMPATIBLE_MEDIA'], [{ ...place, trackId: A1.id, position: 400, media: 'audio', linked: true }, 'INVALID_COMMAND'],
+    [{ ...place, position: 400, audioTrackId: Muted.id }, 'TRACK_LOCKED'], [{ ...place, position: 400, audioTrackId: Titles.id }, 'INCOMPATIBLE_MEDIA'],
+    [{ ...place, position: 400, allTracks: true }, 'INVALID_COMMAND'], [{ ...place, binId: colorAsset.id, position: 400, linked: true }, 'INCOMPATIBLE_MEDIA'],
+    [{ ...place, trackId: Muted.id, position: 400, media: 'audio' }, 'TRACK_LOCKED']])
+    assert.equal(await rejected('desktop_clip_insert', args), code, JSON.stringify(args));
+  // Groups: ungroup unlinks the pair, regrouping its two halves links them again; groups nest.
+  assert.deepEqual((await edit('desktop_clip_group', { clipIds: [pairV, pairA] })).changed, false);
+  let grouping = await edit('desktop_clip_ungroup', { clipId: pairV });
+  assert.deepEqual([grouping.clipIds, undoLabel(), clip(pairV).grouped, clip(pairV).linkedClipId], [[pairV, pairA].sort((a, b) => a - b), 'Ungroup clips', false, null]);
+  grouping = await edit('desktop_clip_group', { clipIds: [pairV, pairA] });
+  assert.deepEqual([grouping.linked, undoLabel(), clip(pairV).linkedClipId, clip(pairV).groupId], [true, 'Group clips', pairA, grouping.groupId]);
+  grouping = await edit('desktop_clip_group', { clipIds: [pairV, colorClip] });
+  assert.deepEqual([grouping.clipIds.length, clip(colorClip).groupId, clip(pairA).groupId, grouping.linked], [3, grouping.groupId, grouping.groupId, true]);
+  grouping = await edit('desktop_clip_ungroup', { groupId: grouping.groupId });
+  assert.deepEqual([grouping.clipIds.length, clip(colorClip).grouped, clip(pairV).linkedClipId], [3, false, pairA], 'Ungrouping the outer group keeps the linked pair');
+  for (const [name, args, code] of [['desktop_clip_ungroup', { groupId: 999999 }, 'UNKNOWN_GROUP'], ['desktop_clip_ungroup', { clipId: colorClip }, 'UNKNOWN_GROUP'],
+    ['desktop_clip_ungroup', { clipId: pairV, groupId: 1 }, 'INVALID_COMMAND'], ['desktop_clip_group', { clipIds: [pairV, 999999] }, 'UNKNOWN_CLIP']])
+    assert.equal(await rejected(name, args), code, JSON.stringify(args));
+  await edit('desktop_undo', { toIndex: timelineIndex }); assert.deepEqual(layout(), timelineStart);
+  // Speed: the fixture pair plays at 0.5; normal speed halves its duration, on both linked halves, and Undo restores it.
+  const fast = await edit('desktop_clip_speed', { clipId: pairV, speed: 1 });
+  assert.deepEqual([fast.speed, fast.duration, fast.linkedClipId, undoLabel()], [1, 150, pairA, 'Change clip speed']);
+  assert.deepEqual([clip(pairA).speed, clip(pairA).duration], [1, 150]);
+  const speedEntry = await lastSummary();
+  assert.deepEqual([speedEntry.summary.clipId, speedEntry.summary.speed, speedEntry.summary.previousDuration, speedEntry.summary.newDuration], [pairV, 1, 300, 150]);
+  await edit('desktop_undo'); assert.deepEqual([clip(pairV).speed, clip(pairV).duration, clip(pairA).duration], [0.5, 300, 300]);
+  await edit('desktop_clip_insert', { ...place, position: 320, linked: false });
+  assert.equal(await rejected('desktop_clip_speed', { clipId: pairV, speed: 0.25 }), 'OVERLAP');
+  await edit('desktop_undo', { toIndex: timelineIndex });
+  for (const [args, code] of [[{ clipId: pairV, speed: 0 }, 'INVALID_COMMAND'], [{ clipId: colorClip, speed: 2 }, 'INCOMPATIBLE_MEDIA']])
+    assert.equal(await rejected('desktop_clip_speed', args), code, JSON.stringify(args));
+  // Enable and disable, with and without the linked partner.
+  let toggled = await edit('desktop_clip_enable', { clipId: pairV, enabled: false });
+  assert.deepEqual([toggled.clipIds, toggled.changed, clip(pairV).enabled, clip(pairA).enabled, undoLabel()], [[pairV, pairA].sort((a, b) => a - b), true, false, false, 'Disable clips']);
+  assert.equal((await edit('desktop_clip_enable', { clipId: pairV, enabled: false })).changed, false);
+  toggled = await edit('desktop_clip_enable', { clipId: pairV, enabled: true, linked: false });
+  assert.deepEqual([toggled.clipIds, clip(pairV).enabled, clip(pairA).enabled, undoLabel()], [[pairV], true, false, 'Enable clips']);
+  await edit('desktop_undo', { toIndex: timelineIndex });
+  assert.deepEqual(layout(), timelineStart, 'Every timeline edit is undone');
   const video = state.tracks.find(item => !item.audio && !item.locked);
   const audio = state.tracks.find(item => item.audio && item.clips.length);
   const asset = state.bin.find(item => item.ready && item.url === source);
   assert(video && audio && asset);
-  const insertion = { ...fields(), binId: asset.id, trackId: video.id, position: 360, sourceIn: 30, sourceOut: 90, media: 'video' };
+  const insertion = { ...fields(), binId: asset.id, trackId: video.id, position: 360, sourceIn: 30, sourceOut: 90, media: 'video', linked: false };
   const inserted = await ok('desktop_clip_insert', insertion);
   assert.deepEqual(Object.keys(inserted.state).sort(), Object.keys(state).sort(), 'Edits embed the default desktop_state snapshot');
   state = inserted.state;

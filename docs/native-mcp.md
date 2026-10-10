@@ -59,7 +59,15 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_marker_export` | `format` (`json`, `csv`, `kdenlive`), optional `binId` | Return the sequence guides, or a bin clip's markers, as text |
 | `desktop_history` | optional `limit` (1 to 1000, default 50), `origin` (`all`, `mcp`, `user`, `unknown`), `sessionId`, `since` (undo index or ISO 8601 time), `includeUndone` (default true) | Read the shared Undo history as a change log; see [Change log](#change-log) |
 | `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
-| `desktop_clip_insert`, `desktop_clip_remove` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media`; `clipId` | Add or remove timeline clips |
+| `desktop_clip_insert` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media` (`video`/`audio`), optional `mode` (`normal`, `overwrite`, `insert`), `linked`, `audioTrackId`, `allTracks` (insert mode) | Insert a bin clip range; an A/V clip as a linked pair by default; returns `clipId`, `audioClipId`, `groupId`; see [Timeline editing](#timeline-editing) |
+| `desktop_clip_remove` | `clipId`, optional `mode` (`lift`, `extract`), `group` (`whole`, `single`), `allTracks` (extract) | Remove a clip or its group, leaving a gap or rippling; returns `removedClipIds` |
+| `desktop_clip_split` | `position` and one of `clipId`, `trackId` or `allTracks: true` | Cut clips at a frame; returns `pieces` (`trackId`, `leftClipId`, `rightClipId`) |
+| `desktop_range_remove` | `start`, `end` (exclusive), `trackIds` or `allTracks: true`, optional `mode` (`lift`, `extract`) | Lift or extract a time range; returns `removedClipIds`, `newClipIds` |
+| `desktop_gap_remove` | `position`, `trackId` or `allTracks: true` | Close the gap at a frame; returns `removed` (frames) |
+| `desktop_space_insert` | `position`, `duration`, `trackId` or `allTracks: true` | Insert blank space, moving later clips right |
+| `desktop_clip_group`, `desktop_clip_ungroup` | `clipIds` (2 to 200); `clipId` or `groupId` | Group clips (the halves of one A/V clip become linked); dissolve a topmost group |
+| `desktop_clip_speed` | `clipId`, `speed` (factor, 0.01 to 100 in magnitude, negative reverses), optional `pitchCompensation` | Change playback speed with the linked clip; returns `speed`, `duration` |
+| `desktop_clip_enable` | `clipId`, `enabled`, optional `linked` (default true) | Disable or enable a clip and its linked partner |
 | `desktop_media_replace` | `binId`, `replacementBinId` | Replace an asset while preserving timeline ranges |
 | `desktop_clip_move`, `desktop_clip_trim` | `clipId`, `trackId`, `position`; `clipId`, `duration`, `edge` | Move clips and trim their edges |
 | `desktop_audio_envelope`, `desktop_track_rename` | `clipId`, `fadeIn`, `fadeOut`, `gainDb`; `trackId`, `name` | Add audio fades/gain and name tracks |
@@ -79,19 +87,88 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
 
 Tool annotations follow the MCP hints. The eight reading tools are
-`readOnlyHint`. `desktop_media_import`, `desktop_clip_insert`,
-`desktop_audio_envelope`, `desktop_project_save_as`, `desktop_effect_add` and
+`readOnlyHint`. `desktop_media_import`, `desktop_audio_envelope`,
+`desktop_project_save_as`, `desktop_effect_add`, `desktop_clip_group` and
 `desktop_render` only add content and are not `destructiveHint`; every other
-editing tool is. Repeating `desktop_clip_insert`, `desktop_effect_add`,
-`desktop_effect_remove`, `desktop_render`, `desktop_undo`, `desktop_redo`,
-`desktop_batch` or `desktop_apply` with new edit fields has a further effect,
-so they are not `idempotentHint`. Independently of the hints, an identical retry
+editing tool is (`desktop_clip_insert` can overwrite). Repeating
+`desktop_clip_insert`, `desktop_effect_add`, `desktop_effect_remove`,
+`desktop_range_remove`, `desktop_gap_remove`, `desktop_space_insert`,
+`desktop_render`, `desktop_undo`, `desktop_redo`, `desktop_batch` or
+`desktop_apply` with new edit fields has a further effect, so they are not
+`idempotentHint`. Independently of the hints, an identical retry
 with the same `requestId` returns the saved result.
 
 Read `desktop_state` before editing. Each edit needs its `sessionId`, the
 `expectedRevision`, and a unique `requestId`. Frame values use the project FPS;
 `sourceOut` is exclusive. Import and replacement load asynchronously. Poll state
 until the affected bin asset is ready before using it.
+
+## Timeline editing
+
+The timeline tools call the operations behind Kdenlive's own timeline actions
+and push one Undo step each (`Cut clip`, `Extract zone`, `Insert space`, ...);
+inside `desktop_batch` they share the batch's single step. Edits clear the GUI
+selection first, so a selection never widens them, and they run in Kdenlive's
+normal edit mode whatever the GUI's insert/overwrite toggle says. Locked tracks
+are never changed: commands naming one fail with `TRACK_LOCKED`, and
+`allTracks: true` means every unlocked track.
+
+- Insert modes. `desktop_clip_insert` with `mode: "normal"` (default) refuses
+  a range that is not empty on a receiving track (`OVERLAP`). `overwrite`
+  lifts the range from the receiving tracks first, as Kdenlive's overwrite mode
+  does. `insert` cuts clips at `position` and moves everything after it right by
+  the inserted duration on the receiving tracks, or on every unlocked track
+  with `allTracks: true`, as Kdenlive's insert does; other tracks stay put.
+- Linked A/V. With `media: "video"`, a bin clip with audio and video is inserted
+  as a pair by default: the video on `trackId`, the audio on `audioTrackId`, or
+  else the track's mirror audio track or the nearest unlocked audio track. The
+  halves are grouped and linked, as dropping the clip in the GUI does
+  (`groupId`, `linkedClipId` in state). `linked: false` inserts the video only;
+  without a usable audio track the default falls back to video only, while
+  `linked: true` fails with `NO_AUDIO_TRACK`.
+- Lift and extract. `lift` removes and leaves a gap (`tracks[].gaps`);
+  `extract` closes it. `desktop_clip_remove` extracts each removed clip's range
+  on that clip's own track, as the GUI's Extract does; with `allTracks: true`
+  it removes the clip's time range from every unlocked track, like Extract zone.
+  `desktop_range_remove` lifts or extracts `[start, end)` on `trackIds` or all
+  unlocked tracks, cutting clips that cross either end. Compositions that
+  overlap a lifted range are removed with it, as in the GUI.
+- Groups. `desktop_clip_remove` removes the clip's whole group by default
+  (`group: "whole"`, what the GUI deletes); `group: "single"` takes the clip out
+  of its group first, which unlinks an A/V pair. Splits cut every grouped clip
+  under the position and regroup the halves on each side, so a linked pair
+  becomes two linked pairs. A grouped clip on a track outside a range or
+  ripple is ungrouped from the part inside it (Kdenlive's
+  `breakAffectedGroups`), and rippling moves only the listed tracks, so a pair
+  split across listed and unlisted tracks can drift out of sync: list both
+  tracks of linked pairs, or use `allTracks`.
+- Gaps and space. `desktop_gap_remove` is the GUI's Remove space: the gap must be
+  blank on every affected track (`NO_GAP` otherwise, also when no clip follows),
+  and a gap between two clips of one group is refused. `desktop_space_insert`
+  is Insert space: items at or after `position` (a clip spanning it moves whole)
+  move right with their groups; `NOTHING_TO_MOVE` when there is none.
+- Guides do not move with ripple edits while Kdenlive's "Lock guides" setting
+  (`lockedGuides`, on by default) is on. With it off they follow as in the GUI:
+  `desktop_gap_remove` moves the guides after the gap, `desktop_space_insert`
+  and extracts move them when every track ripples (`allTracks: true` and no
+  locked track; an extract also deletes guides inside the range). Results report
+  `guidesMoved`.
+- Speed. `desktop_clip_speed` takes a factor (the state's `speed`), changes the
+  linked clip too and keeps the source range, so the duration scales;
+  `OVERLAP` when a slower clip would run into the next one. Media without a
+  fixed duration (colour, title) fails with `INCOMPATIBLE_MEDIA`.
+- `NOT_SPLITTABLE`: the position is at a clip edge, outside it, or (for
+  `trackId`/`allTracks`) no clip spans it. `UNKNOWN_GROUP`: the clip is not
+  grouped, or `groupId` is not a topmost group from state.
+- `desktop_clip_move` has no insert or overwrite mode: Kdenlive's insert-mode
+  move uses internal fake-move operations that are not part of the model's
+  public interface.
+
+To cut a span, such as a silence, out of linked audio and video and close it,
+use one `desktop_range_remove` with `mode: "extract"` and `allTracks: true`
+(or the pair's `trackIds`). For many spans, send one `desktop_batch` of
+`remove_range` commands from the last span to the first, so earlier positions
+stay valid and the whole pass is one Undo step.
 
 ## Markers and guides
 
@@ -289,7 +366,7 @@ The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable edit
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
-**Acceptance checks.** The run calls all 34 tools. It checks the catalog against
+**Acceptance checks.** The run calls all 42 tools. It checks the catalog against
 the expected tool names and annotations, then reads the fixture's state:
 track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
 a dissolve composition, two guides, two subtitles, bin folders and types, and
@@ -300,7 +377,16 @@ name, replaces, edits, moves and removes them with undo/redo; removes many by
 `all`, `category` and `range` in one Undo step that one `desktop_undo` restores;
 round-trips json, csv and kdenlive exports through import; runs marker commands
 in a batch; adds, edits, exports and removes bin-clip markers; and checks the
-marker error codes. It then tests inserting, moving,
+marker error codes. It then exercises the timeline primitives on the fixture:
+splitting the linked pair into two linked pairs and undoing it, splitting all
+tracks, lifting (gaps) and extracting (later clips move) a grouped clip whole,
+single and across all tracks, a split and a range extract in one batch Undo
+step, range lift and extract, closing gaps and inserting space, linked, insert-mode,
+all-track insert-mode, overwrite and audio-only insertion, `OVERLAP`, grouping and
+ungrouping with A/V linking and nesting, speed changes with undo and `OVERLAP`,
+enabling and disabling with and without the linked clip, the history summaries
+of these edits, and their refusals on the locked track; one `toIndex` undo then
+restores the fixture layout. It then tests inserting, moving,
 trimming and removing clips with undo/redo; receipt replay, `REVISION_CONFLICT` and
 `REQUEST_ID_REUSED`; the import folder policy, including a symlink escape;
 importing, removing and replacing media; the audio envelope and track rename;
