@@ -49,6 +49,9 @@ const QMap<QString, Command> &commands()
         const QJsonObject params{{"type", "object"}, {"additionalProperties", QJsonObject{{"type", "string"}}}};
         const QJsonObject size{{"type", "integer"}, {"minimum", 16}, {"maximum", 8192}};
         const QJsonObject comment{{"type", "string"}, {"maxLength", 4096}};
+        const QJsonObject flag{{"type", "boolean"}};
+        const QJsonObject removeMode{{"type", "string"}, {"enum", QJsonArray{"lift", "extract"}}};
+        const QJsonObject trackList{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"uniqueItems", true}, {"items", frame}};
         const QJsonObject category{{"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "string"}, {"minLength", 1}}}},
                                    {"description", "Category index or name from desktop_capabilities markerCategories"}};
         const QJsonObject titleItem{
@@ -96,7 +99,29 @@ const QMap<QString, Command> &commands()
             {"render", {{{"path", text}, {"preset", text}}, {"preset"}}},
             {"import", {{{"path", text}}}},
             {"remove_asset", {{{"binId", bin}}}},
-            {"remove_clip", {{{"clipId", frame}}}},
+            {"remove_clip",
+             {{{"clipId", frame},
+               {"mode", removeMode},
+               {"group", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"whole", "single"}}}},
+               {"allTracks", flag}},
+              {"mode", "group", "allTracks"}}},
+            {"split", {{{"clipId", frame}, {"trackId", frame}, {"position", frame}, {"allTracks", flag}}, {"clipId", "trackId", "allTracks"}}},
+            {"remove_range",
+             {{{"start", frame}, {"end", frameSchema(1)}, {"trackIds", trackList}, {"allTracks", flag}, {"mode", removeMode}},
+              {"trackIds", "allTracks", "mode"}}},
+            {"remove_gap", {{{"position", frame}, {"trackId", frame}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
+            {"insert_space", {{{"position", frame}, {"duration", frameSchema(1)}, {"trackId", frame}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
+            {"group", {{{"clipIds", QJsonObject{{"type", "array"}, {"minItems", 2}, {"maxItems", 200}, {"uniqueItems", true}, {"items", frame}}}}}},
+            {"ungroup", {{{"clipId", frame}, {"groupId", frame}}, {"clipId", "groupId"}}},
+            {"speed",
+             {{{"clipId", frame},
+               {"speed", QJsonObject{{"type", "number"},
+                                     {"minimum", -100},
+                                     {"maximum", 100},
+                                     {"description", "Factor: 1 normal, 0.5 half, 2 double, negative reverse; 0.01 <= |speed|"}}},
+               {"pitchCompensation", flag}},
+              {"pitchCompensation"}}},
+            {"enable", {{{"clipId", frame}, {"enabled", flag}, {"linked", flag}}, {"linked"}}},
             {"replace_media", {{{"binId", bin}, {"replacementBinId", bin}}}},
             {"insert",
              {{{"binId", bin},
@@ -104,7 +129,12 @@ const QMap<QString, Command> &commands()
                {"position", frame},
                {"sourceIn", frame},
                {"sourceOut", frameSchema(1)},
-               {"media", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"video", "audio"}}}}}}},
+               {"media", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"video", "audio"}}}},
+               {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"normal", "overwrite", "insert"}}}},
+               {"linked", flag},
+               {"audioTrackId", frame},
+               {"allTracks", flag}},
+              {"mode", "linked", "audioTrackId", "allTracks"}}},
             {"move", {{{"clipId", frame}, {"trackId", frame}, {"position", frame}}}},
             {"trim", {{{"clipId", frame}, {"duration", frameSchema(1)}, {"edge", edge}}}},
             {"audio_envelope",
@@ -154,9 +184,51 @@ const QList<Tool> &editingTools()
          "import", additiveRepeatable},
         {"desktop_media_remove", "Remove an unused binId using native Undo. Rejects media used in any sequence. Keeps the source file on disk.", "remove_asset",
          overwritingRepeatable},
-        {"desktop_clip_insert", "Insert ready bin media into a track. Frames use project FPS; sourceOut is exclusive. Choose audio or video explicitly.",
-         "insert", additive},
-        {"desktop_clip_remove", "Remove one ungrouped clip without rippling. Keeps its bin asset and source file. Native Undo restores it.", "remove_clip",
+        {"desktop_clip_insert",
+         "Insert ready bin media [sourceIn, sourceOut) (exclusive, project frames) at position on trackId; media picks the stream placed there. With "
+         "media video an A/V clip is linked by default: its audio goes to audioTrackId (default: the mirror or nearest unlocked audio track) and both "
+         "halves are grouped and linked (linked: false inserts video only). mode normal (default) refuses an occupied range (OVERLAP), overwrite "
+         "replaces what is there, insert cuts at position and pushes later clips right on the receiving tracks (allTracks: true on every unlocked "
+         "track). Returns clipId, audioClipId and groupId.",
+         "insert", overwriting},
+        {"desktop_clip_remove",
+         "Remove a timeline clip. group whole (default) removes its whole group, as the GUI does; single takes the clip out of its group first. mode "
+         "lift (default) leaves a gap; extract closes it on each removed clip's track, or with allTracks: true removes the clip's time range from "
+         "every unlocked track (Extract zone). Keeps bin assets and files. Returns removedClipIds.",
+         "remove_clip", overwritingRepeatable},
+        {"desktop_clip_split",
+         "Cut at an absolute frame strictly inside a clip: one clip (clipId), the clip under position on trackId, or every clip under position on "
+         "all unlocked tracks (allTracks: true). Grouped and linked clips are cut together and give two linked groups. Returns pieces "
+         "[{trackId, leftClipId, rightClipId}] (and leftClipId/rightClipId of the named clip).",
+         "split", overwritingRepeatable},
+        {"desktop_range_remove",
+         "Remove the timeline range [start, end) from trackIds or all unlocked tracks (allTracks: true), cutting clips at both ends. mode lift "
+         "(default) leaves a gap, extract closes it (ripple). One Undo step: the way to cut a span such as a silence out of linked audio and video. "
+         "Returns removedClipIds and newClipIds.",
+         "remove_range", overwriting},
+        {"desktop_gap_remove",
+         "Close the gap (blank) at position on trackId, or on all unlocked tracks (allTracks: true, the gap must be blank on each), moving later "
+         "clips left as the GUI's Remove space does. Refuses a gap between two clips of one group. Returns removed (frames).",
+         "remove_gap", overwriting},
+        {"desktop_space_insert",
+         "Insert duration blank frames at position on trackId or all unlocked tracks (allTracks: true): clips at or after position, a clip spanning it "
+         "included, move right with their groups, as the GUI's Insert space does.",
+         "insert_space", overwriting},
+        {"desktop_clip_group",
+         "Group 2 or more timeline clips (clipIds). The video and audio of one bin clip become a linked A/V pair. Returns groupId and the group's "
+         "clipIds.",
+         "group", additiveRepeatable},
+        {"desktop_clip_ungroup",
+         "Dissolve the topmost group of clipId, or groupId from desktop_state. Ungrouping a linked A/V pair unlinks it. Returns the former member "
+         "clipIds.",
+         "ungroup", overwritingRepeatable},
+        {"desktop_clip_speed",
+         "Change a clip's playback speed as a factor (1 normal, 0.5 half, 2 double, negative reverse); its linked clip changes too. The source range "
+         "is kept, so duration scales (OVERLAP when it would run into the next clip). pitchCompensation keeps audio pitch. Returns speed and "
+         "duration.",
+         "speed", overwritingRepeatable},
+        {"desktop_clip_enable",
+         "Enable or disable a timeline clip, and its linked A/V partner unless linked: false. A disabled clip stays in place but is not played.", "enable",
          overwritingRepeatable},
         {"desktop_media_replace",
          "Replace every use of binId with replacementBinId. Both must be ready with matching streams; replacement must cover the original "
@@ -226,7 +298,9 @@ const QList<Tool> &editingTools()
         {"desktop_redo", "Redo in shared Kdenlive history: the next step, count steps, or up to toIndex. Returns redone entries.", "redo", overwriting},
         {"desktop_batch",
          "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
-         "title_edit, marker_*) as one Undo step. Each command has the same fields as desktop_apply commands. Stops and rolls back everything on the first "
+         "title_edit, marker_*, split, remove_range, remove_gap, insert_space, group, ungroup, speed, enable) as one Undo step. Position-addressed "
+         "commands chain well: apply range removals from the last range to the first. Each command has the same fields as desktop_apply commands. Stops and "
+         "rolls back everything on the first "
          "failure, reporting failedIndex.",
          "batch", overwriting}};
     return result;

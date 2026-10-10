@@ -2,7 +2,7 @@
 <mlt LC_NUMERIC="C" version="7.40.0" producer="main_bin">
   <profile description="Kdenlive MCP 1280x720 30/1" width="1280" height="720" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="1280" display_aspect_den="720" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
   <producer id="producer0" in="0" out="599">
-    <property name="mlt_service">avformat-novalidate</property>
+    <property name="mlt_service">avformat</property>
     <property name="resource">@MEDIA@</property>
     <property name="length">600</property>
     <property name="kdenlive:clipname">source.mkv</property>
