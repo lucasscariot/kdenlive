@@ -502,8 +502,10 @@ void Core::initGUI(const QString &MltPath, const QUrl &Url, const QStringList &c
     const QString credential = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + QStringLiteral("/mcp-token");
     m_mcpServer = new McpServer(
         McpTools::definitions(),
-        [engine](const QString &name, const QJsonObject &arguments, const QString &root) { return McpTools::call(*engine, name, arguments, root); }, credential,
-        this);
+        [engine](const QString &name, const QJsonObject &arguments, const QString &root, const McpCaller &caller) {
+            return McpTools::call(*engine, name, arguments, root, caller);
+        },
+        credential, this);
     connect(m_mcpServer, &McpServer::statusChanged, this, &Core::mcpStatusChanged);
     const auto configureMcp = [this] {
         const auto access = KdenliveSettings::mcpNetwork()        ? McpAccess::Network

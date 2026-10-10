@@ -244,6 +244,11 @@ void KdenliveSettingsDialog::initMcpPage()
         page);
     scope->setWordWrap(true);
     layout->addRow(scope);
+    auto *writeLog = new QCheckBox(i18n("Write a change log of MCP edits"), page);
+    writeLog->setObjectName(QStringLiteral("kcfg_mcpWriteLog"));
+    writeLog->setToolTip(i18n("Appends one JSON line per MCP edit to .kdenlive-mcp-log.jsonl in the project folder (or Kdenlive's data folder when the "
+                              "project folder is not writable). Untitled projects are never logged."));
+    layout->addRow(writeLog);
     auto *status = new QLabel(pCore->mcpStatus(), page);
     status->setObjectName(QStringLiteral("mcpStatus"));
     status->setWordWrap(true);

@@ -45,13 +45,18 @@
 #include <QDBusConnection>
 #include <QDBusError>
 #endif
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
 #include <QSet>
+#include <QStandardPaths>
+#include <QTimeZone>
 #include <QTimer>
+#include <QUrl>
 #include <QUuid>
 #include <cmath>
 #include <limits>
@@ -87,9 +92,9 @@ bool keys(const QJsonObject &object, const QStringList &allowed)
 
 const QStringList &stateSections()
 {
-    static const QStringList result{QStringLiteral("tracks"),    QStringLiteral("clips"),     QStringLiteral("compositions"),
-                                    QStringLiteral("markers"),   QStringLiteral("subtitles"), QStringLiteral("bin"),
-                                    QStringLiteral("sequences"), QStringLiteral("effects"),   QStringLiteral("media")};
+    static const QStringList result{QStringLiteral("tracks"),    QStringLiteral("clips"),  QStringLiteral("compositions"), QStringLiteral("markers"),
+                                    QStringLiteral("subtitles"), QStringLiteral("bin"),    QStringLiteral("sequences"),    QStringLiteral("effects"),
+                                    QStringLiteral("media"),     QStringLiteral("history")};
     return result;
 }
 
@@ -163,6 +168,7 @@ bool LiveBridge::bind()
     m_connections.clear();
     m_document = document;
     m_timeline = timeline;
+    attachHistory(document);
     m_session = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_revision = 0;
     m_receipts.clear();
@@ -244,6 +250,13 @@ QString clipTypeName(ClipType::ProducerType type)
     }
 }
 
+/** Undo text without the hh:mm prefix that pCore->pushUndo and asset commands add. */
+QString historyLabel(const QString &text)
+{
+    static const QRegularExpression prefix(QStringLiteral("^\\d{1,2}:\\d{2} "));
+    return QString(text).remove(prefix);
+}
+
 QJsonValue optionalId(int id)
 {
     return id < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(id);
@@ -278,6 +291,7 @@ LiveBridge::StateScope LiveBridge::defaultScope()
 QJsonObject LiveBridge::stateFor(const QJsonObject &arguments)
 {
     if (!bind()) return QJsonDocument::fromJson(failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline.")).toUtf8()).object();
+    syncHistory();
     const auto invalid = [] {
         return error(QStringLiteral("INVALID_ARGUMENTS"),
                      QStringLiteral("Expected optional include (section names), trackId and range {start, end} with start < end."));
@@ -480,6 +494,25 @@ QJsonObject LiveBridge::snapshot(const StateScope &requested) const
         if (start > 0 || end < std::numeric_limits<int>::max()) filter.insert(QStringLiteral("range"), QJsonObject{{"start", start}, {"end", end}});
         result.insert(QStringLiteral("filter"), filter);
     }
+    // The newest MCP-made entry still on the stack, so an agent can confirm what its last call did.
+    QJsonValue lastChange = QJsonValue::Null;
+    for (int row = qMin(int(m_history.size()), stack->count()) - 1; row >= 0; --row) {
+        const auto &entry = m_history.at(row);
+        if (entry.origin != QLatin1String("mcp") || entry.command != stack->command(row)) continue;
+        lastChange = QJsonObject{{"undoIndex", row + 1},
+                                 {"command", entry.type},
+                                 {"text", historyLabel(entry.text)},
+                                 {"requestId", entry.requestId},
+                                 {"applied", row < stack->index()}};
+        break;
+    }
+    result.insert(QStringLiteral("lastChange"), lastChange);
+    if (wants(QStringLiteral("history"))) {
+        QJsonArray entries;
+        for (int row = qMax(0, int(m_history.size()) - 10); row < m_history.size(); ++row)
+            entries.append(historyJson(row));
+        result.insert(QStringLiteral("history"), entries);
+    }
     if (tracksWanted) result.insert(QStringLiteral("tracks"), tracks);
     if (wants(QStringLiteral("markers"))) {
         QJsonArray markers;
@@ -593,15 +626,16 @@ QString LiveBridge::failure(const QString &code, const QString &message) const
 QString LiveBridge::state()
 {
     if (!bind()) return failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline."));
+    syncHistory();
     return json(snapshot(defaultScope()));
 }
 
 QString LiveBridge::apply(const QString &request)
 {
-    return applyAuthorized(request, {});
+    return applyAuthorized(request, {}, {{}, QStringLiteral("dbus"), QStringLiteral("D-Bus")});
 }
 
-QString LiveBridge::applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize)
+QString LiveBridge::applyAuthorized(const QString &request, const std::function<QJsonObject()> &authorize, const Caller &caller)
 {
     if (m_executing || QApplication::activeModalWidget() || QApplication::mouseButtons() != Qt::NoButton)
         return failure(QStringLiteral("EDITOR_BUSY"), QStringLiteral("Editor is busy, dragging or has a modal dialog."));
@@ -634,10 +668,27 @@ QString LiveBridge::applyAuthorized(const QString &request, const std::function<
         if (!rejection.isEmpty()) return json(rejection);
     }
     QScopedValueRollback<bool> executing(m_executing, true);
-    auto result = execute(object.value(QStringLiteral("command")).toObject());
-    if (result.value(QStringLiteral("ok")).toBool()) {
-        // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
-        contentChanged();
+    const auto command = object.value(QStringLiteral("command")).toObject();
+    syncHistory();
+    Request context{requestId, command.value(QStringLiteral("type")).toString(), caller, m_revision, {}};
+    QScopedValueRollback<Request *> current(m_request, &context);
+    auto result = execute(command);
+    const bool succeeded = result.value(QStringLiteral("ok")).toBool();
+    // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
+    if (succeeded) contentChanged();
+    finishRequest(command, result);
+    // historySummary is for the change log only.
+    result.remove(QStringLiteral("historySummary"));
+    if (result.value(QStringLiteral("results")).isArray()) {
+        QJsonArray results;
+        for (const auto &item : result.value(QStringLiteral("results")).toArray()) {
+            auto inner = item.toObject();
+            inner.remove(QStringLiteral("historySummary"));
+            results.append(inner);
+        }
+        result.insert(QStringLiteral("results"), results);
+    }
+    if (succeeded) {
         pCore->refreshProjectMonitorOnce();
         result.insert(QStringLiteral("state"), snapshot(defaultScope()));
     }
@@ -785,16 +836,7 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         if (!pCore->projectManager()->saveFile()) return error(QStringLiteral("SAVE_FAILED"), QStringLiteral("Native project save failed."));
         return {{"ok", true}};
     }
-    if (type == QLatin1String("undo") || type == QLatin1String("redo")) {
-        if (!keys(command, {QStringLiteral("type")})) return invalid();
-        const bool undo = type == QLatin1String("undo");
-        if (undo ? !stack->canUndo() : !stack->canRedo()) return error(QStringLiteral("EMPTY_HISTORY"), QStringLiteral("No operation to undo or redo."));
-        if (undo)
-            stack->undo();
-        else
-            stack->redo();
-        return {{"ok", true}};
-    }
+    if (type == QLatin1String("undo") || type == QLatin1String("redo")) return executeHistoryStep(command);
     if (type == QLatin1String("insert") || type == QLatin1String("move")) {
         if (!integer(command, QStringLiteral("trackId")) || !integer(command, QStringLiteral("position"))) return invalid();
         const int trackId = command.value(QStringLiteral("trackId")).toInt();
@@ -1848,4 +1890,369 @@ QJsonObject LiveBridge::titleRead(const QJsonObject &arguments)
             {"projectWidth", pCore->getCurrentFrameSize().width()},
             {"projectHeight", pCore->getCurrentFrameSize().height()},
             {"items", list}};
+}
+
+// Change log. m_history mirrors the shared QUndoStack row by row, with the origin of each command: "mcp" when it was pushed while an edit
+// request ran, "user" when it appeared at any other time, "unknown" when the bridge did not see it being pushed.
+void LiveBridge::attachHistory(KdenliveDoc *document)
+{
+    // Keep the table across sequence switches and transient states without a document; only a different stack resets it.
+    if (!document) return;
+    QUndoStack *stack = document->commandStack().get();
+    if (stack == m_historyStack.data()) return;
+    for (const auto &connection : std::as_const(m_historyConnections))
+        disconnect(connection);
+    m_historyConnections.clear();
+    m_history.clear();
+    m_historySeeded = false;
+    m_historyStack = stack;
+    m_historyConnections << connect(stack, &QUndoStack::indexChanged, this, [this] { syncHistory(); });
+    m_historyConnections << connect(stack, &QUndoStack::cleanChanged, this, [this] { syncHistory(); });
+    syncHistory();
+}
+
+void LiveBridge::syncHistory()
+{
+    if (m_historyStack.isNull()) {
+        m_history.clear();
+        return;
+    }
+    QUndoStack *stack = m_historyStack.data();
+    const int count = stack->count();
+    // Commands are compared by pointer only and never dereferenced from the table: a pushed command is allocated before the redo
+    // commands it replaces are deleted, so a replaced row always shows a different pointer.
+    if (!m_history.isEmpty() && count > 0 && m_history.constFirst().command != stack->command(0)) {
+        // The undo limit drops the oldest commands; any other mismatch means the whole stack was replaced.
+        int shift = -1;
+        for (int row = 1; row < m_history.size() && shift < 0; ++row)
+            if (m_history.at(row).command == stack->command(0)) shift = row;
+        if (shift > 0)
+            m_history.remove(0, shift);
+        else
+            m_history.clear();
+    }
+    int matched = 0;
+    while (matched < m_history.size() && matched < count && m_history.at(matched).command == stack->command(matched)) {
+        m_history[matched].text = stack->command(matched)->text();
+        ++matched;
+    }
+    // A push after Undo discards the redo rows; clear() and deleted obsolete commands shrink the stack.
+    m_history.resize(matched);
+    // Each push emits indexChanged, so more than one new row at once means the bridge missed them.
+    const bool missed = count - matched > 1;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (int row = matched; row < count; ++row) {
+        HistoryEntry entry;
+        entry.command = stack->command(row);
+        entry.text = entry.command->text();
+        entry.time = now;
+        if (m_request) {
+            entry.origin = QStringLiteral("mcp");
+            entry.sessionId = m_session;
+            entry.requestId = m_request->requestId;
+            entry.type = m_request->type;
+            entry.caller = m_request->caller;
+            entry.revisionBefore = m_request->revisionBefore;
+            entry.revisionAfter = m_request->revisionBefore;
+            m_request->created.append(entry.command);
+        } else {
+            entry.origin = m_historySeeded && !missed ? QStringLiteral("user") : QStringLiteral("unknown");
+        }
+        m_history.append(entry);
+    }
+    m_historySeeded = true;
+}
+
+namespace {
+QString isoTime(qint64 msecs)
+{
+    return QDateTime::fromMSecsSinceEpoch(msecs, QTimeZone::UTC).toString(Qt::ISODateWithMs);
+}
+
+/** Ids and positions a command touched, from its own fields and its result. A command can add more with a historySummary object in its result. */
+QJsonObject historySummary(const QJsonObject &command, const QJsonObject &result)
+{
+    static const QStringList commandKeys = QStringLiteral("clipId binId trackId position newPosition duration edge media sourceIn sourceOut "
+                                                          "replacementBinId effectId index name path width height mode format category all range "
+                                                          "count toIndex revertSession")
+                                               .split(QLatin1Char(' '));
+    static const QStringList resultKeys =
+        QStringLiteral("clipId binId actualDuration effectIndex count imported replaced existing steps undoIndex documentUrl").split(QLatin1Char(' '));
+    QJsonObject summary;
+    for (const auto &key : commandKeys)
+        if (command.contains(key)) summary.insert(key, command.value(key));
+    for (const auto &key : resultKeys)
+        if (result.contains(key)) summary.insert(key, result.value(key));
+    if (result.value(QStringLiteral("marker")).isObject()) {
+        const auto marker = result.value(QStringLiteral("marker")).toObject();
+        summary.insert(QStringLiteral("marker"),
+                       QJsonObject{{"position", marker.value(QStringLiteral("position"))}, {"duration", marker.value(QStringLiteral("duration"))}});
+    }
+    const auto extra = result.value(QStringLiteral("historySummary")).toObject();
+    for (auto it = extra.begin(); it != extra.end(); ++it)
+        summary.insert(it.key(), it.value());
+    return summary;
+}
+} // namespace
+
+void LiveBridge::finishRequest(const QJsonObject &command, const QJsonObject &result)
+{
+    if (!m_request) return;
+    syncHistory();
+    const QString type = m_request->type;
+    QJsonObject summary = historySummary(command, result);
+    QJsonArray children;
+    if (type == QLatin1String("batch")) {
+        // The batch plan and its receipts, not the macro's QUndoStack children.
+        const auto commands = command.value(QStringLiteral("commands")).toArray();
+        const auto results = result.value(QStringLiteral("results")).toArray();
+        for (int i = 0; i < commands.size() && i < results.size(); ++i) {
+            const auto inner = commands.at(i).toObject();
+            children.append(QJsonObject{{"type", inner.value(QStringLiteral("type"))}, {"summary", historySummary(inner, results.at(i).toObject())}});
+        }
+        summary = QJsonObject{{"commands", int(commands.size())}};
+    }
+    const auto base = [this](const HistoryEntry &entry) {
+        QJsonObject line{{"documentUrl", m_document ? m_document->url().toString() : QString()},
+                         {"sessionId", entry.sessionId},
+                         {"requestId", entry.requestId},
+                         {"command", entry.type},
+                         {"client", entry.caller.client},
+                         {"revisionBefore", entry.revisionBefore},
+                         {"revisionAfter", entry.revisionAfter},
+                         {"timestamp", isoTime(entry.time)}};
+        if (!entry.caller.tool.isEmpty()) line.insert(QStringLiteral("tool"), entry.caller.tool);
+        if (!entry.caller.clientName.isEmpty()) line.insert(QStringLiteral("clientName"), entry.caller.clientName);
+        return line;
+    };
+    bool logged = false;
+    for (int row = 0; row < m_history.size(); ++row) {
+        auto &entry = m_history[row];
+        if (!m_request->created.contains(entry.command)) continue;
+        entry.revisionAfter = m_revision;
+        entry.summary = summary;
+        entry.children = children;
+        auto line = base(entry);
+        line.insert(QStringLiteral("event"), QStringLiteral("edit"));
+        line.insert(QStringLiteral("undoIndex"), row + 1);
+        line.insert(QStringLiteral("text"), historyLabel(entry.text));
+        line.insert(QStringLiteral("summary"), summary);
+        if (!children.isEmpty()) line.insert(QStringLiteral("children"), children);
+        writeLog(line);
+        logged = true;
+    }
+    // History moves and changes outside the Undo stack are logged as events.
+    static const QStringList events{QStringLiteral("undo"),    QStringLiteral("redo"),   QStringLiteral("save"),
+                                    QStringLiteral("save_as"), QStringLiteral("render"), QStringLiteral("set_profile")};
+    if (logged || !result.value(QStringLiteral("ok")).toBool() || !events.contains(type)) return;
+    HistoryEntry event;
+    event.sessionId = m_session;
+    event.requestId = m_request->requestId;
+    event.type = type;
+    event.caller = m_request->caller;
+    event.revisionBefore = m_request->revisionBefore;
+    event.revisionAfter = m_revision;
+    event.time = QDateTime::currentMSecsSinceEpoch();
+    auto line = base(event);
+    line.insert(QStringLiteral("event"), type);
+    line.insert(QStringLiteral("summary"), summary);
+    const auto moved = result.value(type == QLatin1String("undo") ? QStringLiteral("undone") : QStringLiteral("redone")).toArray();
+    if (!moved.isEmpty()) {
+        QJsonArray entries;
+        for (const auto &item : moved)
+            entries.append(QJsonObject{{"undoIndex", item.toObject().value(QStringLiteral("undoIndex"))},
+                                       {"text", item.toObject().value(QStringLiteral("text"))},
+                                       {"origin", item.toObject().value(QStringLiteral("origin"))}});
+        line.insert(QStringLiteral("entries"), entries);
+    }
+    writeLog(line);
+}
+
+QJsonObject LiveBridge::historyJson(int row) const
+{
+    const auto &entry = m_history.at(row);
+    const int index = m_historyStack.isNull() ? 0 : m_historyStack->index();
+    QJsonObject result{{"undoIndex", row + 1},   {"text", historyLabel(entry.text)},
+                       {"rawText", entry.text},  {"state", row < index ? QStringLiteral("applied") : QStringLiteral("undone")},
+                       {"origin", entry.origin}, {"timestamp", isoTime(entry.time)}};
+    if (entry.origin != QLatin1String("mcp")) return result;
+    result.insert(QStringLiteral("sessionId"), entry.sessionId);
+    result.insert(QStringLiteral("requestId"), entry.requestId);
+    result.insert(QStringLiteral("command"), entry.type);
+    if (!entry.caller.tool.isEmpty()) result.insert(QStringLiteral("tool"), entry.caller.tool);
+    result.insert(QStringLiteral("client"), entry.caller.client);
+    if (!entry.caller.clientName.isEmpty()) result.insert(QStringLiteral("clientName"), entry.caller.clientName);
+    result.insert(QStringLiteral("revisionBefore"), entry.revisionBefore);
+    result.insert(QStringLiteral("revisionAfter"), entry.revisionAfter);
+    result.insert(QStringLiteral("summary"), entry.summary);
+    if (!entry.children.isEmpty()) result.insert(QStringLiteral("children"), entry.children);
+    return result;
+}
+
+QJsonObject LiveBridge::history(const QJsonObject &arguments)
+{
+    if (!bind()) return QJsonDocument::fromJson(failure(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline.")).toUtf8()).object();
+    syncHistory();
+    const auto invalid = [](const QString &message) { return error(QStringLiteral("INVALID_ARGUMENTS"), message); };
+    if (!keys(arguments,
+              {QStringLiteral("limit"), QStringLiteral("origin"), QStringLiteral("sessionId"), QStringLiteral("since"), QStringLiteral("includeUndone")}))
+        return invalid(QStringLiteral("Expected optional limit, origin, sessionId, since and includeUndone."));
+    int limit = 50;
+    if (arguments.contains(QStringLiteral("limit"))) {
+        if (!integer(arguments, QStringLiteral("limit"), 1) || arguments.value(QStringLiteral("limit")).toInt() > 1000)
+            return invalid(QStringLiteral("limit must be 1 to 1000."));
+        limit = arguments.value(QStringLiteral("limit")).toInt();
+    }
+    const QString origin = arguments.value(QStringLiteral("origin")).toString(QStringLiteral("all"));
+    if (!QStringList{QStringLiteral("all"), QStringLiteral("mcp"), QStringLiteral("user"), QStringLiteral("unknown")}.contains(origin) ||
+        (arguments.contains(QStringLiteral("origin")) && !arguments.value(QStringLiteral("origin")).isString()))
+        return invalid(QStringLiteral("origin must be all, mcp, user or unknown."));
+    const auto sessionValue = arguments.value(QStringLiteral("sessionId"));
+    if (arguments.contains(QStringLiteral("sessionId")) && (!sessionValue.isString() || sessionValue.toString().isEmpty()))
+        return invalid(QStringLiteral("sessionId must be a session id string."));
+    int sinceIndex = -1;
+    qint64 sinceTime = -1;
+    if (arguments.contains(QStringLiteral("since"))) {
+        const auto since = arguments.value(QStringLiteral("since"));
+        if (since.isString()) {
+            const auto time = QDateTime::fromString(since.toString(), Qt::ISODateWithMs);
+            if (!time.isValid()) return invalid(QStringLiteral("since must be an undoIndex or an ISO 8601 time."));
+            sinceTime = time.toMSecsSinceEpoch();
+        } else if (integer(arguments, QStringLiteral("since"))) {
+            sinceIndex = since.toInt();
+        } else {
+            return invalid(QStringLiteral("since must be an undoIndex or an ISO 8601 time."));
+        }
+    }
+    const auto undone = arguments.value(QStringLiteral("includeUndone"));
+    if (arguments.contains(QStringLiteral("includeUndone")) && !undone.isBool()) return invalid(QStringLiteral("includeUndone must be a boolean."));
+    const bool includeUndone = undone.toBool(true);
+    const int index = m_historyStack.isNull() ? 0 : m_historyStack->index();
+    QList<int> rows;
+    QJsonObject counts{{"applied", 0}, {"undone", 0}, {"mcp", 0}, {"user", 0}, {"unknown", 0}};
+    const auto bump = [&counts](const QString &key) { counts.insert(key, counts.value(key).toInt() + 1); };
+    for (int row = 0; row < m_history.size(); ++row) {
+        const auto &entry = m_history.at(row);
+        bump(row < index ? QStringLiteral("applied") : QStringLiteral("undone"));
+        bump(entry.origin);
+        if (origin != QLatin1String("all") && entry.origin != origin) continue;
+        if (sessionValue.isString() && entry.sessionId != sessionValue.toString()) continue;
+        if (row + 1 <= sinceIndex || (sinceTime >= 0 && entry.time < sinceTime)) continue;
+        if (!includeUndone && row >= index) continue;
+        rows.append(row);
+    }
+    QJsonArray entries;
+    for (int i = qMax(0, int(rows.size()) - limit); i < rows.size(); ++i)
+        entries.append(historyJson(rows.at(i)));
+    const QString log = logPath();
+    return {{"ok", true},
+            {"sessionId", m_session},
+            {"revision", m_revision},
+            {"undo", QJsonObject{{"index", index}, {"count", int(m_history.size())}}},
+            {"entries", entries},
+            {"matched", int(rows.size())},
+            {"counts", counts},
+            {"logFile", log.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(log)}};
+}
+
+QJsonObject LiveBridge::executeHistoryStep(const QJsonObject &command)
+{
+    const bool undo = command.value(QStringLiteral("type")).toString() == QLatin1String("undo");
+    QStringList allowed{QStringLiteral("type"), QStringLiteral("count"), QStringLiteral("toIndex")};
+    if (undo) allowed << QStringLiteral("revertSession");
+    const auto invalid = [] { return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("Pass at most one of count, toIndex or revertSession: true.")); };
+    const int selectors = int(command.contains(QStringLiteral("count"))) + int(command.contains(QStringLiteral("toIndex"))) +
+                          int(command.contains(QStringLiteral("revertSession")));
+    if (!keys(command, allowed) || selectors > 1) return invalid();
+    syncHistory();
+    auto stack = m_document->commandStack();
+    const int index = stack->index();
+    int target;
+    if (command.contains(QStringLiteral("revertSession"))) {
+        if (command.value(QStringLiteral("revertSession")) != QJsonValue(true)) return invalid();
+        // This connection's edits in the current editing session; anything else above the oldest of them blocks the revert.
+        const auto own = [this](const HistoryEntry &entry) {
+            return entry.origin == QLatin1String("mcp") && entry.sessionId == m_session && m_request && entry.caller.client == m_request->caller.client;
+        };
+        int lowest = -1;
+        for (int row = 0; row < index && row < m_history.size() && lowest < 0; ++row)
+            if (own(m_history.at(row))) lowest = row;
+        if (lowest < 0)
+            return error(QStringLiteral("EMPTY_HISTORY"), QStringLiteral("This MCP connection has no applied edits in the current editing session."));
+        QJsonArray blocking;
+        for (int row = lowest; row < index && row < m_history.size(); ++row)
+            if (!own(m_history.at(row))) blocking.append(historyJson(row));
+        if (!blocking.isEmpty()) {
+            auto refused = error(QStringLiteral("HISTORY_INTERLEAVED"),
+                                 QStringLiteral("Other edits are interleaved with this connection's edits; undo with toIndex after confirming with the user."));
+            refused.insert(QStringLiteral("blocking"), blocking);
+            refused.insert(QStringLiteral("toIndex"), lowest);
+            return refused;
+        }
+        target = lowest;
+    } else if (command.contains(QStringLiteral("toIndex"))) {
+        if (!integer(command, QStringLiteral("toIndex"))) return invalid();
+        target = command.value(QStringLiteral("toIndex")).toInt();
+        if (undo ? target > index : (target < index || target > stack->count()))
+            return error(QStringLiteral("INVALID_ARGUMENTS"),
+                         undo ? QStringLiteral("toIndex must be between 0 and the current undo index %1.").arg(index)
+                              : QStringLiteral("toIndex must be between the current undo index %1 and %2.").arg(index).arg(stack->count()));
+    } else {
+        if (command.contains(QStringLiteral("count")) && !integer(command, QStringLiteral("count"), 1)) return invalid();
+        const int steps = command.value(QStringLiteral("count")).toInt(1);
+        const int available = undo ? index : stack->count() - index;
+        if (available == 0) return error(QStringLiteral("EMPTY_HISTORY"), QStringLiteral("No operation to undo or redo."));
+        if (steps > available)
+            return error(QStringLiteral("EMPTY_HISTORY"),
+                         QStringLiteral("Only %1 step(s) can be %2.").arg(available).arg(undo ? QStringLiteral("undone") : QStringLiteral("redone")));
+        target = undo ? index - steps : index + steps;
+    }
+    // Describe the entries before moving: an obsolete command is deleted when undone.
+    QJsonArray moved;
+    for (int row = undo ? index - 1 : index; undo ? row >= target : row < target; undo ? --row : ++row) {
+        if (row < 0 || row >= m_history.size()) continue;
+        auto entry = historyJson(row);
+        entry.insert(QStringLiteral("state"), undo ? QStringLiteral("undone") : QStringLiteral("applied"));
+        moved.append(entry);
+    }
+    while (stack->index() > target) {
+        const int before = stack->index();
+        stack->undo();
+        if (stack->index() == before) break;
+    }
+    while (stack->index() < target && stack->canRedo()) {
+        const int before = stack->index();
+        stack->redo();
+        if (stack->index() == before) break;
+    }
+    return {{"ok", true},
+            {"steps", qAbs(index - stack->index())},
+            {"undoIndex", stack->index()},
+            {undo ? QStringLiteral("undone") : QStringLiteral("redone"), moved}};
+}
+
+QString LiveBridge::logPath() const
+{
+    if (!KdenliveSettings::mcpWriteLog() || !m_document) return {};
+    const QUrl url = m_document->url();
+    // Untitled projects are never logged.
+    if (url.isEmpty() || !url.isLocalFile()) return {};
+    const QFileInfo folder(QFileInfo(url.toLocalFile()).absolutePath());
+    if (folder.isDir() && folder.isWritable()) return folder.absoluteFilePath() + QStringLiteral("/.kdenlive-mcp-log.jsonl");
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/mcp-log.jsonl");
+}
+
+void LiveBridge::writeLog(const QJsonObject &line)
+{
+    const QString path = logPath();
+    if (path.isEmpty()) return;
+    const QByteArray data = QJsonDocument(line).toJson(QJsonDocument::Compact) + '\n';
+    const auto append = [&data](const QString &target) {
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        QFile file(target);
+        return file.open(QIODevice::Append | QIODevice::Text) && file.write(data) == data.size();
+    };
+    // A project folder that refuses the write falls back to the data directory.
+    const QString fallback = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/mcp-log.jsonl");
+    if (!append(path) && path != fallback) append(fallback);
 }

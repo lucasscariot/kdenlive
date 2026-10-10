@@ -1723,5 +1723,9 @@
             <label>Additional folder allowed for media imports</label>
             <default></default>
         </entry>
+        <entry name="mcpWriteLog" type="Bool">
+            <label>Append every MCP edit to a change log next to the project</label>
+            <default>true</default>
+        </entry>
     </group>
 </kcfg>
