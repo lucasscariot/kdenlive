@@ -12,7 +12,20 @@ Node runtime or D-Bus bridge is required for live editing.
    generic `mcpServers` JSON (Claude Desktop, Cursor and most clients), a
    `claude mcp add --scope user` command for Claude Code, a Codex `config.toml` entry, or the
    bare URL and header. Add it to your client and reconnect.
-5. Open and save a project in Kdenlive. MCP edits act on its visible sequence.
+5. Open a project in Kdenlive. For an unsaved project, configure an additional
+   media folder and use `desktop_project_save_as` inside that folder for the
+   first save. MCP edits act on its visible sequence.
+
+For Codex, register the running editor directly instead of writing an HTTP
+client:
+
+```sh
+codex mcp add kdenlive --url http://127.0.0.1:8765/mcp
+```
+
+When access tokens are enabled, make the token available to Codex through an
+environment variable and add `--bearer-token-env-var KDENLIVE_MCP_TOKEN`.
+Use the URL shown in settings if the port differs, then reconnect the client.
 
 Import files from the project's folder or set an additional media folder here.
 The API resolves symlinks before checking these folders. Existing project media
@@ -55,7 +68,12 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_frame_capture` | `position`, optional `width` (64 to 1920, default 540) | Return one rendered frame as a PNG image without moving the playhead |
 | `desktop_effect_list` | optional `clipId` or `binId`, optional `query` | List a clip's effects with parameters and `keyframeOrigin`, and/or search the effect catalog |
 | `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
+| `desktop_title_create` | `name`, `duration`, `items` (`text`, `x`, `y`, optional `fontPixelSize`, `fontFamily`, `bold`, `color`) | Create a native editable title, with exact duration in project frames and the project canvas size |
 | `desktop_render_status` | none | Follow the progress of renders started by `desktop_render` |
+| `desktop_render_verify` | `path`, optional `includeAudio` | Check a tracked video's dimensions, duration and complete decoding; return a WAV audio block for a short preview |
+| `desktop_preview_render` | `path`, `start`, `end` (exclusive), optional `width` | Export at most 10 seconds of the visible sequence with audio, at reduced resolution |
+| `desktop_batch_validate` | `commands` | Preflight normal insertions, including linked audio and collisions between proposed clips, without editing the project |
+| `desktop_transcription_readiness` | optional `engine`, `model` | Check installed speech recognition prerequisites without starting recognition or installing packages |
 | `desktop_marker_export` | `format` (`json`, `csv`, `kdenlive`), optional `binId` | Return the sequence guides, or a bin clip's markers, as text |
 | `desktop_history` | optional `limit` (1 to 1000, default 50), `origin` (`all`, `mcp`, `user`, `unknown`), `sessionId`, `since` (undo index or ISO 8601 time), `includeUndone` (default true) | Read the shared Undo history as a change log; see [Change log](#change-log) |
 | `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
@@ -73,7 +91,7 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_audio_envelope`, `desktop_track_rename` | `clipId`, `fadeIn`, `fadeOut`, `gainDb`; `trackId`, `name` | Add audio fades/gain and name tracks |
 | `desktop_project_save` | none | Save the project to its file |
 | `desktop_undo`, `desktop_redo` | optional `count` or `toIndex`; `desktop_undo` also `revertSession: true` | Move through shared native history; see [Change log](#change-log) |
-| `desktop_project_save_as` | `path` | Save a copy and keep editing it |
+| `desktop_project_save_as` | `path` | Save a copy or an unsaved project's first file and keep editing it |
 | `desktop_project_profile` | `width`, `height` (even, 16 to 8192) | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
 | `desktop_clip_reframe` | `clipId`, `mode` (`fill`/`fit`), optional `focusX`, `focusY`, `endFocusX`, `endFocusY`, `zoom` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
 | `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | `clipId` or `binId`; `effectId` and optional `params`; `index` and `params`; `index` | Edit effects on timeline clips or bin clips with MLT parameter strings |
@@ -108,6 +126,68 @@ Read `desktop_state` before editing. Each edit needs its `sessionId`, the
 `expectedRevision`, and a unique `requestId`. Frame values use the project FPS;
 `sourceOut` is exclusive. Import and replacement load asynchronously. Poll state
 until the affected bin asset is ready before using it.
+
+## Authoring and review
+
+The first save of an unsaved project is allowed only inside the configured
+additional media folder. Other edits continue to require a saved project.
+Output paths cannot overwrite files or escape allowed folders through symlinks.
+First save keeps the current project's frame rate and tracks; this API does not
+create a separate project or change the frame rate.
+`desktop_capabilities.project` reports whether the project is saved, whether
+first save is available, and the configured `firstSaveFolder`.
+
+`desktop_title_create` uses Kdenlive's native title creation, not an imported
+template file. Text is plain text, XML characters are escaped, coordinates are
+in project pixels, and `duration` is an exact frame count. Font settings default
+to Sans Serif, 54 pixels, normal weight and white; `bold` maps to Qt's actual font
+weight. Colors use `#RRGGBB`. Wait for the returned bin ID to become ready, then
+insert `[0,duration)`. The title is readable with `desktop_title_read`, editable
+with `desktop_title_edit`, and removable through native Undo. The read result
+also includes `fontFamily` and `bold`.
+
+`desktop_batch_validate` projects normal clip insertions over the current
+timeline. It returns `valid`, `issues` with zero-based `commandIndex`, and the
+session/revision it inspected. It checks the same source/stream/track constraints
+as actual insertion, plus collisions on video and linked audio tracks, including
+between proposed insertions. Invalid ranges report supplied values and
+`maxSourceOut`. It never applies edits, advances the revision, changes selection,
+or writes Undo history. Other operation types and ripple/overwrite modes produce
+`VALIDATION_UNSUPPORTED`; they are not silently considered valid. Execution still
+requires a fresh revision check because the user can edit after preflight.
+
+Before choosing speech recognition, call `desktop_transcription_readiness`.
+The result includes `ready`, `engine`, the selected `model`, `installedModels`,
+`missingDependencies`, and a reason/hint when unavailable. It uses the same
+environment checks as `desktop_transcribe`, but never installs packages,
+downloads a model, or starts recognition.
+
+For review, call `desktop_preview_render` with a new `.mp4` path and `[start,end)`
+in timeline frames. A preview includes mixed timeline audio, lasts at most ten
+seconds, and defaults to width 640. The even width can be 64 to 1280; the height
+follows the project aspect ratio. Preview rendering keeps the playhead, project
+profile, Undo history and media selection unchanged. Poll `desktop_render_status`,
+then call `desktop_render_verify` with `includeAudio: true`. The result includes
+verification metadata, an MCP WAV audio content block, and a resource link to
+the playable video. The audio data is not repeated in structured JSON.
+
+MCP render records are saved atomically in `mcp-renders.json` under Kdenlive's
+application data directory. Completed jobs survive editor restarts. Jobs whose
+completion notification was lost become `unconfirmed`, never automatically
+`finished` just because a file exists. On Linux, a recovered job whose renderer
+is no longer running is reported as `interrupted`. Verify its output to recover
+a completed export, or render again to a new path if verification fails. A live
+recovered renderer continues to block another render.
+The journal retains the 100 most recent records. Render-start results include
+`trackingPersisted`; a false value means the journal could not be written.
+
+`desktop_render_verify` reads only tracked output files inside the allowed
+folders. It checks video dimensions, expected duration and complete FFmpeg
+decoding, with a 15-second probe timeout and a 60-second decoding timeout. An
+incomplete MP4 or a shortened output fails verification. A timeout is reported
+as a verification failure, not proof that the file is corrupt. Successful
+verification confirms a recovered job as `finished`. This checks technical
+integrity; playback review remains necessary to judge cuts and pacing.
 
 ## Timeline editing
 
@@ -469,7 +549,7 @@ neither overwrites an existing file. Effect keyframes count frames from the
 bin producers: filters that Kdenlive does not list as effects are dropped, so
 save a copy first.
 
-This version does not expose project creation, track creation, downloads or the
+This version does not expose separate project creation, track creation, downloads or the
 companion's offline project tools. Open/create projects in the GUI. Native state
 describes the active sequence, the project bin with its clip markers, and the
 list of sequences; keyframes and effect parameters are read with their own tools.

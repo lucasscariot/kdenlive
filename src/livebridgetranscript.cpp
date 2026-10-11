@@ -1483,34 +1483,16 @@ QJsonObject LiveBridge::rangeCut(const QJsonObject &command)
     return result;
 }
 
-QJsonObject LiveBridge::startTranscription(const QJsonObject &command)
+namespace {
+QJsonObject speechEnvironment(const QString &engine, const QString &requestedModel, std::unique_ptr<SpeechToText> &stt)
 {
-    const auto invalid = [](const QString &message) { return error(QStringLiteral("INVALID_COMMAND"), message); };
-    if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("engine"), QStringLiteral("model"), QStringLiteral("language")}))
-        return invalid(QStringLiteral("transcribe takes binId, engine, model and language."));
-    const QString binId = command.value(QStringLiteral("binId")).toString();
-    const QString engine = command.value(QStringLiteral("engine")).toString(KdenliveSettings::speechEngine());
-    if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() || (engine != QLatin1String("whisper") && engine != QLatin1String("vosk")) ||
-        (command.contains(QStringLiteral("model")) &&
-         (!command.value(QStringLiteral("model")).isString() || command.value(QStringLiteral("model")).toString().trimmed().isEmpty())) ||
-        (command.contains(QStringLiteral("language")) && !command.value(QStringLiteral("language")).isString()))
-        return invalid(QStringLiteral("Expected binId, engine whisper or vosk, and string model/language."));
-    std::shared_ptr<ProjectClip> clip;
-    if (auto rejected = binClip(binId, clip); !rejected.isEmpty()) return rejected;
-    if (!clip->hasAudio()) return error(QStringLiteral("NO_AUDIO"), QStringLiteral("Bin clip %1 has no audio stream.").arg(binId));
-    if (!QFileInfo(clip->url()).isFile())
-        return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Transcription needs a clip backed by a local media file."));
-    for (const auto &job : std::as_const(m_transcriptions))
-        if (job->state == QLatin1String("running"))
-            return error(QStringLiteral("TRANSCRIPTION_BUSY"), QStringLiteral("Wait for transcription of bin clip %1 to finish.").arg(job->binId));
     // Only report what is missing: installing Python packages or downloading models is the user's decision, made in Kdenlive's settings.
-    std::unique_ptr<SpeechToText> stt;
     if (engine == QLatin1String("whisper"))
         stt = std::make_unique<SpeechToTextWhisper>();
     else
         stt = std::make_unique<SpeechToTextVosk>();
     const QStringList models = stt->getInstalledModels();
-    QString model = command.value(QStringLiteral("model")).toString();
+    QString model = requestedModel;
     if (model.isEmpty()) {
         const QString preferred = engine == QLatin1String("whisper") ? KdenliveSettings::whisperModel() : KdenliveSettings::vosk_text_model();
         model = models.contains(preferred) || models.isEmpty() ? preferred : models.constFirst();
@@ -1542,6 +1524,63 @@ QJsonObject LiveBridge::startTranscription(const QJsonObject &command)
     if (models.isEmpty() || !models.contains(model))
         return unavailable(QStringLiteral("model_missing"), models.isEmpty() ? QStringLiteral("No %1 model is installed.").arg(engine)
                                                                              : QStringLiteral("Model %1 is not installed.").arg(model));
+    return {
+        {"ok", true},      {"engine", engine}, {"model", model}, {"installedModels", QJsonArray::fromStringList(models)}, {"missingDependencies", QJsonArray{}},
+        {"python", python}};
+}
+} // namespace
+
+QJsonObject LiveBridge::transcriptionReadiness(const QJsonObject &arguments)
+{
+    if (!keys(arguments, {QStringLiteral("engine"), QStringLiteral("model")}))
+        return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Expected optional engine and model."));
+    const QString engine = arguments.value(QStringLiteral("engine")).toString(KdenliveSettings::speechEngine());
+    if ((arguments.contains(QStringLiteral("engine")) && !arguments.value(QStringLiteral("engine")).isString()) ||
+        (engine != QLatin1String("whisper") && engine != QLatin1String("vosk")) ||
+        (arguments.contains(QStringLiteral("model")) &&
+         (!arguments.value(QStringLiteral("model")).isString() || arguments.value(QStringLiteral("model")).toString().trimmed().isEmpty())))
+        return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Expected engine whisper or vosk and a nonempty model name."));
+    std::unique_ptr<SpeechToText> stt;
+    auto result = speechEnvironment(engine, arguments.value(QStringLiteral("model")).toString(), stt);
+    const bool ready = result.value(QStringLiteral("ok")).toBool();
+    result.insert(QStringLiteral("ready"), ready);
+    result.insert(QStringLiteral("ok"), true);
+    for (const auto &job : std::as_const(m_transcriptions)) {
+        if (job->state == QLatin1String("running")) {
+            result.insert(QStringLiteral("ready"), false);
+            result.insert(QStringLiteral("busy"), true);
+            result.insert(QStringLiteral("reason"), QStringLiteral("transcription_busy"));
+            break;
+        }
+    }
+    return result;
+}
+
+QJsonObject LiveBridge::startTranscription(const QJsonObject &command)
+{
+    const auto invalid = [](const QString &message) { return error(QStringLiteral("INVALID_COMMAND"), message); };
+    if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("engine"), QStringLiteral("model"), QStringLiteral("language")}))
+        return invalid(QStringLiteral("transcribe takes binId, engine, model and language."));
+    const QString binId = command.value(QStringLiteral("binId")).toString();
+    const QString engine = command.value(QStringLiteral("engine")).toString(KdenliveSettings::speechEngine());
+    if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() || (engine != QLatin1String("whisper") && engine != QLatin1String("vosk")) ||
+        (command.contains(QStringLiteral("model")) &&
+         (!command.value(QStringLiteral("model")).isString() || command.value(QStringLiteral("model")).toString().trimmed().isEmpty())) ||
+        (command.contains(QStringLiteral("language")) && !command.value(QStringLiteral("language")).isString()))
+        return invalid(QStringLiteral("Expected binId, engine whisper or vosk, and string model/language."));
+    std::shared_ptr<ProjectClip> clip;
+    if (auto rejected = binClip(binId, clip); !rejected.isEmpty()) return rejected;
+    if (!clip->hasAudio()) return error(QStringLiteral("NO_AUDIO"), QStringLiteral("Bin clip %1 has no audio stream.").arg(binId));
+    if (!QFileInfo(clip->url()).isFile())
+        return error(QStringLiteral("INCOMPATIBLE_MEDIA"), QStringLiteral("Transcription needs a clip backed by a local media file."));
+    for (const auto &job : std::as_const(m_transcriptions))
+        if (job->state == QLatin1String("running"))
+            return error(QStringLiteral("TRANSCRIPTION_BUSY"), QStringLiteral("Wait for transcription of bin clip %1 to finish.").arg(job->binId));
+    std::unique_ptr<SpeechToText> stt;
+    const auto environment = speechEnvironment(engine, command.value(QStringLiteral("model")).toString(), stt);
+    if (!environment.value(QStringLiteral("ok")).toBool()) return environment;
+    const QString model = environment.value(QStringLiteral("model")).toString();
+    const QString python = environment.value(QStringLiteral("python")).toString();
     auto job = std::make_shared<TranscriptionJob>();
     const QString jobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     job->binId = binId;
