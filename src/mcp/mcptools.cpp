@@ -70,8 +70,23 @@ const QMap<QString, Command> &commands()
                                        {"alignment", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"left", "center", "right"}}}}}},
             {"required", QJsonArray{"index"}},
             {"additionalProperties", false}};
+        const auto titleText = objectSchema({{"text", QJsonObject{{"type", "string"}, {"maxLength", 4096}}},
+                                             {"x", QJsonObject{{"type", "number"}}},
+                                             {"y", QJsonObject{{"type", "number"}}},
+                                             {"fontPixelSize", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 1024}}},
+                                             {"fontFamily", text},
+                                             {"bold", flag},
+                                             {"color", QJsonObject{{"type", "string"}, {"pattern", "^#[0-9a-fA-F]{6}$"}}}},
+                                            {"fontPixelSize", "fontFamily", "bold", "color"});
         return QMap<QString, Command>{
             {"save_as", {{{"path", text}}}},
+            {"title_create",
+             {{{"name", text},
+               {"duration", frameSchema(1)},
+               {"items", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 32}, {"items", titleText}}}}}},
+            {"preview_render",
+             {{{"path", text}, {"start", frame}, {"end", frameSchema(1)}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 1280}}}},
+              {"width"}}},
             {"set_profile", {{{"width", size}, {"height", size}}}},
             {"reframe",
              {{{"clipId", frame},
@@ -286,9 +301,18 @@ const QList<Tool> &editingTools()
         {"desktop_track_rename", "Rename a native timeline track using Undo.", "rename_track", overwritingRepeatable},
         {"desktop_project_save", "Save the open project to its existing local file. All bin media must be ready.", "save", overwritingRepeatable},
         {"desktop_project_save_as",
-         "Save the project to a new .kdenlive file in the project folder or additional media folder and keep editing that copy. Use it before "
+         "Save the project to a new .kdenlive file and keep editing it. An unsaved project's first save must be inside the configured additional "
+         "media folder. Saved projects can also write inside their project folder. Use it before "
          "destructive format changes such as desktop_project_profile.",
          "save_as", additiveRepeatable},
+        {"desktop_title_create",
+         "Create a native editable title in the bin. duration is an exact frame count; the canvas uses the project size. "
+         "items are positioned text with fontPixelSize, fontFamily, bold and #RRGGBB color. Wait for bin readiness before insertion.",
+         "title_create", additive},
+        {"desktop_preview_render",
+         "Render [start,end) timeline frames, including audio, to a new .mp4. Maximum 10 seconds; width defaults to 640. "
+         "Does not move the playhead or change the project profile. Poll desktop_render_status, then desktop_render_verify with includeAudio.",
+         "preview_render", additive},
         {"desktop_project_profile",
          "Change the project frame size, e.g. 1080x1920 for vertical video. Keeps the frame rate. Not undoable: save a copy first. Existing clips are "
          "letterboxed until reframed.",
@@ -473,10 +497,19 @@ QJsonArray McpTools::definitions()
     result.append(definition("desktop_transcribe_status",
                              "Read state (running, finished, failed), progress, wordCount and errors of desktop_transcribe jobs, or of one jobId.",
                              {{"jobId", stringSchema()}}, readOnlyTool, {"jobId"}));
+    result.append(definition("desktop_transcription_readiness",
+                             "Check configured or requested speech engine/model availability before choosing a "
+                             "transcription route. Returns ready, installedModels, missingDependencies and actionable reasons; never installs anything.",
+                             {{"engine", commands().value("transcribe").properties.value("engine")}, {"model", stringSchema()}}, readOnlyTool,
+                             {"engine", "model"}));
+    result.append(definition("desktop_render_verify",
+                             "Verify a tracked render's dimensions, duration and full decoding. Recovered jobs remain "
+                             "unconfirmed until verification succeeds. includeAudio returns a WAV MCP audio block for previews of at most 10 seconds.",
+                             {{"path", stringSchema()}, {"includeAudio", QJsonObject{{"type", "boolean"}}}}, readOnlyTool, {"includeAudio"}));
     auto fields = editFields();
     QJsonArray variants;
     QJsonArray batchVariants;
-    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "replace_media", "undo", "redo", "transcribe"};
+    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "preview_render", "replace_media", "undo", "redo", "transcribe"};
     for (auto it = commands().begin(); it != commands().end(); ++it) {
         auto properties = it.value().properties;
         properties.insert("type", QJsonObject{{"const", it.key()}, {"type", "string"}});
@@ -484,6 +517,11 @@ QJsonArray McpTools::definitions()
         if (!unbatchable.contains(it.key())) batchVariants.append(objectSchema(properties, it.value().optional));
     }
     const QJsonObject batch{{"commands", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 200}, {"items", QJsonObject{{"oneOf", batchVariants}}}}}};
+    result.append(definition("desktop_batch_validate",
+                             "Preflight a batch of normal clip insertions without editing the project, history, selection "
+                             "or revision. Checks source frame limits, linked audio, track locks and collisions, including between proposed insertions. "
+                             "Other operations return VALIDATION_UNSUPPORTED instead of claiming to validate them.",
+                             batch, readOnlyTool));
     {
         auto properties = batch;
         properties.insert("type", QJsonObject{{"const", "batch"}, {"type", "string"}});
@@ -511,7 +549,15 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
     if (name == QLatin1String("desktop_capabilities") || name == QLatin1String("desktop_render_status")) {
         if (!arguments.isEmpty()) return failure("INVALID_ARGUMENTS", "This tool takes no arguments.");
         if (name == QLatin1String("desktop_render_status")) return engine.renderStatus();
-        return QJsonDocument::fromJson(engine.capabilities().toUtf8()).object();
+        auto capabilities = QJsonDocument::fromJson(engine.capabilities().toUtf8()).object();
+        const auto state = QJsonDocument::fromJson(engine.state().toUtf8()).object();
+        const QUrl url(state.value("documentUrl").toString());
+        const bool saved = url.isLocalFile() && QFileInfo(url.toLocalFile()).isFile();
+        const QString folder = additionalMediaRoot.isEmpty() ? QString{} : QFileInfo(additionalMediaRoot).canonicalFilePath();
+        const QFileInfo mediaFolder(folder);
+        const bool firstSaveAvailable = state.value("ok").toBool() && !saved && !folder.isEmpty() && mediaFolder.isDir() && mediaFolder.isWritable();
+        capabilities.insert("project", QJsonObject{{"saved", saved}, {"firstSaveAvailable", firstSaveAvailable}, {"firstSaveFolder", folder}});
+        return capabilities;
     }
     if (name == QLatin1String("desktop_frame_capture")) return engine.frameCapture(arguments);
     if (name == QLatin1String("desktop_effect_list")) return engine.effectList(arguments);
@@ -521,6 +567,17 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
     if (name == QLatin1String("desktop_transcript")) return engine.transcript(arguments);
     if (name == QLatin1String("desktop_silence_detect")) return engine.silenceDetect(arguments);
     if (name == QLatin1String("desktop_transcribe_status")) return engine.transcribeStatus(arguments);
+    if (name == QLatin1String("desktop_transcription_readiness")) return engine.transcriptionReadiness(arguments);
+    if (name == QLatin1String("desktop_batch_validate")) return engine.validateBatch(arguments);
+    if (name == QLatin1String("desktop_render_verify")) {
+        const auto state = QJsonDocument::fromJson(engine.state().toUtf8()).object();
+        const auto projectRoot = QFileInfo(QUrl(state.value("documentUrl").toString()).toLocalFile()).canonicalPath();
+        const auto path = QFileInfo(arguments.value("path").toString()).canonicalFilePath();
+        const auto extraRoot = QFileInfo(additionalMediaRoot).canonicalFilePath();
+        if (path.isEmpty() || (!within(path, projectRoot) && !within(path, extraRoot)))
+            return failure("PATH_NOT_ALLOWED", "Render verification is restricted to the project and configured additional media folders.");
+        return engine.renderVerify(arguments);
+    }
     QJsonObject request;
     if (name == QLatin1String("desktop_apply")) {
         if (arguments.size() != 1 || !arguments.value("request").isObject()) return failure("INVALID_ARGUMENTS", "Expected a request object.");
@@ -542,13 +599,15 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
         if (!state.value("ok").toBool()) return state;
         const QUrl projectUrl(state.value("documentUrl").toString());
         const QFileInfo project(projectUrl.toLocalFile());
-        if (!projectUrl.isLocalFile() || !project.isFile())
+        const auto command = request.value("command").toObject();
+        const bool saved = projectUrl.isLocalFile() && project.isFile();
+        if (!saved && command.value("type") != QLatin1String("save_as"))
             return failure("DESKTOP_SAVE_REQUIRED", "Save the active project to a local file before editing through MCP.");
-        const QString projectRoot = QFileInfo(project.canonicalFilePath()).absolutePath();
+        const QString projectRoot = saved ? QFileInfo(project.canonicalFilePath()).absolutePath() : QString{};
         const QString extraRoot = additionalMediaRoot.isEmpty() ? QString{} : QFileInfo(additionalMediaRoot).canonicalFilePath();
         const auto check = [&](const QJsonObject &command) -> QJsonObject {
             const auto type = command.value("type").toString();
-            if (type == QLatin1String("save_as") || type == QLatin1String("render")) {
+            if (type == QLatin1String("save_as") || type == QLatin1String("render") || type == QLatin1String("preview_render")) {
                 // New files: check the folder they will be written to.
                 const QFileInfo target(command.value("path").toString());
                 const QString folder = QFileInfo(target.absolutePath()).canonicalFilePath();
@@ -576,7 +635,6 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
                 return failure("PATH_NOT_ALLOWED", "Media is outside the project folder and the additional media folder configured in MCP API settings.");
             return {};
         };
-        const auto command = request.value("command").toObject();
         if (command.value("type") == QLatin1String("batch")) {
             // Nested imports obey the same folder policy.
             for (const auto &item : command.value("commands").toArray())

@@ -46,6 +46,12 @@ public:
     QJsonObject effectList(const QJsonObject &arguments);
     QJsonObject titleRead(const QJsonObject &arguments);
     QJsonObject renderStatus();
+    /** Check a tracked export and optionally return the sound of a short preview. */
+    QJsonObject renderVerify(const QJsonObject &arguments);
+    /** Validate normal clip insertions against a projected timeline without editing it. */
+    QJsonObject validateBatch(const QJsonObject &arguments);
+    /** Installed speech engine/model readiness; never installs or downloads anything. */
+    QJsonObject transcriptionReadiness(const QJsonObject &arguments);
     /** Sequence guides or a bin clip's markers as json, csv or Kdenlive's native guide JSON text. */
     QJsonObject markerExport(const QJsonObject &arguments);
     /** A bin clip's stored transcript, optionally mapped through timeline clips; see docs/native-mcp.md "Transcripts and silence". */
@@ -88,6 +94,7 @@ private:
     /** Split, ripple, insert modes, groups, speed and enable; sets handled when the command is one of them. */
     QJsonObject executeTimeline(const QJsonObject &command, bool &handled);
     QJsonObject insertClip(const QJsonObject &command);
+    QJsonObject insertionPlan(const QJsonObject &command) const;
     QJsonObject removeClip(const QJsonObject &command);
     QJsonObject splitClips(const QJsonObject &command);
     QJsonObject removeRange(const QJsonObject &command);
@@ -116,6 +123,9 @@ private:
     QList<ClipSpan> trackClips(int trackId) const;
     QSet<int> allClipIds() const;
     QJsonObject startRender(const QJsonObject &command);
+    QJsonObject createTitle(const QJsonObject &command);
+    void loadRenderJournal();
+    bool saveRenderJournal();
     /** transcript_import, range_cut and transcribe (livebridgetranscript.cpp); sets handled when the command is one of them. */
     QJsonObject executeTranscript(const QJsonObject &command, bool &handled);
     QJsonObject importTranscript(const QJsonObject &command);
@@ -183,9 +193,17 @@ private:
         int frame{0};
         QString error;
         qint64 started{0};
+        qint64 pid{0};
+        QString playlist;
+        int expectedFrames{0};
+        int width{0};
+        int height{0};
+        double fps{0};
+        bool preview{false};
     };
     QMap<QString, RenderState> m_renders;
     bool m_renderTracking{false};
+    qint64 m_renderJournalSaved{0};
     struct TranscriptionJob;
     QMap<QString, std::shared_ptr<TranscriptionJob>> m_transcriptions;
     QList<HistoryEntry> m_history;

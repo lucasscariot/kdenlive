@@ -41,7 +41,8 @@ const probe = createServer();
 await new Promise((done, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', done); });
 const port = probe.address().port;
 await new Promise(done => probe.close(done));
-await writeFile(config, `[startup]\nlastSeenVersionMajor=26\nlastSeenVersionMinor=8\n[env]\nmeltpath=/usr/bin/melt-7\nmltpath=/usr/share/mlt-7/profiles\nffmpegpath=/usr/bin/ffmpeg\nffprobepath=/usr/bin/ffprobe\n[unmanaged]\ndefault_profile=atsc_720p_30\n[MCP API]\nmcpEnabled=true\nmcpRequireToken=true\nmcpPort=${port}\nmcpMediaRoot=${pathToFileURL(extraMedia).href}\n`);
+await writeFile(config, `[startup]\nlastSeenVersionMajor=26\nlastSeenVersionMinor=8\n[env]\nmeltpath=/usr/bin/melt-7\nmltpath=/usr/share/mlt-7/profiles\nffmpegpath=/usr/bin/ffmpeg\nffprobepath=/usr/bin/ffprobe\n[unmanaged]\ndefault_profile=atsc_720p_30\n[sdl]\naudiobackend=null\n[MCP API]\nmcpEnabled=true\nmcpRequireToken=true\nmcpPort=${port}\nmcpMediaRoot=${pathToFileURL(extraMedia).href}\n`);
+// A null monitor consumer avoids opening a hardware audio device in this headless test. Preview/export audio is rendered and checked separately.
 // Every registered tool with its expected annotations: [readOnlyHint, destructiveHint, idempotentHint].
 const expectedTools = {
   desktop_capabilities: [true, false, true], desktop_state: [true, false, true], desktop_frame_capture: [true, false, true],
@@ -60,6 +61,8 @@ const expectedTools = {
   desktop_clip_speed: [false, true, true], desktop_clip_enable: [false, true, true],
   desktop_transcript: [true, false, true], desktop_silence_detect: [true, false, true], desktop_transcribe_status: [true, false, true],
   desktop_transcript_import: [false, true, false], desktop_range_cut: [false, true, false], desktop_transcribe: [false, true, false],
+  desktop_title_create: [false, false, false], desktop_preview_render: [false, false, false],
+  desktop_transcription_readiness: [true, false, true], desktop_batch_validate: [true, false, true], desktop_render_verify: [true, false, true],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -117,7 +120,7 @@ const clip = id => state.tracks.flatMap(track => track.clips).find(item => item.
 async function ready(binId, url) {
   for (let attempt = 0; attempt < 150; attempt++) {
     await refresh();
-    if (state.bin.some(item => item.id === binId && item.ready && item.url === url)) return;
+    if (state.bin.some(item => item.id === binId && item.ready && (url === undefined || item.url === url))) return;
     await delay(100);
   }
   throw Error(`Asset did not become ready: ${binId}`);
@@ -129,9 +132,9 @@ async function connect(name) {
   await connection.client.connect(connection.transport);
   return connection;
 }
-async function launch() {
+async function launch(projectPath = project) {
   log = createWriteStream(join(root, `editor-${Date.now()}.log`));
-  editor = spawn(binary, ['--config', config, '--no-welcome', project], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  editor = spawn(binary, ['--config', config, '--no-welcome', ...(projectPath ? [projectPath] : [])], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   editor.stdout.pipe(log); editor.stderr.pipe(log);
   let last;
   for (let attempt = 0; attempt < 300; attempt++) {
@@ -148,6 +151,7 @@ async function launch() {
   assert(client, `MCP failed to start: ${last}`);
   for (let attempt = 0; attempt < 300; attempt++) {
     const result = await tool('desktop_state');
+    if (!projectPath && result.ok && !result.data.documentUrl && result.data.counts.tracks > 0) { state = result.data; return; }
     if (result.ok && result.data.documentUrl.endsWith('/test.kdenlive') && result.data.bin.some(item => item.ready && item.url === source)) {
       state = result.data; return;
     }
@@ -170,9 +174,23 @@ async function stop() {
   log?.end();
 }
 try {
+  // Bootstrap the GUI's unsaved project through MCP, without changing the import/output folder policy.
+  await launch(null);
+  assert.deepEqual((await ok('desktop_capabilities')).project, { saved: false, firstSaveAvailable: true, firstSaveFolder: extraMedia });
+  assert.equal(await rejected('desktop_media_import', { path: source }), 'DESKTOP_SAVE_REQUIRED');
+  assert.equal(await rejected('desktop_project_save_as', { path: join(temporary, 'outside-first-save.kdenlive') }), 'PATH_NOT_ALLOWED');
+  const escapedFolder = join(extraMedia, 'escaped');
+  await symlink(temporary, escapedFolder);
+  assert.equal(await rejected('desktop_project_save_as', { path: join(escapedFolder, 'escaped-first-save.kdenlive') }), 'PATH_NOT_ALLOWED');
+  const firstSave = join(extraMedia, 'first-save.kdenlive');
+  const saved = await edit('desktop_project_save_as', { path: firstSave });
+  assert.equal(fileURLToPath(saved.documentUrl), firstSave);
+  assert((await stat(firstSave)).size > 0);
+  assert.equal(state.modified, false);
+  await stop();
   await launch();
   const catalog = await client.listTools();
-  assert.equal(catalog.tools.length, 48);
+  assert.equal(catalog.tools.length, Object.keys(expectedTools).length);
   const names = catalog.tools.map(item => item.name).sort();
   const expectedNames = Object.keys(expectedTools).sort();
   assert.deepEqual(names, expectedNames, `Tool catalog mismatch. Missing: ${expectedNames.filter(name => !names.includes(name)).join(', ') || 'none'}; unexpected: ${names.filter(name => !expectedNames.includes(name)).join(', ') || 'none'}`);
@@ -973,6 +991,52 @@ try {
     ['Edited by MCP', 100, 200, 90, 720, 'center']);
   await edit('desktop_undo'); assert.equal((await readTitle()).items[0].text, 'MCP title');
   await edit('desktop_redo'); assert.equal((await readTitle()).items[0].text, 'Edited by MCP');
+  // Native titles have the requested exact duration and can be read/edited without a template file.
+  const titleStart = await refresh();
+  const newTitle = await edit('desktop_title_create', { name: 'Sunday', duration: 90,
+    items: [{ text: 'Sunday <&>', x: 96, y: 100, fontPixelSize: 54, fontFamily: 'Sans Serif', bold: true, color: '#ffffff' }] });
+  await ready(newTitle.binId);
+  const native = await ok('desktop_title_read', { binId: newTitle.binId });
+  assert.deepEqual([native.width, native.height, native.items[0].text, native.items[0].bold], [1280, 720, 'Sunday <&>', true]);
+  assert.equal(state.bin.find(item => item.id === newTitle.binId).type, 'title');
+  assert.equal(state.bin.find(item => item.id === newTitle.binId).duration, 90);
+  const titleInsertion = await edit('desktop_clip_insert', { binId: newTitle.binId, trackId: state.tracks.find(track => track.name === 'Titles').id, position: 300,
+    sourceIn: 0, sourceOut: 90, media: 'video', linked: false });
+  assert.equal(clip(titleInsertion.clipId).duration, 90);
+  await edit('desktop_title_edit', { binId: newTitle.binId, items: [{ index: 0, text: 'An editable title' }] });
+  assert.equal((await ok('desktop_title_read', { binId: newTitle.binId })).items[0].text, 'An editable title');
+  await edit('desktop_undo', { toIndex: titleStart.undo.index });
+  await refresh();
+  assert.equal(state.bin.some(item => item.id === newTitle.binId), false);
+  assert.equal(await rejected('desktop_title_create', { name: 'Bad', duration: 90, items: [{ text: 'Bad', x: 0, y: 0, bold: 'yes' }] }), 'INVALID_COMMAND');
+  // Insertion preflight shares native range/stream/track checks and models collisions between proposed clips.
+  await refresh();
+  const preflightStart = state;
+  const proposal = { type: 'insert', binId: asset.id, trackId: videoTrack.id,
+    audioTrackId: state.tracks.find(track => track.type === 'audio' && !track.locked).id, position: 10000,
+    sourceIn: 0, sourceOut: 30, media: 'video', linked: true };
+  assert.equal((await ok('desktop_batch_validate', { commands: [proposal, { ...proposal, position: 10030 }] })).valid, true);
+  const overlaps = await ok('desktop_batch_validate', { commands: [proposal, { ...proposal, position: 10020 }] });
+  assert.equal(overlaps.valid, false);
+  assert.deepEqual([overlaps.issues[0].commandIndex, overlaps.issues[0].error.code], [1, 'OVERLAP']);
+  const invalidRange = await ok('desktop_batch_validate', { commands: [{ ...proposal, sourceOut: 999999 }] });
+  assert.equal(invalidRange.valid, false);
+  assert.equal(invalidRange.issues[0].details.maxSourceOut, state.bin.find(item => item.id === asset.id).duration);
+  assert.equal((await ok('desktop_batch_validate', { commands: [{ type: 'save' }] })).issues[0].error.code, 'VALIDATION_UNSUPPORTED');
+  const lockedPlan = await ok('desktop_batch_validate', { commands: [{ ...proposal, audioTrackId: state.tracks.find(track => track.locked).id }] });
+  assert.equal(lockedPlan.issues[0].error.code, 'TRACK_LOCKED');
+  await refresh();
+  assert.deepEqual([state.revision, state.undo, state.counts, state.playhead],
+    [preflightStart.revision, preflightStart.undo, preflightStart.counts, preflightStart.playhead]);
+  for (const engine of ['whisper', 'vosk']) {
+    const readiness = await ok('desktop_transcription_readiness', { engine });
+    assert.equal(typeof readiness.ready, 'boolean');
+    assert.equal(readiness.engine, engine);
+    assert(Array.isArray(readiness.installedModels));
+    assert(Array.isArray(readiness.missingDependencies));
+    if (!readiness.ready) assert(readiness.reason && readiness.hint);
+  }
+  assert.equal((await tool('desktop_transcription_readiness', { engine: 'siri' })).error.code, 'INVALID_ARGUMENTS');
 
   await refresh();
   const applied = await ok('desktop_apply', { request: { ...fields(), command: { type: 'rename_track', trackId: videoTrack.id, name: 'Applied' } } });
@@ -1071,8 +1135,53 @@ try {
   assert.equal((await stat(rendered)).size, job.bytes);
   const { stdout: dimensions } = await promisify(execFile)('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', rendered]);
   assert.equal(dimensions.trim(), '1080,1920');
+  const verified = await ok('desktop_render_verify', { path: rendered });
+  assert.equal(verified.verified, true);
+  assert.equal(verified.fullDecode, true);
+  assert.equal(verified.hasAudio, true);
+  const previewPath = join(root, 'preview.mp4');
+  const previewState = await refresh();
+  assert.equal(await rejected('desktop_preview_render', { path: join(temporary, 'outside-preview.mp4'), start: 0, end: 30 }), 'PATH_NOT_ALLOWED');
+  assert.equal(await rejected('desktop_preview_render', { path: previewPath, start: 0, end: 999999 }), 'INVALID_COMMAND');
+  const previewJob = await edit('desktop_preview_render', { path: previewPath, start: 0, end: 30, width: 320 });
+  assert.deepEqual([previewJob.preview, previewJob.expectedFrames], [true, 30]);
+  assert.deepEqual([state.profile, state.playhead, state.undo], [previewState.profile, previewState.playhead, previewState.undo]);
+  for (let attempt = 0; attempt < 120; attempt++) {
+    job = (await ok('desktop_render_status')).jobs.find(item => item.path === previewPath);
+    if (!['starting', 'running'].includes(job.status)) break;
+    await delay(500);
+  }
+  assert.equal(job.status, 'finished', JSON.stringify(job));
+  const previewResult = await client.callTool({ name: 'desktop_render_verify', arguments: { path: previewPath, includeAudio: true } });
+  assert.equal(previewResult.structuredContent.ok, true, JSON.stringify(previewResult.structuredContent));
+  const previewData = previewResult.structuredContent.data;
+  assert.deepEqual([previewData.width, previewData.height, previewData.hasAudio], [320, 568, true]);
+  assert.equal(previewData.audio, undefined, 'Sound must travel in an MCP audio block');
+  const sound = previewResult.content.find(item => item.type === 'audio');
+  assert.equal(sound.mimeType, 'audio/wav');
+  const wav = Buffer.from(sound.data, 'base64');
+  assert.equal(wav.subarray(0, 4).toString(), 'RIFF');
+  assert(wav.length > 1000 && wav.length < 400000);
+  assert(wav.subarray(100).some(byte => byte !== 0), 'Preview audio must contain the test tone');
+  assert.equal(previewResult.content.find(item => item.type === 'resource_link').uri, pathToFileURL(previewPath).href);
   const finalHistory = await ok('desktop_history', { limit: 1000 });
   assert.equal(finalHistory.logFile, join(root, '.kdenlive-mcp-log.jsonl'), 'save_as keeps logging in the shared project folder');
+  // Simulate lost completion notifications and an incomplete MP4 before reopening the editor.
+  await stop();
+  const journalPath = join(root, 'data/kdenlive/mcp-renders.json');
+  const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+  const recovered = journal.jobs.find(item => item.path === previewPath);
+  recovered.status = 'running'; recovered.pid = 99999999;
+  const brokenPath = join(root, 'interrupted.mp4');
+  await writeFile(brokenPath, 'incomplete video');
+  journal.jobs.push({ ...recovered, path: brokenPath });
+  await writeFile(journalPath, JSON.stringify(journal));
+  await launch();
+  const reopenedJobs = (await ok('desktop_render_status')).jobs;
+  assert.equal(reopenedJobs.find(item => item.path === rendered).status, 'finished');
+  assert.equal(reopenedJobs.find(item => item.path === previewPath).status, 'interrupted');
+  assert.equal((await ok('desktop_render_verify', { path: previewPath })).verified, true);
+  assert.equal((await tool('desktop_render_verify', { path: brokenPath })).error.code, 'VERIFICATION_FAILED');
   await writeFile(join(root, 'report.json'), JSON.stringify({ passed: true, transport: 'native Streamable HTTP', legacyBridge: false, tools: catalog.tools.map(tool => tool.name), timings, history: finalHistory, finalState: state }, null, 2));
   console.log(`Native MCP acceptance passed: ${root}/report.json`);
 } catch (error) {
