@@ -26,6 +26,12 @@ ThumbnailProvider::~ThumbnailProvider() = default;
 QImage ThumbnailProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
 {
     QImage result;
+    if (pCore->isShuttingDown()) {
+        // The application is closing: the project models are being torn down and the MLT modules
+        // are about to be unloaded, so do not start rendering a new thumbnail.
+        if (size) *size = result.size();
+        return result;
+    }
     // id is binID/#frameNumber
     QString binId = id.section('/', 0, 0);
     bool ok;

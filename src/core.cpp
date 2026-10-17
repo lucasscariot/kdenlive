@@ -100,6 +100,7 @@ void Core::updateHideBarsTimer(bool inhibit)
 
 void Core::prepareShutdown()
 {
+    m_shuttingDown = true;
 #ifdef KDENLIVE_MCP_API
     if (m_mcpServer) m_mcpServer->stop();
 #endif
@@ -118,6 +119,14 @@ void Core::finishShutdown()
         delete m_projectManager;
     }
     mediaUnavailable.reset();
+    // Every QQuickWidget is gone by now. Drop the shared engine so its image reader thread exits
+    // before MainWindow closes the MLT factory and unloads the modules that thread runs code from.
+    releaseSharedQmlEngine();
+}
+
+bool Core::isShuttingDown() const
+{
+    return m_shuttingDown.load();
 }
 
 Core::~Core() {}
@@ -847,15 +856,24 @@ Core *Core::create(QQmlEngine *, QJSEngine *)
     return self().get();
 }
 
+static QQmlEngine *s_sharedQmlEngine = nullptr;
+
 QQmlEngine *Core::sharedQmlEngine()
 {
-    static QQmlEngine *s_engine = nullptr;
-    if (!s_engine) {
-        s_engine = new QQmlEngine;
-        KLocalization::setupLocalizedContext(s_engine);
-        s_engine->addImageProvider(QStringLiteral("thumbnail"), new ThumbnailProvider);
+    if (!s_sharedQmlEngine) {
+        s_sharedQmlEngine = new QQmlEngine;
+        KLocalization::setupLocalizedContext(s_sharedQmlEngine);
+        s_sharedQmlEngine->addImageProvider(QStringLiteral("thumbnail"), new ThumbnailProvider);
     }
-    return s_engine;
+    return s_sharedQmlEngine;
+}
+
+void Core::releaseSharedQmlEngine()
+{
+    // Deleting the engine destroys its QQuickPixmapReader, which cancels pending requests and
+    // waits for the reader thread to finish the request it is currently processing.
+    delete s_sharedQmlEngine;
+    s_sharedQmlEngine = nullptr;
 }
 
 MainWindow *Core::window()
