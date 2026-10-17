@@ -15,7 +15,7 @@ It is not an official KDE release. Every change is kept on its own branch so it 
 - **Your settings win.** Only defaults change. An existing color scheme, layout, menu bar or track height is kept, and everything new can be switched back.
 - **The agent edits like you do.** AI edits go through the same model, revisions and shared Undo as your own, from the editor itself, with no companion server. You can watch every change happen and undo it.
 - **Safe by default.** The editing API is off until you enable it, listens on localhost only, rejects web pages, and can require a token.
-- **Upstream friendly.** Each feature is a self contained branch with a pull request against KDE's `master`, built so it can be split and proposed to the Kdenlive team.
+- **Upstream friendly.** Each feature is a self contained branch with a pull request against this fork's `main`, built so it can later be split off and proposed to the Kdenlive team as a merge request on KDE Invent.
 
 ## Before and after
 
