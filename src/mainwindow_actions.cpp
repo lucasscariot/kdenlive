@@ -590,7 +590,6 @@ void MainWindow::setupActions()
     int small = style()->pixelMetric(QStyle::PM_SmallIconSize);
     statusBar()->setMaximumHeight(2 * small);
     m_messageLabel = new StatusBarMessageLabel(this);
-    m_messageLabel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
     connect(this, &MainWindow::displayMessage, m_messageLabel, &StatusBarMessageLabel::setMessage);
     connect(this, &MainWindow::displaySelectionMessage, m_messageLabel, &StatusBarMessageLabel::setSelectionMessage);
     connect(this, &MainWindow::displayProgressMessage, m_messageLabel, &StatusBarMessageLabel::setProgressMessage);

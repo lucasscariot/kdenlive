@@ -116,6 +116,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QLayout>
 #include <QMenu>
 #include <QMenuBar>
 #include <QProxyStyle>
@@ -177,32 +178,66 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 namespace {
-/** @brief Keeps a child widget centered over its parent, like the page bar over the status bar */
-class CenteredOverlay : public QObject
+/** @brief Status bar footer: messages on the left, the page bar centered while there is room, the status toolbar on the right. Nothing overlaps. */
+class FooterLayout : public QLayout
 {
 public:
-    CenteredOverlay(QWidget *child, QWidget *parent)
-        : QObject(child)
-        , m_child(child)
+    explicit FooterLayout(QWidget *parent)
+        : QLayout(parent)
     {
-        parent->installEventFilter(this);
+        setContentsMargins(0, 0, 0, 0);
+    }
+    ~FooterLayout() override { qDeleteAll(m_items); }
+
+    void addItem(QLayoutItem *item) override { m_items.append(item); }
+    int count() const override { return int(m_items.size()); }
+    QLayoutItem *itemAt(int index) const override { return m_items.value(index); }
+    QLayoutItem *takeAt(int index) override { return index >= 0 && index < m_items.size() ? m_items.takeAt(index) : nullptr; }
+    Qt::Orientations expandingDirections() const override { return Qt::Horizontal; }
+
+    QSize sizeHint() const override { return combinedSize(&QLayoutItem::sizeHint); }
+    QSize minimumSize() const override
+    {
+        // The messages may shrink to nothing
+        return combinedSize(&QLayoutItem::minimumSize, 1);
     }
 
-protected:
-    bool eventFilter(QObject *watched, QEvent *event) override
+    /** Items are added as messages, pages, tools */
+    void setGeometry(const QRect &rect) override
     {
-        if (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::LayoutRequest) {
-            auto *parent = static_cast<QWidget *>(watched);
-            QRect r(QPoint(0, 0), m_child->sizeHint());
-            r.moveCenter(parent->rect().center());
-            m_child->setGeometry(r);
-            m_child->raise();
+        QLayout::setGeometry(rect);
+        if (m_items.size() != 3) {
+            return;
         }
-        return QObject::eventFilter(watched, event);
+        QLayoutItem *messages = m_items.at(0);
+        QLayoutItem *pages = m_items.at(1);
+        QLayoutItem *tools = m_items.at(2);
+        const int gap = spacing();
+        // The pages keep their size first, then the toolbar (it overflows into its extension menu), the messages get the rest
+        const int pagesWidth = qMin(pages->sizeHint().width(), rect.width());
+        const int toolsWidth =
+            qBound(qMin(tools->minimumSize().width(), rect.width() - pagesWidth), rect.width() - pagesWidth - gap, tools->sizeHint().width());
+        int pagesX = rect.center().x() - pagesWidth / 2;
+        pagesX = qMin(pagesX, rect.right() + 1 - toolsWidth - gap - pagesWidth);
+        pagesX = qMax(pagesX, rect.left());
+        tools->setGeometry(QRect(rect.right() + 1 - toolsWidth, rect.top(), toolsWidth, rect.height()));
+        pages->setGeometry(QRect(pagesX, rect.top(), pagesWidth, rect.height()));
+        messages->setGeometry(QRect(rect.left(), rect.top(), qMax(0, pagesX - gap - rect.left()), rect.height()));
     }
 
 private:
-    QWidget *m_child;
+    QSize combinedSize(QSize (QLayoutItem::*size)() const, int from = 0) const
+    {
+        QSize total;
+        for (int i = from; i < m_items.size(); ++i) {
+            const QSize itemSize = (m_items.at(i)->*size)();
+            total.rwidth() += itemSize.width() + spacing();
+            total.setHeight(qMax(total.height(), itemSize.height()));
+        }
+        return total;
+    }
+
+    QList<QLayoutItem *> m_items;
 };
 } // namespace
 
@@ -628,8 +663,18 @@ void MainWindow::init()
         // Workspace switcher (built by the layout manager as the menu bar corner widget) becomes the page bar
         if (QWidget *pages = menuBar()->cornerWidget(Qt::TopRightCorner)) {
             menuBar()->setCornerWidget(nullptr, Qt::TopRightCorner);
-            pages->setParent(statusBar());
-            new CenteredOverlay(pages, statusBar());
+            // Lay it out between the messages and the status toolbar: centered while there is room, never on top of them
+            auto *statusTools = statusBar()->findChild<KToolBar *>(QStringLiteral("statusToolBar"));
+            statusBar()->removeWidget(m_messageLabel);
+            statusBar()->removeWidget(statusTools);
+            auto *footer = new QWidget(statusBar());
+            auto *footerLayout = new FooterLayout(footer);
+            footerLayout->addWidget(m_messageLabel);
+            footerLayout->addWidget(pages);
+            footerLayout->addWidget(statusTools);
+            statusBar()->addWidget(footer, 1);
+            m_messageLabel->show();
+            statusTools->show();
             const int pageBarHeight = pages->sizeHint().height() + 6;
             statusBar()->setMinimumHeight(pageBarHeight);
             statusBar()->setMaximumHeight(qMax(statusBar()->maximumHeight(), pageBarHeight));
@@ -2497,6 +2542,8 @@ void MainWindow::showToolMessage()
     applyToolMessageStyling();
 
     m_trimLabel->setText(toolLabel);
+    // Never clip the badge: on a narrow status bar the toolbar moves its buttons into the extension menu instead
+    m_trimLabel->setMinimumWidth(m_trimLabel->sizeHint().width());
     m_messageLabel->setKeyMap(message);
 }
 
