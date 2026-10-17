@@ -1,6 +1,6 @@
 # Magnetic timeline
 
-Kdenlive Live can edit like Final Cut Pro: a primary storyline that never keeps a gap, clips
+Kdenlive PRO can edit like Final Cut Pro: a primary storyline that never keeps a gap, clips
 connected to it, roles instead of numbered tracks, and an index listing clips and roles.
 
 ## Magnetic mode

@@ -1,12 +1,12 @@
 ![](data/pics/kdenlive-logo.png)
 
-# Kdenlive Live
+# Kdenlive PRO
 
 **An experimental community fork of [Kdenlive](https://kdenlive.org), built on its development branch, exploring two ideas: editing alongside an AI agent inside the running editor, and a calmer, denser interface that puts the footage first.**
 
 It is not an official KDE release. Every change is kept on its own branch so it can be discussed, reviewed and, where it makes sense, proposed upstream.
 
-![Kdenlive Live: one viewer, compact lanes, panel top bar and page bar](docs/fork/after.webp)
+![Kdenlive PRO: one viewer, compact lanes, panel top bar and page bar](docs/fork/after.webp)
 
 ## Philosophy
 
@@ -19,9 +19,9 @@ It is not an official KDE release. Every change is kept on its own branch so it 
 
 ## Before and after
 
-| Kdenlive 26.08 (stock) | Kdenlive Live |
+| Kdenlive 26.08 (stock) | Kdenlive PRO |
 | --- | --- |
-| ![Stock Kdenlive 26.08](docs/fork/before.webp) | ![Kdenlive Live](docs/fork/after.webp) |
+| ![Stock Kdenlive 26.08](docs/fork/before.webp) | ![Kdenlive PRO](docs/fork/after.webp) |
 
 ## A modern editing interface
 
@@ -58,7 +58,7 @@ It is not an official KDE release. Every change is kept on its own branch so it 
 
 ## Live editing with MCP
 
-Kdenlive Live serves the [Model Context Protocol](https://modelcontextprotocol.io) directly from the editor over HTTP, so assistants like Claude, Cursor or Codex can edit the project you have open.
+Kdenlive PRO serves the [Model Context Protocol](https://modelcontextprotocol.io) directly from the editor over HTTP, so assistants like Claude, Cursor or Codex can edit the project you have open.
 
 - Enable it in **Settings → Configure Kdenlive → MCP API** and copy a ready made client configuration (JSON, a `claude mcp add` command, a Codex entry or the bare URL).
 - Tools cover the whole edit: reading state, importing and replacing media, inserting, moving and trimming clips, audio fades and gain, effects, titles, reframing for vertical video, changing the frame size, capturing a frame as an image, rendering, and batches of up to 200 edits as one Undo step.
@@ -68,22 +68,38 @@ See the [native MCP guide](docs/native-mcp.md) for setup, security and the full 
 
 ## Branches
 
-| Branch | Pull request | Contents |
-| --- | --- | --- |
-| `feat/mcp-live-bridge` | [#1](https://github.com/lucasscariot/kdenlive/pull/1) | Native MCP server with live editing, shared Undo and access control |
-| `feat/mcp-vertical-reframe` | [#2](https://github.com/lucasscariot/kdenlive/pull/2) | Reframing, effects, titles, frame capture and rendering tools (builds on #1) |
-| `feat/ui-polish` | | The interface work described above, independent of the MCP branches |
-| `main` | | KDE `master` with every feature branch merged: the branch to build and try |
+| Branch | Role |
+| --- | --- |
+| `kde-master` | Exact mirror of KDE's [`master`](https://invent.kde.org/multimedia/kdenlive). Never carries a fork commit; the base of anything proposed back to KDE. |
+| `main` | `kde-master` plus every merged feature: the branch to build, try and base new work on. |
+| `feat/*`, `fix/*`, `docs/*` | One branch per change, opened as a pull request against `main` and deleted once merged. |
 
-`kde-master` mirrors KDE's `master` and is the base of every pull request.
+Merged so far, oldest first:
+
+| Pull request | Branch | Contents |
+| --- | --- | --- |
+| [#1](https://github.com/lucasscariot/kdenlive/pull/1) | `feat/mcp-live-bridge` | Native MCP server with live editing, shared Undo and access control (closed; landed on `main` directly) |
+| [#2](https://github.com/lucasscariot/kdenlive/pull/2) | `feat/mcp-vertical-reframe` | Reframing, effects, titles, frame capture and rendering tools (closed; landed on `main` directly) |
+| | `feat/ui-polish`, `feat/design-system` | The interface work described above, merged without a pull request |
+| [#3](https://github.com/lucasscariot/kdenlive/pull/3) | `feat/mcp-tests-docs` | MCP tests and docs brought up to date with the 28-tool surface |
+| [#4](https://github.com/lucasscariot/kdenlive/pull/4) | `feat/mcp-state-readback` | Complete MCP state snapshot |
+| [#5](https://github.com/lucasscariot/kdenlive/pull/5) | `feat/mcp-markers` | Marker and guide tools |
+| [#6](https://github.com/lucasscariot/kdenlive/pull/6) | `feat/mcp-history` | MCP change log with agent-tagged undo entries |
+| [#7](https://github.com/lucasscariot/kdenlive/pull/7) | `feat/mcp-timeline-primitives` | Timeline primitives: split, ripple, insert modes, groups, speed, enable |
+| [#8](https://github.com/lucasscariot/kdenlive/pull/8) | `feat/mcp-transcript` | Transcript and silence readback with transcript-addressed cuts |
+| [#9](https://github.com/lucasscariot/kdenlive/pull/9) | `feat/magnetic-timeline` | Final Cut style magnetic timeline, roles and timeline index |
+| [#10](https://github.com/lucasscariot/kdenlive/pull/10) | `feat/mcp-authoring-workflow` | MCP first-save, native titles and review tools |
+| [#11](https://github.com/lucasscariot/kdenlive/pull/11) | `fix/shutdown-thumbnail-race` | Stop the thumbnail reader before MLT modules unload on quit |
+
+The branch model, including how `kde-master` is synced with KDE, is documented for coding agents in [`.claude/agents/branch-keeper.md`](.claude/agents/branch-keeper.md).
 
 ## Build and try
 
 Build `main` with the usual [Kdenlive dependencies](dev-docs/build.md). The MCP API also needs Qt 6.11 or newer **HttpServer** and **WebSockets**; the interface work needs nothing extra.
 
 ```bash
-git clone -b main https://github.com/lucasscariot/kdenlive.git kdenlive-live
-cd kdenlive-live
+git clone -b main https://github.com/lucasscariot/kdenlive.git kdenlive-pro
+cd kdenlive-pro
 cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
   -DKDENLIVE_MCP_API=ON -DKDE_INSTALL_USE_QT_SYS_PATHS=OFF \
@@ -93,7 +109,7 @@ cmake --install build
 bash packaging/live-mcp/install-user.sh "$PWD/install"
 ```
 
-The installer puts a private copy in `~/.local/opt/kdenlive-live` with a **Kdenlive Live MCP** launcher and its own settings, so it runs next to a system Kdenlive without touching it. Leave out `-DKDENLIVE_MCP_API=ON` to build only the interface changes.
+The installer puts a private copy in `~/.local/opt/kdenlive-live` with a **Kdenlive PRO** launcher and its own settings, so it runs next to a system Kdenlive without touching it. Leave out `-DKDENLIVE_MCP_API=ON` to build only the interface changes.
 
 ## Get involved
 
@@ -104,7 +120,7 @@ This fork is a proposal as much as a product. The most useful help right now:
 - **Agent workflows**: share what you build with the MCP tools and which tools are missing.
 - **Upstreaming**: help shape the branches into changes the Kdenlive team can accept, and join the discussion on [KDE Invent](https://invent.kde.org/multimedia/kdenlive) and `#kdenlive-dev:kde.org`.
 
-Open an issue or a pull request against the matching branch on this repository.
+Open an issue or a pull request against `main` on this repository.
 
 ---
 

@@ -13,7 +13,7 @@
 class QPainter;
 class QWidget;
 
-/** @brief Painting primitives of the Kdenlive Pro design, shared by the widget style and custom widgets
+/** @brief Painting primitives of the Kdenlive PRO design, shared by the widget style and custom widgets
     so every panel, pill, chevron and header strip is drawn the same way.
  */
 namespace DesignPaint {
