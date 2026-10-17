@@ -24,6 +24,7 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QTimer>
 #include <QUrl>
 
+#include <atomic>
 #include <memory>
 #include <unordered_set>
 
@@ -92,6 +93,14 @@ public:
     Core &operator=(Core &&) = delete;
     static Core *create(QQmlEngine *, QJSEngine *);
     static QQmlEngine *sharedQmlEngine();
+    /** @brief Delete the shared QML engine created by sharedQmlEngine().
+     *  Must run after every QQuickWidget using the engine is gone and before Mlt::Factory::close():
+     *  destroying the engine stops its image reader thread, so no thumbnail request can still be
+     *  executing MLT code when the MLT modules get unloaded. */
+    static void releaseSharedQmlEngine();
+    /** @brief True once the application started shutting down (see prepareShutdown()).
+     *  Safe to call from any thread. */
+    bool isShuttingDown() const;
 
     QReadWriteLock xmlMutex;
     bool closing{false};
@@ -427,6 +436,7 @@ private:
     /** @brief Mlt profile used to build the project's clips */
     Mlt::Profile m_projectProfile;
     bool m_guiConstructed{false};
+    std::atomic_bool m_shuttingDown{false};
     bool m_abortInitAndRestart{false};
     Splash *m_splash{nullptr};
     QEventLoop m_loop;
