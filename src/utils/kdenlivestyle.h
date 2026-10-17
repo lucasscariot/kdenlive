@@ -8,7 +8,7 @@
 #include <QProxyStyle>
 
 /** @class KdenliveStyle
-    @brief The Kdenlive Pro widget style, layered on Fusion.
+    @brief The Kdenlive PRO widget style, layered on Fusion.
 
     Every metric, radius, color and font comes from DesignTokens and every shape from
     DesignPaint, so widgets match the design system and the QML views reading the same tokens.

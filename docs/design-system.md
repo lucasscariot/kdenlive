@@ -1,6 +1,6 @@
-# Kdenlive Pro design system
+# Kdenlive PRO design system
 
-Kdenlive Live's interface follows one design language, inspired by Apple's pro apps. The full
+Kdenlive PRO's interface follows one design language, inspired by Apple's pro apps. The full
 blueprint (principles, type scale, spacing, colors, components and their guidelines) is the
 design system page; this file explains how the code consumes it so the interface cannot drift.
 
@@ -16,7 +16,7 @@ radii, sizes, opacities and type styles. Everything else is derived from it:
 | Widget style | `KdenliveStyle` (`src/utils/kdenlivestyle.cpp`) paints every Qt control from the tokens |
 | Shared shapes | `DesignPaint` (`src/utils/designpaint.h`): panels, pills, chevrons, header strips, washes, badge style sheets |
 | KDE color schemes | generated: `python3 src/design/generate-color-schemes.py` writes `data/color-schemes/KdenliveDark.colors` and `KdenliveLight.colors` |
-| Icons | generated: `python3 src/design/generate-icon-theme.py <lucide-static/icons>` writes the Kdenlive Pro icon themes |
+| Icons | generated: `python3 src/design/generate-icon-theme.py <lucide-static/icons>` writes the Kdenlive PRO icon themes |
 | Fonts | Inter and JetBrains Mono are bundled in `src/design/fonts` and registered by `DesignTokens::loadFonts()` |
 
 The design system page and `tokens.json` must stay identical: change a value in one, copy it to

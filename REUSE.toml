@@ -291,7 +291,7 @@ SPDX-License-Identifier = "GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL"
 [[annotations]]
 path = "docs/fork/**.webp"
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 Kdenlive Live contributors"
+SPDX-FileCopyrightText = "2026 Kdenlive PRO contributors"
 SPDX-License-Identifier = "CC-BY-SA-4.0"
 
 [[annotations]]

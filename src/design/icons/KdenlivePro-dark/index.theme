@@ -1,6 +1,6 @@
 [Icon Theme]
 Name=KdenlivePro-dark
-Comment=Kdenlive Pro icons, generated from Lucide by src/design/generate-icon-theme.py
+Comment=Kdenlive PRO icons, generated from Lucide by src/design/generate-icon-theme.py
 Inherits=breeze-dark,breeze,hicolor
 Directories=scalable
 

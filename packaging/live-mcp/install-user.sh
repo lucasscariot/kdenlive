@@ -49,9 +49,9 @@ ln -sfn "$live_prefix/bin/kdenlive-live" "$command_path"
 cat > "$desktop_file" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Kdenlive Live MCP
+Name=Kdenlive PRO
 GenericName=Video Editor
-Comment=Custom Kdenlive with live MCP editing
+Comment=Kdenlive PRO: Kdenlive with a modern interface and live MCP editing
 Exec="$command_path" %F
 Icon=$live_prefix/share/icons/hicolor/256x256/apps/kdenlive.png
 Terminal=false

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Kdenlive contributors
 # SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
-"""Generate the Kdenlive Pro icon themes from Lucide icons and the design tokens.
+"""Generate the Kdenlive PRO icon themes from Lucide icons and the design tokens.
 
 Each freedesktop or Kdenlive icon name below maps to one Lucide icon, so one meaning has one
 drawing across the app. Icons are drawn at a 1.5px stroke in the theme's icon ink; names not
@@ -172,7 +172,7 @@ def main():
         (OUTPUT / name / "index.theme").write_text(
             "[Icon Theme]\n"
             f"Name={name}\n"
-            "Comment=Kdenlive Pro icons, generated from Lucide by src/design/generate-icon-theme.py\n"
+            "Comment=Kdenlive PRO icons, generated from Lucide by src/design/generate-icon-theme.py\n"
             f"Inherits={inherits}\n"
             "Directories=scalable\n\n"
             "[scalable]\nSize=16\nMinSize=8\nMaxSize=512\nType=Scalable\n"

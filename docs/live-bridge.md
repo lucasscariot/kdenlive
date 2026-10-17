@@ -24,7 +24,7 @@ cmake --install build
 bash packaging/live-mcp/install-user.sh "$PWD/install"
 ```
 
-On Omarchy, open **Kdenlive Live MCP** from the app launcher. The terminal command
+On Omarchy, open **Kdenlive PRO** from the app launcher. The terminal command
 is `~/.local/bin/kdenlive-live`, which also accepts a `.kdenlive` project path.
 Installation copies the built application to `~/.local/opt/kdenlive-live`, so
 the original checkout and build folder are not needed to launch it.

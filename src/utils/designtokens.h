@@ -14,7 +14,7 @@
 #include <QtQmlIntegration>
 
 /** @class DesignTokens
-    @brief The Kdenlive Pro design tokens, loaded once from src/design/tokens.json.
+    @brief The Kdenlive PRO design tokens, loaded once from src/design/tokens.json.
 
     This is the single source for colors, spacing, radii, sizes and type styles, shared by the
     widget style, custom widgets and QML (as the K.Design singleton), so the interface cannot
