@@ -94,6 +94,11 @@ music, fades), review, export, verify.
 - `desktop_preview_render {path, start, end, width}` for up to ten seconds
   with audio, then `desktop_render_verify {path, includeAudio: true}` to hear
   the mix.
+- `desktop_ui_capture {target: "window"}` shows the editor as the user sees it
+  (a panel or a design review page with `target: "panel"` / `"page"`), and
+  `desktop_design_audit` reads the design tokens, contrast and the fonts,
+  margins and icons the interface uses outside them: use both when the task is
+  about the interface itself (see `docs/design-review.md`), not for editing.
 - `desktop_history` shows what you (and the user) changed; `desktop_undo
   {revertSession: true}` reverts only your own edits when they are not
   interleaved with the user's.

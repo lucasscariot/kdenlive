@@ -95,6 +95,8 @@ ids do not.
 | `desktop_capabilities` | none | Read capabilities, including the state section names and the project's marker categories |
 | `desktop_state` | optional `include` (section names), `trackId` (id or tag), `range` (`start`, `end`), `binIds` | Read the visible sequence, bin and history; see [State snapshot](#state-snapshot) |
 | `desktop_frame_capture` | `position`, optional `width` (64 to 3840, default 540), `path` (a new `.png`) | Render one frame in a separate melt process, returned as a PNG image or written to `path`, without moving the playhead |
+| `desktop_ui_capture` | `target` (`window`, `panel`, `page`), `panel` (dock name), `page` (`colors`, `type`, `spacing`, `icons`, `components`, `inventory`), optional `theme` (`dark`, `light`), `scale` (1 to 3), `width` (480 to 3840) | A PNG of the editor window, one open panel or one design review page, for [design review](design-review.md) |
+| `desktop_design_audit` | optional `include` (`tokens`, `colors`, `contrast`, `type`, `icons`, `findings`, `inventory`), `panel` | The design tokens, contrast of every ink on every surface, type styles, icons, live findings and the panel list; see [design review](design-review.md) |
 | `desktop_media_wait` | optional `binIds`, `timeoutSeconds` (0 to 120, default 30) | Wait until bin clips finish loading; returns `ready`, `timedOut` and each item's `duration` |
 | `desktop_profile_list` | optional `query` | List project profiles (path, description, size, fps) and the current one |
 | `desktop_render_cancel` | `path` | Stop a render started through MCP and remove its partial output |

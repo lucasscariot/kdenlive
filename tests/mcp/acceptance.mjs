@@ -46,6 +46,7 @@ await writeFile(config, `[startup]\nlastSeenVersionMajor=26\nlastSeenVersionMino
 // Every registered tool with its expected annotations: [readOnlyHint, destructiveHint, idempotentHint].
 const expectedTools = {
   desktop_capabilities: [true, false, true], desktop_state: [true, false, true], desktop_frame_capture: [true, false, true],
+  desktop_ui_capture: [true, false, true], desktop_design_audit: [true, false, true],
   desktop_effect_list: [true, false, true], desktop_title_read: [true, false, true], desktop_render_status: [true, false, true],
   desktop_apply: [false, true, false], desktop_media_import: [false, false, true], desktop_media_remove: [false, true, true],
   desktop_clip_insert: [false, true, false], desktop_clip_remove: [false, true, true], desktop_media_replace: [false, true, true],
@@ -237,6 +238,47 @@ try {
   const sequenceAsset = state.bin.find(item => item.type === 'sequence');
   assert.equal(sequenceAsset.parentId, folder('Sequences').id);
   assert.deepEqual(state.sequences, [{ id: state.sequenceId, binId: sequenceAsset.id, name: sequenceAsset.name, active: true, open: true }]);
+  // Design review: the audit reads the tokens and the live window, captures return PNG pictures of the interface.
+  const audit = await ok('desktop_design_audit');
+  assert.deepEqual(audit.themes, ['dark', 'light']);
+  assert(['dark', 'light'].includes(audit.theme));
+  assert(audit.colors.some(color => color.name === 'accent' && /^#[0-9a-f]{6}$/.test(color.values.dark) && /^#[0-9a-f]{6}$/.test(color.values.light)));
+  assert(audit.type.some(style => style.name === 'text-body' && style.px === 13));
+  assert.deepEqual(Object.keys(audit.tokens).sort(), ['opacity', 'radius', 'shadow', 'size', 'spacing']);
+  assert(audit.contrast.dark.length > 0 && audit.contrast.dark.every(pair => pair.ratio >= 1 && pair.ratio <= 21));
+  assert(audit.themeIcons.includes('edit-cut') && audit.iconUsage.some(icon => icon.name === 'edit-cut' && icon.inTheme));
+  for (const key of ['fonts', 'spacing', 'sizes', 'iconSizes', 'icons', 'styleSheets', 'palettes', 'texts']) assert(Array.isArray(audit.findings[key]), key);
+  assert(audit.findings.widgets > 100 && audit.inventory === undefined, 'The inventory is opt-in');
+  assert.deepEqual(audit.pages, ['colors', 'type', 'spacing', 'icons', 'components', 'inventory']);
+  const bin = audit.panels.find(panel => panel.name === 'project_bin');
+  assert.deepEqual([bin.title, bin.open, typeof bin.current], ['Project Bin', true, 'boolean']);
+  const tree = await ok('desktop_design_audit', { include: ['inventory'], panel: 'project_bin' });
+  assert.deepEqual([tree.colors, tree.inventory.class, Array.isArray(tree.inventory.children)], [undefined, 'KDDockWidgets::QtWidgets::DockWidget', true]);
+  assert.equal((await tool('desktop_design_audit', { include: ['nothing'] })).error.code, 'INVALID_ARGUMENTS');
+  assert.equal((await tool('desktop_design_audit', { panel: 'no_such_panel' })).error.code, 'UNKNOWN_PANEL');
+  async function picture(args) {
+    const result = await client.callTool({ name: 'desktop_ui_capture', arguments: args });
+    assert.equal(result.structuredContent.ok, true, JSON.stringify(result.structuredContent));
+    const images = result.content.filter(item => item.type === 'image');
+    assert.equal(images.length, 1); assert.equal(images[0].mimeType, 'image/png');
+    const png = Buffer.from(images[0].data, 'base64');
+    assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'Not a PNG');
+    const { data } = result.structuredContent;
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [data.width, data.height]);
+    return data;
+  }
+  const windowPicture = await picture({ target: 'window' });
+  assert.deepEqual([windowPicture.target, windowPicture.theme, windowPicture.scale], ['window', audit.theme, 1]);
+  const pagePicture = await picture({ target: 'page', page: 'components', width: 900, scale: 2 });
+  assert.deepEqual([pagePicture.page, pagePicture.scale, pagePicture.width >= 1800], ['components', 2, true], 'A page is at least width wide, at scale');
+  const otherTheme = audit.theme === 'dark' ? 'light' : 'dark';
+  assert.equal((await picture({ target: 'page', page: 'colors', theme: otherTheme })).theme, otherTheme);
+  assert.equal((await ok('desktop_design_audit', { include: ['colors'] })).theme, audit.theme, 'The theme is restored after a capture');
+  const panelPicture = await picture({ target: 'panel', panel: 'project_bin' });
+  assert.deepEqual([panelPicture.panel, panelPicture.title], ['project_bin', 'Project Bin']);
+  assert.equal((await tool('desktop_ui_capture', { target: 'panel', panel: 'no_such_panel' })).error.code, 'UNKNOWN_PANEL');
+  assert.equal((await tool('desktop_ui_capture', { target: 'page', page: 'nope' })).error.code, 'INVALID_ARGUMENTS');
+  assert.equal((await tool('desktop_ui_capture', { target: 'window', scale: 9 })).error.code, 'INVALID_ARGUMENTS');
   const subtitled = await ok('desktop_state', { include: ['subtitles'] });
   assert.deepEqual(subtitled.sections, ['subtitles']);
   for (const key of ['tracks', 'markers', 'bin', 'folders', 'sequences']) assert.equal(subtitled[key], undefined, `include omits ${key}`);

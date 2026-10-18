@@ -5,6 +5,7 @@ set(kdenlive_SRCS
   ${kdenlive_SRCS}
   widgets/choosecolorwidget.cpp
   widgets/colorpickerwidget.cpp
+  widgets/designreviewwindow.cpp
   widgets/doublewidget.cpp
   widgets/dragvalue.cpp
   widgets/elidedfilelinklabel.cpp

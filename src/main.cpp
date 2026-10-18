@@ -15,8 +15,11 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include "kdenlivesettings.h"
 // Required for MacOS definition of MLT_LC_NAME
 #include "lib/localeHandling.h"
+#include "mainwindow.h"
 #include "render/renderrequest.h"
+#include "utils/designaudit.h"
 #include "utils/kdenlivestyle.h"
+#include "widgets/designreviewwindow.h"
 #include <config-kdenlive.h>
 #include <project/projectmanager.h>
 
@@ -60,17 +63,18 @@ SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QResource>
+#include <QTimer>
 
 #include <QUndoGroup>
 #include <QUrl> //new
 
 #ifdef Q_OS_WIN
 #include <windows.h>
-extern "C" {
-// Inform the driver we could make use of the discrete gpu
-// __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
-// __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
-}
+ extern "C" {
+ // Inform the driver we could make use of the discrete gpu
+ // __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+ // __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+ }
 static QString getShortPath(const QString &longPath)
 {
     std::wstring longPathStd = QDir::toNativeSeparators(longPath).toStdWString();
@@ -369,6 +373,11 @@ int main(int argc, char *argv[])
 
     QCommandLineOption verifyOption(QStringLiteral("verify-file"), i18n("Verify whether a Kdenlive project file is valid, print details, and exit."));
     parser.addOption(verifyOption);
+    QCommandLineOption designReviewOption(
+        QStringLiteral("design-review"),
+        i18n("Write the design review (token pages, components, the window and its panels as PNG files, review.json) into the given folder and exit."),
+        QStringLiteral("folder"));
+    parser.addOption(designReviewOption);
 
     parser.addPositionalArgument(QStringLiteral("file"), i18n("Kdenlive document to open."));
     parser.addPositionalArgument(QStringLiteral("rendering"), i18n("Output file for rendered video."));
@@ -603,10 +612,41 @@ int main(int argc, char *argv[])
 
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtWidgets);
 
-    if (!Core::build(packageType, false, parser.isSet(debugOption), app.url.isEmpty() && clipsToLoad.isEmpty() && !parser.isSet(disableWelcome))) {
+    const bool designReview = parser.isSet(designReviewOption);
+    if (!Core::build(packageType, false, parser.isSet(debugOption),
+                     app.url.isEmpty() && clipsToLoad.isEmpty() && !parser.isSet(disableWelcome) && !designReview)) {
         // App is crashing, delete config files and restart
         result = EXIT_CLEAN_RESTART;
     } else {
+        if (designReview) {
+            // Once the window and the project are up, export the review and leave. The delay lets the layout settle and a small project load.
+            const QString folder = parser.value(designReviewOption);
+            const int settle =
+                qEnvironmentVariableIntValue("KDENLIVE_DESIGN_REVIEW_SETTLE_MS") > 0 ? qEnvironmentVariableIntValue("KDENLIVE_DESIGN_REVIEW_SETTLE_MS") : 2500;
+            QObject::connect(
+                pCore.get(), &Core::GUISetupDone, &app,
+                [folder, settle]() {
+                    QTimer::singleShot(settle, qApp, [folder]() {
+                        // Headless platforms give the window no screen to fill: the caller may size it
+                        const QStringList windowSize = qEnvironmentVariable("KDENLIVE_DESIGN_REVIEW_WINDOW").split(QLatin1Char('x'));
+                        if (windowSize.size() == 2 && windowSize.at(0).toInt() > 0 && windowSize.at(1).toInt() > 0) {
+                            pCore->window()->resize(windowSize.at(0).toInt(), windowSize.at(1).toInt());
+                            qApp->processEvents();
+                        }
+                        DesignReviewWindow *review = DesignReviewWindow::instance(pCore->window());
+                        const QJsonObject manifest = review->exportReview(folder, DesignAudit::themeIds(), 1.0, true);
+                        if (manifest.value(QStringLiteral("ok")).toBool()) {
+                            qInfo().noquote() << "Design review written to" << manifest.value(QStringLiteral("directory")).toString();
+                        } else {
+                            qCritical().noquote() << "Design review failed:"
+                                                  << manifest.value(QStringLiteral("error")).toObject().value(QStringLiteral("message")).toString();
+                        }
+                        pCore->window()->close();
+                        QTimer::singleShot(3000, qApp, []() { qApp->exit(EXIT_SUCCESS); });
+                    });
+                },
+                Qt::SingleShotConnection);
+        }
         pCore->initGUI(parser.value(mltPathOption), app.url, clipsToLoad);
         result = app.exec();
     }
