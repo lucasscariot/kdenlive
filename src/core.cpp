@@ -2339,6 +2339,10 @@ std::pair<bool, bool> Core::assetHasAV(ObjectId id)
         return {false, true};
     }
     case KdenliveObjectType::BinClip: {
+        // A queued effect stack refresh can outlive the bin clip it was posted for (undo of a clip creation).
+        if (!projectItemModel()->getClipByBinID(QString::number(id.itemId))) {
+            return {false, false};
+        }
         PlaylistState::ClipState state = projectItemModel()->getClipState(id.itemId).first;
         if (state == PlaylistState::Disabled) {
             return {true, true};

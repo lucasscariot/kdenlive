@@ -126,6 +126,8 @@ void RenderJob::sendFinish(int status, const QString &error)
 
 void RenderJob::slotAbort()
 {
+    // The killed process must not be reported as a crashed render when the job object is destroyed on quit.
+    disconnect(&m_renderProcess, &QProcess::finished, this, &RenderJob::slotIsOver);
     m_renderProcess.kill();
     sendFinish(-3, QString());
     if (m_erase) {

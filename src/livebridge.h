@@ -60,8 +60,14 @@ public:
     QJsonObject silenceDetect(const QJsonObject &arguments);
     /** Progress of speech-to-text jobs started with the transcribe command. */
     QJsonObject transcribeStatus(const QJsonObject &arguments);
-    /** Scoped state read: optional include (section names), trackId and range {start, end}; see docs/native-mcp.md. */
+    /** Scoped state read: optional include (section names), trackId, range {start, end} and binIds; see docs/native-mcp.md. */
     QJsonObject stateFor(const QJsonObject &arguments);
+    /** Wait until bin clips finish loading, spinning the event loop while nested edits are refused. */
+    QJsonObject mediaWait(const QJsonObject &arguments);
+    /** Abort a render started through MCP and remove its partial output. */
+    QJsonObject renderCancel(const QJsonObject &arguments);
+    /** Project profiles Kdenlive knows, for desktop_project_new and desktop_project_profile. */
+    QJsonObject profileList(const QJsonObject &arguments);
     /** Every section name stateFor accepts in include. */
     static const QStringList &stateSectionNames();
 
@@ -80,6 +86,7 @@ private:
     struct StateScope
     {
         QStringList sections;
+        QStringList binIds;
         int trackId{-1};
         int start{0};
         int end{std::numeric_limits<int>::max()};
@@ -136,6 +143,18 @@ private:
     static QJsonObject markerCategoryFor(const QJsonValue &value, int &category);
     QJsonObject editableClip(int clipId) const;
     QString failure(const QString &code, const QString &message) const;
+    /** Replace V1/A2-style track tags in trackId, audioTrackId and trackIds with native ids; UNKNOWN_TRACK when a tag matches no track. */
+    QJsonObject resolveTrackReferences(QJsonObject &command) const;
+    int trackIdForTag(const QString &tag) const;
+    /** Spin the event loop until every bin clip is ready or the timeout passes; nested edits are refused meanwhile. */
+    bool waitForBinClips(const QStringList &binIds, int timeoutMs);
+    /** Composition helpers (livebridgecomposition.cpp): replace_clip, clip_fade, audio_duck, project_new; sets handled when the command is one of them. */
+    QJsonObject executeComposition(const QJsonObject &command, bool &handled);
+    QJsonObject replaceClip(const QJsonObject &command);
+    QJsonObject clipFade(const QJsonObject &command);
+    QJsonObject audioDuck(const QJsonObject &command);
+    QJsonObject newProject(const QJsonObject &command);
+    QJsonObject changeFrameRate(const QJsonObject &command, int width, int height, double fps);
 
     /** One QUndoStack command as seen by the bridge; row i of m_history is stack->command(i). */
     struct HistoryEntry
@@ -196,6 +215,7 @@ private:
         qint64 pid{0};
         QString playlist;
         int expectedFrames{0};
+        int start{0};
         int width{0};
         int height{0};
         double fps{0};
@@ -203,6 +223,7 @@ private:
     };
     QMap<QString, RenderState> m_renders;
     bool m_renderTracking{false};
+    bool m_waiting{false};
     qint64 m_renderJournalSaved{0};
     struct TranscriptionJob;
     QMap<QString, std::shared_ptr<TranscriptionJob>> m_transcriptions;

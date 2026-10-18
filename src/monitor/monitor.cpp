@@ -3134,6 +3134,10 @@ void Monitor::requestSeekIfVisible(int pos)
 
 void Monitor::updateTimelineProducer()
 {
+    // The timer can fire while a document is being replaced (File > New, profile conversion).
+    if (!pCore->currentDoc() || !pCore->window() || !pCore->window()->getCurrentTimeline()) {
+        return;
+    }
     const QUuid sequenceUuid = pCore->currentTimelineId();
     int position = pCore->currentDoc()->getSequenceProperty(sequenceUuid, QStringLiteral("position"), QString::number(0)).toInt();
     QMetaObject::invokeMethod(this, "setProducer", Q_ARG(QUuid, sequenceUuid),

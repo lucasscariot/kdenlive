@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { readFile, writeFile, mkdir, mkdtemp, copyFile, symlink, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, copyFile, symlink, stat, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -63,6 +63,9 @@ const expectedTools = {
   desktop_transcript_import: [false, true, false], desktop_range_cut: [false, true, false], desktop_transcribe: [false, true, false],
   desktop_title_create: [false, false, false], desktop_preview_render: [false, false, false],
   desktop_transcription_readiness: [true, false, true], desktop_batch_validate: [true, false, true], desktop_render_verify: [true, false, true],
+  desktop_media_wait: [true, false, true], desktop_profile_list: [true, false, true], desktop_render_cancel: [false, true, true],
+  desktop_clip_replace: [false, true, true], desktop_clip_fade: [false, true, true], desktop_audio_duck: [false, true, true],
+  desktop_project_new: [false, false, false],
 };
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 let editor, log, client, transport, state;
@@ -198,7 +201,7 @@ try {
     const [readOnlyHint, destructiveHint, idempotentHint] = expectedTools[item.name];
     assert.deepEqual(item.annotations, { readOnlyHint, destructiveHint, idempotentHint, openWorldHint: false }, `Annotations of ${item.name}`);
     assert.equal(item.inputSchema.additionalProperties, false, `${item.name} accepts unknown arguments`);
-    if (!readOnlyHint && item.name !== 'desktop_apply')
+    if (!readOnlyHint && item.name !== 'desktop_apply' && item.name !== 'desktop_render_cancel')
       for (const key of ['sessionId', 'expectedRevision', 'requestId']) assert(item.inputSchema.required.includes(key), `${item.name} must require ${key}`);
   }
   // State sections. The fixture carries a linked V1/A1 pair, a dissolve on Titles over V1, two guides, two subtitles,
@@ -494,6 +497,22 @@ try {
   const insertEntry = await lastSummary();
   assert.deepEqual([insertEntry.summary.clipId, insertEntry.summary.audioClipId, insertEntry.summary.groupId, insertEntry.summary.mode], [placed.clipId, placed.audioClipId, placed.groupId, 'normal']);
   await edit('desktop_undo'); assert.deepEqual(layout(), timelineStart);
+  // Track tags stand in for ids everywhere a track is named; sourceOut defaults to the whole clip and clamp trims an overshoot.
+  placed = await edit('desktop_clip_insert', { ...place, trackId: V1.tag, audioTrackId: A1.tag.toLowerCase(), position: 400, sourceOut: undefined });
+  assert.deepEqual([clip(placed.clipId).duration, placed.sourceOut, placed.duration, clip(placed.audioClipId).duration, placed.clamped], [600, 600, 600, 600, undefined]);
+  await edit('desktop_undo');
+  assert.equal(await rejected('desktop_clip_insert', { ...place, position: 400, sourceIn: 590, sourceOut: 602 }), 'INVALID_COMMAND');
+  placed = await edit('desktop_clip_insert', { ...place, position: 400, sourceIn: 590, sourceOut: 602, clamp: true });
+  assert.deepEqual([placed.clamped, placed.sourceOut, clip(placed.clipId).duration], [true, 600, 10]);
+  await edit('desktop_undo');
+  assert.equal(await rejected('desktop_clip_insert', { ...place, trackId: 'V9', position: 400 }), 'UNKNOWN_TRACK');
+  assert.equal((await ok('desktop_state', { trackId: V1.tag.toLowerCase() })).tracks[0].id, V1.id);
+  assert.equal((await tool('desktop_state', { trackId: 'V9' })).error.code, 'UNKNOWN_TRACK');
+  const tagged = await edit('desktop_range_remove', { start: 50, end: 80, trackIds: [V1.tag, A1.tag] });
+  assert.deepEqual(tagged.trackIds.sort((a, b) => a - b), [V1.id, A1.id].sort((a, b) => a - b));
+  await edit('desktop_undo');
+  assert.equal((await ok('desktop_batch_validate', { commands: [{ ...place, type: 'insert', trackId: V1.tag, position: 10000 }] })).valid, true);
+  assert.equal((await ok('desktop_batch_validate', { commands: [{ ...place, type: 'insert', trackId: 'V9', position: 10000 }] })).issues[0].error.code, 'UNKNOWN_TRACK');
   assert.equal(await rejected('desktop_clip_insert', { ...place, position: 100 }), 'OVERLAP');
   placed = await edit('desktop_clip_insert', { ...place, position: 100, mode: 'insert' });
   assert.deepEqual([undoLabel(), spans('V1'), spans('A1'), spans('Titles')], ['Insert clip (ripple)', [[0, 100], [100, 60], [160, 200]], [[0, 100], [100, 60], [160, 200]], [[30, 240]]]);
@@ -566,10 +585,48 @@ try {
   const pairBin = sourceBin().id;
   const colorBin = state.bin.find(item => item.type === 'color').id;
   const sequenceBin = state.bin.find(item => item.type === 'sequence').id;
-  const speechBin = (await edit('desktop_media_import', { path: speechFile })).binId;
-  await ready(speechBin, speechFile);
+  const speechImport = await edit('desktop_media_import', { path: speechFile, wait: 30 });
+  const speechBin = speechImport.binId;
+  assert.deepEqual([speechImport.ready, speechImport.duration], [true, 600], 'import with wait returns a loaded clip');
+  const waited = await ok('desktop_media_wait', { binIds: [speechBin], timeoutSeconds: 5 });
+  assert.deepEqual([waited.ready, waited.timedOut, waited.items.map(item => [item.binId, item.ready, item.duration])], [true, false, [[speechBin, true, 600]]]);
+  assert.equal((await ok('desktop_media_wait', {})).ready, true);
+  assert.equal((await tool('desktop_media_wait', { binIds: ['999999'] })).error.code, 'UNKNOWN_BIN');
+  const onlySpeech = await ok('desktop_state', { include: ['bin'], binIds: [speechBin] });
+  assert.deepEqual([onlySpeech.bin.map(item => item.id), onlySpeech.filter.binIds], [[speechBin], [speechBin]]);
   const speechClip = (await edit('desktop_clip_insert', { binId: speechBin, trackId: A1.id, position: 600, sourceIn: 0, sourceOut: 600, media: 'audio' })).clipId;
   assert.deepEqual([clip(speechClip).position, clip(speechClip).duration], [600, 600]);
+  // Ducking: the pair's audio half is the "music"; explicit ranges keyframe its volume, auto finds nothing on other tracks here.
+  const duckIndex = state.undo.index;
+  let ducked = await edit('desktop_audio_duck', { clipId: pairA, ranges: [{ start: 60, end: 120 }, { start: 125, end: 150 }], duckDb: -20, rampFrames: 10 });
+  assert.deepEqual([ducked.ranges, ducked.replacedVolume, ducked.keyframes, ducked.duckDb, ducked.rampFrames], [[{ start: 60, end: 150 }], false, 6, -20, 10]);
+  const duckEffect = (await ok('desktop_effect_list', { clipId: pairA })).effects[ducked.effectIndex];
+  assert.equal(duckEffect.effectId, 'volume');
+  assert.equal(duckEffect.params.level, ducked.level);
+  // Keyframes are source frames: the pair plays at half speed, so timeline offsets are halved.
+  const src = frame => clip(pairA).sourceIn + Math.round(frame * clip(pairA).speed);
+  assert.equal(ducked.level, `${src(0)}=0;${src(50)}=0;${src(60)}=-20;${src(149)}=-20;${src(159)}=0;${src(299)}=0`);
+  ducked = await edit('desktop_audio_duck', { clipId: pairA, ranges: [{ start: 0, end: 30 }], mute: true });
+  assert.deepEqual([ducked.replacedVolume, ducked.duckDb], [true, -100]);
+  assert.equal(await rejected('desktop_audio_duck', { clipId: pairA, auto: true }), 'NO_RANGES');
+  assert.equal(await rejected('desktop_audio_duck', { clipId: pairV, ranges: [{ start: 0, end: 30 }] }), 'INCOMPATIBLE_MEDIA');
+  assert.equal(await rejected('desktop_audio_duck', { clipId: pairA }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_audio_duck', { clipId: speechClip, auto: true, trackIds: [A1.tag] }), 'NO_RANGES', 'own clips are not ranges');
+  assert.equal(await rejected('desktop_audio_duck', { clipId: speechClip, auto: true, trackIds: [V1.tag] }), 'INCOMPATIBLE_MEDIA');
+  await edit('desktop_undo', { toIndex: duckIndex });
+  // Fades: Kdenlive's own fade effects on both halves of the pair, undone in one step.
+  const fadeBase = [clip(pairV).effectCount, clip(pairA).effectCount];
+  const faded = await edit('desktop_clip_fade', { clipId: pairV, fadeIn: 15, fadeOut: 30 });
+  assert.deepEqual([faded.clipIds, faded.fades.map(fade => fade.type)], [[pairV, pairA].sort((a, b) => a - b), faded.clipIds.map(id => id === pairV ? 'video' : 'audio')]);
+  assert.deepEqual([clip(pairV).effectCount, clip(pairA).effectCount], [fadeBase[0] + 2, fadeBase[1] + 2]);
+  const fadeIds = (await ok('desktop_effect_list', { clipId: pairV })).effects.map(effect => effect.effectId);
+  assert(fadeIds.includes('fade_from_black') && fadeIds.includes('fade_to_black'), fadeIds.join(','));
+  await edit('desktop_clip_fade', { clipId: pairV, fadeIn: 0, linked: false });
+  assert.deepEqual([clip(pairV).effectCount, clip(pairA).effectCount], [fadeBase[0] + 1, fadeBase[1] + 2]);
+  assert.equal(await rejected('desktop_clip_fade', { clipId: pairV, fadeIn: 200, fadeOut: 200 }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_clip_fade', { clipId: pairV }), 'INVALID_COMMAND');
+  await edit('desktop_undo', { toIndex: duckIndex });
+  assert.deepEqual([clip(pairV).effectCount, clip(pairA).effectCount], fadeBase);
   const cutBase = layout();
   const near = (actual, expected, label) => assert(Math.abs(actual - expected) <= 1, `${label}: ${actual} vs ${expected}`);
   const tail = () => lane('A1').clips.filter(item => item.position >= 570).map(item => [item.position, item.duration]);
@@ -806,6 +863,35 @@ try {
   await edit('desktop_media_remove', { binId: imported.binId });
   // Replaying an already applied replacement must not re-check its removed source bin item.
   assert.deepEqual(await ok('desktop_media_replace', replaceRequest), replaced);
+  // Replacing one timeline clip in place: same position, duration and group, effects carried over, one Undo step.
+  await refresh();
+  const replaceIndex = state.undo.index;
+  const replaceLayout = layout();
+  const again = await edit('desktop_media_import', { path: allowedPath, wait: 30 });
+  assert.equal(again.ready, true);
+  assert.notEqual(again.binId, asset.id);
+  const pairVideo = state.tracks.find(track => !track.audio).clips.find(item => item.linkedClipId !== null);
+  const pairAudio = clip(pairVideo.linkedClipId);
+  await edit('desktop_effect_add', { clipId: pairVideo.id, effectId: 'brightness', params: { level: '0.7' } });
+  const effectsBefore = clip(pairVideo.id).effectCount;
+  const swap = await edit('desktop_clip_replace', { clipId: pairVideo.id, binId: again.binId, sourceIn: 15 });
+  assert.deepEqual([swap.replaced.length, swap.effectsRestored, swap.binId, typeof swap.groupId], [2, true, again.binId, 'number']);
+  const newVideo = clip(swap.clipId);
+  const newAudio = clip(swap.linkedClipId);
+  assert.deepEqual([newVideo.position, newVideo.duration, newVideo.sourceIn, newVideo.binId, newVideo.linkedClipId, newVideo.groupId, newVideo.effectCount],
+    [pairVideo.position, pairVideo.duration, 15, again.binId, newAudio.id, swap.groupId, effectsBefore]);
+  assert.deepEqual([newAudio.position, newAudio.duration, newAudio.sourceIn, newAudio.binId], [pairAudio.position, pairAudio.duration, 15 + (pairAudio.sourceIn - pairVideo.sourceIn), again.binId]);
+  assert(clip(pairVideo.id) === undefined && clip(pairAudio.id) === undefined, 'old clips are gone');
+  assert.equal(undoLabel(), 'Replace clip');
+  assert.deepEqual((await lastSummary()).summary.newClipIds.sort((a, b) => a - b), [swap.clipId, swap.linkedClipId].sort((a, b) => a - b));
+  await edit('desktop_clip_replace', { clipId: swap.clipId, binId: asset.id, linked: false, keepEffects: false });
+  assert.deepEqual([clip(swap.linkedClipId).binId, state.tracks.find(track => !track.audio).clips.find(item => item.binId === asset.id).effectCount], [again.binId, 0]);
+  assert.equal(await rejected('desktop_clip_replace', { clipId: swap.linkedClipId, binId: again.binId, sourceIn: 500 }), 'MEDIA_TOO_SHORT');
+  assert.equal(await rejected('desktop_clip_replace', { clipId: swap.linkedClipId, binId: state.bin.find(item => item.type === 'color').id }), 'INCOMPATIBLE_MEDIA');
+  assert.equal(await rejected('desktop_clip_replace', { clipId: swap.linkedClipId, binId: '999999' }), 'UNKNOWN_BIN');
+  await edit('desktop_undo', { toIndex: replaceIndex });
+  assert.deepEqual(layout(), replaceLayout, 'Undo restores the replaced clips');
+  assert(!state.bin.some(item => item.id === again.binId), 'Undo also reverts the import');
   // A transcript is a bin clip property: it is saved with the project and read back after a reload.
   await edit('desktop_transcript_import', { binId: asset.id, format: 'json', text: JSON.stringify(ownJson) });
   await edit('desktop_project_save'); assert.equal(state.modified, false);
@@ -1009,6 +1095,35 @@ try {
   await refresh();
   assert.equal(state.bin.some(item => item.id === newTitle.binId), false);
   assert.equal(await rejected('desktop_title_create', { name: 'Bad', duration: 90, items: [{ text: 'Bad', x: 0, y: 0, bold: 'yes' }] }), 'INVALID_COMMAND');
+  // Styled titles: a backing box, outline, shadow and alignment, readable back; imported .kdenlivetitle files are editable too.
+  const styled = await edit('desktop_title_create', { name: 'Chapter', duration: 100, background: { color: '#000000', opacity: 0.2 }, items: [
+    { kind: 'rect', x: 60, y: 500, width: 800, height: 120, color: '#101418', opacity: 0.7 },
+    { text: 'OUR LAST SATURDAY', x: 80, y: 520, fontPixelSize: 40, fontFamily: 'Sans Serif', bold: true, color: '#fff7ea', alignment: 'center', boxWidth: 760,
+      outline: { width: 1.5, color: '#000000', opacity: 0.6 }, shadow: { color: '#000000', opacity: 0.5, blur: 6, xOffset: 2, yOffset: 3 } }] });
+  await ready(styled.binId);
+  assert.equal(styled.items, 2);
+  const styledTitle = await ok('desktop_title_read', { binId: styled.binId });
+  assert.deepEqual(styledTitle.items.map(item => item.type), ['QGraphicsRectItem', 'QGraphicsTextItem']);
+  assert.deepEqual([styledTitle.items[1].text, styledTitle.items[1].alignment, styledTitle.items[1].boxWidth, styledTitle.items[1].color, styledTitle.items[1].bold, styledTitle.template, styledTitle.duration],
+    ['OUR LAST SATURDAY', 'center', 760, '#fff7ea', true, false, 100]);
+  await edit('desktop_title_edit', { binId: styled.binId, items: [{ index: 1, color: '#ff0000', bold: false }] });
+  assert.deepEqual([(await ok('desktop_title_read', { binId: styled.binId })).items[1].color, (await ok('desktop_title_read', { binId: styled.binId })).items[1].bold], ['#ff0000', false]);
+  assert.equal(await rejected('desktop_title_create', { name: 'Bad', duration: 10, items: [{ kind: 'rect', x: 0, y: 0, width: 10 }] }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_title_create', { name: 'Bad', duration: 10, items: [{ text: 'x', x: 0, y: 0, shadow: { blur: 'soft' } }] }), 'INVALID_COMMAND');
+  const templatePath = join(root, 'imported.kdenlivetitle');
+  await writeFile(templatePath, `<?xml version='1.0' encoding='utf-8'?>\n<kdenlivetitle LC_NUMERIC="C" width="1280" height="720" duration="75" out="74">\n <item type="QGraphicsTextItem" z-index="0">\n  <position x="100" y="100"><transform>1,0,0,0,1,0,0,0,1</transform></position>\n  <content font="Sans Serif" font-color="255,247,234,255" font-pixel-size="48" font-weight="600" font-outline="0" alignment="1">From a file</content>\n </item>\n <startviewport rect="0,0,1280,720"/>\n <endviewport rect="0,0,1280,720"/>\n <background color="0,0,0,0"/>\n</kdenlivetitle>\n`);
+  const importedTitle = await edit('desktop_media_import', { path: templatePath, wait: 30 });
+  assert.equal(importedTitle.ready, true);
+  assert.equal(state.bin.find(item => item.id === importedTitle.binId).type, 'title');
+  const templateRead = await ok('desktop_title_read', { binId: importedTitle.binId });
+  assert.deepEqual([templateRead.template, templateRead.items[0].text, templateRead.width], [true, 'From a file', 1280]);
+  await edit('desktop_title_edit', { binId: importedTitle.binId, items: [{ index: 0, text: 'Edited template' }] });
+  assert.equal((await ok('desktop_title_read', { binId: importedTitle.binId })).items[0].text, 'Edited template');
+  assert.equal(await rejected('desktop_media_replace', { binId: importedTitle.binId, replacementBinId: styled.binId }), 'INCOMPATIBLE_MEDIA');
+  assert.equal(await rejected('desktop_media_replace', { binId: asset.id, replacementBinId: styled.binId }), 'INCOMPATIBLE_MEDIA');
+  await edit('desktop_undo', { toIndex: titleStart.undo.index });
+  await refresh();
+  assert(!state.bin.some(item => item.id === styled.binId || item.id === importedTitle.binId));
   // Insertion preflight shares native range/stream/track checks and models collisions between proposed clips.
   await refresh();
   const preflightStart = state;
@@ -1115,6 +1230,12 @@ try {
   assert.deepEqual([title.width, title.height, title.projectWidth, title.projectHeight], [1080, 1920, 1080, 1920]);
   const verticalFrame = await capture(60, 270);
   assert.deepEqual([verticalFrame.width, verticalFrame.height], [270, 480]);
+  const framePath = join(root, 'frame-60.png');
+  const savedFrame = await ok('desktop_frame_capture', { position: 60, width: 540, path: framePath });
+  assert.deepEqual([savedFrame.path, savedFrame.width, savedFrame.height, savedFrame.image], [framePath, 540, 960, undefined]);
+  assert.equal((await stat(framePath)).size, savedFrame.bytes);
+  assert.equal((await tool('desktop_frame_capture', { position: 60, path: join(temporary, 'outside.png') })).error.code, 'PATH_NOT_ALLOWED');
+  assert.equal((await tool('desktop_frame_capture', { position: 60, path: framePath })).error.code, 'INVALID_PATH');
 
   const rendered = join(root, 'vertical.mp4');
   assert.equal(await rejected('desktop_render', { path: join(temporary, 'outside.mp4'), preset: 'MP4-H264/AAC' }), 'PATH_NOT_ALLOWED');
@@ -1122,7 +1243,20 @@ try {
   assert.equal(await rejected('desktop_render', { path: rendered, preset: 'No such preset' }), 'UNKNOWN_PRESET');
   const render = await edit('desktop_render', { path: rendered, preset: 'MP4-H264/AAC' });
   assert.deepEqual(render.outputs, [rendered]); assert.equal(render.preset, 'MP4-H264/AAC');
-  assert.equal(await rejected('desktop_render', { path: join(root, 'second.mp4'), preset: 'MP4-H264/AAC' }), 'RENDER_BUSY');
+  assert.deepEqual(render.range, { start: 0, end: state.profile.duration });
+  // Two renders may run at once; the second one here is a partial export, cancelled before it finishes.
+  const partialPath = join(root, 'partial.mp4');
+  assert.equal(await rejected('desktop_render', { path: partialPath, preset: 'MP4-H264/AAC', range: { start: 10, end: 10 } }), 'INVALID_COMMAND');
+  assert.equal(await rejected('desktop_render', { path: partialPath, preset: 'MP4-H264/AAC', range: { start: 0, end: 999999 } }), 'INVALID_COMMAND');
+  const partial = await edit('desktop_render', { path: partialPath, preset: 'MP4-H264/AAC', range: { start: 30, end: 240 } });
+  assert.deepEqual([partial.range, partial.expectedFrames], [{ start: 30, end: 240 }, 210]);
+  assert.equal(await rejected('desktop_render', { path: join(root, 'third.mp4'), preset: 'MP4-H264/AAC' }), 'RENDER_BUSY');
+  const cancelled = await ok('desktop_render_cancel', { path: partialPath });
+  assert.deepEqual([cancelled.status, cancelled.path], ['aborted', partialPath]);
+  assert.equal((await ok('desktop_render_status')).jobs.find(item => item.path === partialPath).status, 'aborted');
+  assert.equal((await tool('desktop_render_cancel', { path: partialPath })).error.code, 'NOT_RUNNING');
+  assert.equal((await tool('desktop_render_cancel', { path: join(root, 'nope.mp4') })).error.code, 'UNKNOWN_JOB');
+  await stat(partialPath).then(() => assert.fail('partial output must be removed'), () => {});
   let job;
   for (let attempt = 0; attempt < 240; attempt++) {
     job = (await ok('desktop_render_status')).jobs.find(item => item.path === rendered);
@@ -1132,7 +1266,19 @@ try {
   }
   assert.equal(job.status, 'finished', JSON.stringify(job));
   assert.equal(job.progress, 100); assert(job.bytes > 0);
+  assert.deepEqual([job.range, typeof job.startedAt, job.expectedFrames], [{ start: 0, end: state.profile.duration }, 'string', state.profile.duration]);
   assert.equal((await stat(rendered)).size, job.bytes);
+  // A full-quality partial export at the project size, verified like any render.
+  const chapterPath = join(root, 'chapter.mp4');
+  await edit('desktop_render', { path: chapterPath, preset: 'MP4-H264/AAC', range: { start: 30, end: 90 } });
+  for (let attempt = 0; attempt < 240; attempt++) {
+    job = (await ok('desktop_render_status')).jobs.find(item => item.path === chapterPath);
+    if (!['starting', 'running'].includes(job.status)) break;
+    await delay(500);
+  }
+  assert.equal(job.status, 'finished', JSON.stringify(job));
+  const chapter = await ok('desktop_render_verify', { path: chapterPath });
+  assert.deepEqual([chapter.expectedFrames, chapter.width, chapter.height, chapter.verified], [60, 1080, 1920, true]);
   const { stdout: dimensions } = await promisify(execFile)('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', rendered]);
   assert.equal(dimensions.trim(), '1080,1920');
   const verified = await ok('desktop_render_verify', { path: rendered });
@@ -1166,6 +1312,48 @@ try {
   assert.equal(previewResult.content.find(item => item.type === 'resource_link').uri, pathToFileURL(previewPath).href);
   const finalHistory = await ok('desktop_history', { limit: 1000 });
   assert.equal(finalHistory.logFile, join(root, '.kdenlive-mcp-log.jsonl'), 'save_as keeps logging in the shared project folder');
+  // Profiles, a new project from the API and a frame-rate conversion, each ending the editing session.
+  const profiles = await ok('desktop_profile_list');
+  assert(profiles.count > 10 && profiles.profiles.some(item => item.current && item.path === profiles.current), JSON.stringify(profiles).slice(0, 300));
+  const hd25 = (await ok('desktop_profile_list', { query: '1080p 25' })).profiles.find(item => item.width === 1920 && item.height === 1080 && item.fps === 25);
+  assert(hd25, 'No 1080p25 profile');
+  assert.equal((await tool('desktop_profile_list', { query: 1 })).error.code, 'INVALID_ARGUMENTS');
+  await edit('desktop_marker_add', { position: 36, comment: 'Unsaved' });
+  const freshPath = join(root, 'fresh.kdenlive');
+  assert.equal(await rejected('desktop_project_new', { profile: hd25.path, path: freshPath }), 'PROJECT_MODIFIED');
+  await edit('desktop_project_save');
+  assert.equal(await rejected('desktop_project_new', { profile: 'No such profile', path: freshPath }), 'INVALID_PROFILE');
+  assert.equal(await rejected('desktop_project_new', { profile: hd25.path, path: join(temporary, 'outside.kdenlive') }), 'PATH_NOT_ALLOWED');
+  const oldSession = state.sessionId;
+  // A killed test editor can leave an autosave of its untitled project behind; the API reports it instead of showing a dialog.
+  await refresh();
+  const firstTry = await tool('desktop_project_new', { ...fields(), profile: hd25.description, path: freshPath, videoTracks: 3, audioTracks: 2 });
+  if (!firstTry.ok) {
+    assert.equal(firstTry.error.code, 'BACKUP_PENDING', JSON.stringify(firstTry));
+    for (const backup of firstTry.backups) await rm(backup, { force: true });
+  }
+  const fresh = firstTry.ok ? (state = firstTry.data.state ?? state, firstTry.data) : await edit('desktop_project_new', { profile: hd25.description, path: freshPath, videoTracks: 3, audioTracks: 2 });
+  assert.deepEqual([fresh.sessionEnded, fresh.saved, fresh.profile.path, fileURLToPath(fresh.documentUrl)], [true, true, hd25.path, freshPath]);
+  assert.notEqual(fresh.sessionId, oldSession);
+  assert.equal(fresh.state, undefined, 'The old session has no state to report');
+  for (let attempt = 0; attempt < 100 && !(await tool('desktop_state')).ok; attempt++) await delay(100);
+  await refresh();
+  assert.deepEqual([fileURLToPath(state.documentUrl), state.fps, state.profile.width, state.profile.height, state.counts.tracks], [freshPath, { numerator: 25, denominator: 1 }, 1920, 1080, 5]);
+  assert.deepEqual(state.tracks.map(track => track.type), ['audio', 'audio', 'video', 'video', 'video']);
+  await edit('desktop_track_rename', { trackId: 'V1', name: 'Fresh V1' });
+  assert.equal(await rejected('desktop_project_profile', { fps: 30 }), 'PROJECT_MODIFIED');
+  await edit('desktop_project_save');
+  const converted = await edit('desktop_project_profile', { fps: 30 });
+  assert.deepEqual([converted.sessionEnded, converted.changed, converted.profile.fps, converted.convertedFile], [true, true, 30, join(root, 'fresh-3000.kdenlive')]);
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const probe = await tool('desktop_state');
+    if (probe.ok && fileURLToPath(probe.data.documentUrl) === converted.convertedFile && probe.data.fps.numerator === 30) break;
+    await delay(100);
+  }
+  await refresh();
+  assert.deepEqual([fileURLToPath(state.documentUrl), state.fps, state.profile.width], [converted.convertedFile, { numerator: 30, denominator: 1 }, 1920]);
+  assert.equal((await stat(converted.convertedFile)).size > 0, true);
+  assert.equal((await edit('desktop_project_profile', { fps: 30 })).changed, false);
   // Simulate lost completion notifications and an incomplete MP4 before reopening the editor.
   await stop();
   const journalPath = join(root, 'data/kdenlive/mcp-renders.json');

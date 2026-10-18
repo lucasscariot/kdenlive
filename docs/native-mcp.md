@@ -27,6 +27,32 @@ When access tokens are enabled, make the token available to Codex through an
 environment variable and add `--bearer-token-env-var KDENLIVE_MCP_TOKEN`.
 Use the URL shown in settings if the port differs, then reconnect the client.
 
+### Keeping the tools available: the stdio shim
+
+Agent harnesses register MCP servers when a session starts. The HTTP endpoint
+exists only while the editor runs, so a session started first has no
+`desktop_*` tools and agents fall back to hand-written HTTP clients.
+`packaging/live-mcp/kdenlive-mcp-stdio.py` (installed as
+`~/.local/opt/kdenlive-live/bin/kdenlive-mcp-stdio`) is a stdio MCP server
+that forwards every request to the endpoint and, when nothing answers,
+launches the editor (`kdenlive-live` by default) and waits for it. Register
+it as a stdio server:
+
+```sh
+codex mcp add kdenlive -- ~/.local/opt/kdenlive-live/bin/kdenlive-mcp-stdio
+claude mcp add --scope user kdenlive -- ~/.local/opt/kdenlive-live/bin/kdenlive-mcp-stdio
+```
+
+`KDENLIVE_MCP_URL`, `KDENLIVE_MCP_TOKEN`, `KDENLIVE_MCP_LAUNCH` (empty disables
+launching) and `KDENLIVE_MCP_WAIT` configure it; `--check` prints the tool
+count and the open project. Before the editor answers, `tools/list` is empty
+and calls fail with a connection error, never with a hang. The shim needs only
+Python 3.11.
+
+An agent-facing walkthrough of the editing workflow lives in
+`docs/skills/kdenlive-mcp-editing/SKILL.md`; copy or symlink that folder into
+your agent's skills directory.
+
 Import files from the project's folder or set an additional media folder here.
 The API resolves symlinks before checking these folders. Existing project media
 stays usable. Removing a bin asset never deletes the original file.
@@ -59,16 +85,23 @@ replaced.
 
 Parameters below are in addition to `sessionId`, `expectedRevision` and
 `requestId`, which every editing tool requires. Clip and track IDs are integers
-from `desktop_state`; bin IDs are numeric strings.
+from `desktop_state`; bin IDs are numeric strings. Wherever a track is named
+(`trackId`, `audioTrackId`, `trackIds`), its tag from `tracks[].tag` such as
+`V1` or `A2` is accepted too, which survives a project reload while the numeric
+ids do not.
 
 | Tools | Parameters | Purpose |
 | --- | --- | --- |
 | `desktop_capabilities` | none | Read capabilities, including the state section names and the project's marker categories |
-| `desktop_state` | optional `include` (section names), `trackId`, `range` (`start`, `end`) | Read the visible sequence, bin and history; see [State snapshot](#state-snapshot) |
-| `desktop_frame_capture` | `position`, optional `width` (64 to 1920, default 540) | Return one rendered frame as a PNG image without moving the playhead |
+| `desktop_state` | optional `include` (section names), `trackId` (id or tag), `range` (`start`, `end`), `binIds` | Read the visible sequence, bin and history; see [State snapshot](#state-snapshot) |
+| `desktop_frame_capture` | `position`, optional `width` (64 to 3840, default 540), `path` (a new `.png`) | Render one frame in a separate melt process, returned as a PNG image or written to `path`, without moving the playhead |
+| `desktop_media_wait` | optional `binIds`, `timeoutSeconds` (0 to 120, default 30) | Wait until bin clips finish loading; returns `ready`, `timedOut` and each item's `duration` |
+| `desktop_profile_list` | optional `query` | List project profiles (path, description, size, fps) and the current one |
+| `desktop_render_cancel` | `path` | Stop a render started through MCP and remove its partial output |
 | `desktop_effect_list` | optional `clipId` or `binId`, optional `query` | List a clip's effects with parameters and `keyframeOrigin`, and/or search the effect catalog |
 | `desktop_title_read` | `binId` | Read a title clip's canvas, the project frame size and its items |
-| `desktop_title_create` | `name`, `duration`, `items` (`text`, `x`, `y`, optional `fontPixelSize`, `fontFamily`, `bold`, `color`) | Create a native editable title, with exact duration in project frames and the project canvas size |
+| `desktop_title_create` | `name`, `duration`, `items` (text: `text`, `x`, `y`, optional `fontPixelSize`, `fontFamily`, `bold`, `italic`, `color`, `opacity`, `alignment`, `boxWidth`, `letterSpacing`, `outline`, `shadow`; `kind: "rect"`: `x`, `y`, `width`, `height`, `color`, `opacity`, `borderColor`, `borderWidth`), optional `background` (`color`, `opacity`) | Create a native editable title, with exact duration in project frames and the project canvas size; see [Titles](#titles) |
+| `desktop_project_new` | `profile` (path or description), `path` (new `.kdenlive`), optional `videoTracks`, `audioTracks` | Create and save a new project; ends the editing session; see [Projects and profiles](#projects-and-profiles) |
 | `desktop_render_status` | none | Follow the progress of renders started by `desktop_render` |
 | `desktop_render_verify` | `path`, optional `includeAudio` | Check a tracked video's dimensions, duration and complete decoding; return a WAV audio block for a short preview |
 | `desktop_preview_render` | `path`, `start`, `end` (exclusive), optional `width` | Export at most 10 seconds of the visible sequence with audio, at reduced resolution |
@@ -76,8 +109,11 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_transcription_readiness` | optional `engine`, `model` | Check installed speech recognition prerequisites without starting recognition or installing packages |
 | `desktop_marker_export` | `format` (`json`, `csv`, `kdenlive`), optional `binId` | Return the sequence guides, or a bin clip's markers, as text |
 | `desktop_history` | optional `limit` (1 to 1000, default 50), `origin` (`all`, `mcp`, `user`, `unknown`), `sessionId`, `since` (undo index or ISO 8601 time), `includeUndone` (default true) | Read the shared Undo history as a change log; see [Change log](#change-log) |
-| `desktop_media_import`, `desktop_media_remove` | `path`; `binId` | Add files to the bin or remove unused assets |
-| `desktop_clip_insert` | `binId`, `trackId`, `position`, `sourceIn`, `sourceOut`, `media` (`video`/`audio`), optional `mode` (`normal`, `overwrite`, `insert`), `linked`, `audioTrackId`, `allTracks` (insert mode) | Insert a bin clip range; an A/V clip as a linked pair by default; returns `clipId`, `audioClipId`, `groupId`; see [Timeline editing](#timeline-editing) |
+| `desktop_media_import`, `desktop_media_remove` | `path`, optional `wait` (seconds); `binId` | Add files to the bin (optionally waiting until loaded) or remove unused assets |
+| `desktop_clip_insert` | `binId`, `trackId`, `position`, `sourceIn`, `media` (`video`/`audio`), optional `sourceOut` (default: the whole clip), `clamp`, `mode` (`normal`, `overwrite`, `insert`), `linked`, `audioTrackId`, `allTracks` (insert mode) | Insert a bin clip range; an A/V clip as a linked pair by default; returns `clipId`, `audioClipId`, `groupId`; see [Timeline editing](#timeline-editing) |
+| `desktop_clip_replace` | `clipId`, `binId`, optional `sourceIn`, `linked`, `keepEffects` | Swap one timeline clip (and its linked partner) for another bin clip in place, keeping position, group and effects; see [Composition](#composition) |
+| `desktop_clip_fade` | `clipId`, `fadeIn` and/or `fadeOut` (frames, 0 removes), optional `linked` | Add Kdenlive's fade effects to a clip and its linked partner |
+| `desktop_audio_duck` | `clipId`, `ranges` or `auto: true` (optional `trackIds`), optional `levelDb`, `duckDb`, `rampFrames`, `mute` | Keyframe a music clip's volume down under speech or other clips |
 | `desktop_clip_remove` | `clipId`, optional `mode` (`lift`, `extract`), `group` (`whole`, `single`), `allTracks` (extract) | Remove a clip or its group, leaving a gap or rippling; returns `removedClipIds` |
 | `desktop_clip_split` | `position` and one of `clipId`, `trackId` or `allTracks: true` | Cut clips at a frame; returns `pieces` (`trackId`, `leftClipId`, `rightClipId`) |
 | `desktop_range_remove` | `start`, `end` (exclusive), `trackIds` or `allTracks: true`, optional `mode` (`lift`, `extract`) | Lift or extract a time range; returns `removedClipIds`, `newClipIds` |
@@ -86,16 +122,16 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_clip_group`, `desktop_clip_ungroup` | `clipIds` (2 to 200); `clipId` or `groupId` | Group clips (the halves of one A/V clip become linked); dissolve a topmost group |
 | `desktop_clip_speed` | `clipId`, `speed` (factor, 0.01 to 100 in magnitude, negative reverses), optional `pitchCompensation` | Change playback speed with the linked clip; returns `speed`, `duration` |
 | `desktop_clip_enable` | `clipId`, `enabled`, optional `linked` (default true) | Disable or enable a clip and its linked partner |
-| `desktop_media_replace` | `binId`, `replacementBinId` | Replace an asset while preserving timeline ranges |
+| `desktop_media_replace` | `binId`, `replacementBinId` | Replace a media asset while preserving timeline ranges (not titles: edit those) |
 | `desktop_clip_move`, `desktop_clip_trim` | `clipId`, `trackId`, `position`; `clipId`, `duration`, `edge` | Move clips and trim their edges |
 | `desktop_audio_envelope`, `desktop_track_rename` | `clipId`, `fadeIn`, `fadeOut`, `gainDb`; `trackId`, `name` | Add audio fades/gain and name tracks |
 | `desktop_project_save` | none | Save the project to its file |
 | `desktop_undo`, `desktop_redo` | optional `count` or `toIndex`; `desktop_undo` also `revertSession: true` | Move through shared native history; see [Change log](#change-log) |
 | `desktop_project_save_as` | `path` | Save a copy or an unsaved project's first file and keep editing it |
-| `desktop_project_profile` | `width`, `height` (even, 16 to 8192) | Change the frame size, e.g. 1080x1920 vertical; keeps the frame rate and is not undoable |
+| `desktop_project_profile` | `width` and `height` (even, 16 to 8192) and/or `fps` | Change the frame size, e.g. 1080x1920 vertical (immediate, not undoable), or convert a saved project to another frame rate (opens the converted copy) |
 | `desktop_clip_reframe` | `clipId`, `mode` (`fill`/`fit`), optional `focusX`, `focusY`, `endFocusX`, `endFocusY`, `zoom` | Fill or fit a clip in the frame with a Transform effect, with focus point, pan and zoom |
 | `desktop_effect_add`, `desktop_effect_set`, `desktop_effect_remove` | `clipId` or `binId`; `effectId` and optional `params`; `index` and `params`; `index` | Edit effects on timeline clips or bin clips with MLT parameter strings |
-| `desktop_title_edit` | `binId`, optional `width`, `height`, `items` (`index`, `text`, `x`, `y`, `fontPixelSize`, `alignment`) | Edit a title clip's canvas size and text items |
+| `desktop_title_edit` | `binId`, optional `width`, `height`, `items` (`index`, `text`, `x`, `y`, `fontPixelSize`, `alignment`, `color`, `bold`, `fontFamily`) | Edit a native or imported title clip's canvas size and text items |
 | `desktop_marker_add` | `position`, optional `duration`, `comment`, `category`, `binId` | Add a guide, or with `binId` a clip marker; replaces a marker at the same frame |
 | `desktop_marker_edit` | `position`, optional `binId`, then any of `newPosition`, `duration`, `comment`, `category` | Change one guide or clip marker |
 | `desktop_marker_remove` | optional `binId`, and `position`, `all: true`, or `category` and/or `range` (`start`, `end`) | Remove one or many markers in one Undo step |
@@ -105,12 +141,13 @@ from `desktop_state`; bin IDs are numeric strings.
 | `desktop_silence_detect` | one of `binId` (optional `sourceRange` in seconds), `clipId` or `range` (optional `trackIds`), optional `thresholdDb` (default -35), `minDuration` (s, default 0.5), `padding` (s, default 0.1) | Find silences and speech with ffmpeg `silencedetect` |
 | `desktop_range_cut` | one of `ranges` (`start`, `end` frames), `words` (`from`, `to` indexes, with `binId` or `clipId`) or `silences` (`true` or `{thresholdDb, minDuration, padding}`, with `binId`, `clipId` or `range`); optional `keep`, `range`, `mode` (`extract`, `lift`), `trackIds` or `allTracks`, `padding`, `minGap` (frames), `addMarkers` (a category), `dryRun` | Remove many ranges in one Undo step; returns `removedRanges`, `removedFrames`, `newDuration`, `clipIdsAffected` |
 | `desktop_transcribe`, `desktop_transcribe_status` | `binId`, optional `engine` (`whisper`, `vosk`), `model`, `language`; optional `jobId` | Run Kdenlive's speech to text on a clip and follow the job |
-| `desktop_render` | `path`, optional `preset` | Render the active sequence with a preset |
+| `desktop_render` | `path`, optional `preset`, `range` (`start`, `end`) | Render the active sequence, or a range of it at full quality, with a preset; two renders may run at once |
 | `desktop_batch` | `commands` (1 to 200 `desktop_apply` commands) | Apply edits as one Undo step, rolled back on the first failure |
 | `desktop_apply` | `request` with the edit fields and one `command` | Submit any supported operation using the common request envelope |
 
-Tool annotations follow the MCP hints. The eleven reading tools are
-`readOnlyHint`. `desktop_media_import`, `desktop_audio_envelope`,
+Tool annotations follow the MCP hints. The reading tools are
+`readOnlyHint`; `desktop_render_cancel` edits no project content and needs no
+edit fields. `desktop_media_import`, `desktop_audio_envelope`,
 `desktop_project_save_as`, `desktop_effect_add`, `desktop_clip_group` and
 `desktop_render` only add content and are not `destructiveHint`; every other
 editing tool is (`desktop_clip_insert` can overwrite). Repeating
@@ -123,9 +160,20 @@ they are not `idempotentHint`. Independently of the hints, an identical retry
 with the same `requestId` returns the saved result.
 
 Read `desktop_state` before editing. Each edit needs its `sessionId`, the
-`expectedRevision`, and a unique `requestId`. Frame values use the project FPS;
-`sourceOut` is exclusive. Import and replacement load asynchronously. Poll state
-until the affected bin asset is ready before using it.
+`expectedRevision`, and a unique `requestId`; every successful edit returns the
+new `state`, so a client can chain edits from the embedded `revision` without
+reading state again. Frame values use the project FPS; `sourceOut` is exclusive.
+Import and replacement load asynchronously: pass `wait` (seconds) to
+`desktop_media_import`, or import many files and call `desktop_media_wait` once
+(`binIds` narrows it; `desktop_state` with `binIds` is the cheap poll). A
+clip that is still loading fails with `MEDIA_NOT_READY`; an unknown bin id with
+`UNKNOWN_BIN`.
+
+`desktop_clip_insert` takes `sourceOut` optionally: left out, the whole clip
+is inserted. Generated audio stems are often a frame or two shorter than the
+range they were cut for; `clamp: true` trims `sourceOut` to the media and the
+result reports `clamped: true` with the `sourceOut` used, instead of
+`INVALID_COMMAND` with `maxSourceOut`.
 
 ## Authoring and review
 
@@ -162,6 +210,14 @@ The result includes `ready`, `engine`, the selected `model`, `installedModels`,
 environment checks as `desktop_transcribe`, but never installs packages,
 downloads a model, or starts recognition.
 
+For a still, `desktop_frame_capture` renders one frame of the sequence in a
+separate melt process (decoding the sequence a second time inside the editor
+competed with the monitor for MLT's producer cache and could abort the
+application). The frame comes back as a PNG image block, or with `path` is
+written to a new `.png` inside the allowed folders at the requested `width`
+(up to the project width), with a resource link. It takes a second or two per
+frame; capture a handful of checkpoints, not every cut.
+
 For review, call `desktop_preview_render` with a new `.mp4` path and `[start,end)`
 in timeline frames. A preview includes mixed timeline audio, lasts at most ten
 seconds, and defaults to width 640. The even width can be 64 to 1280; the height
@@ -170,6 +226,16 @@ profile, Undo history and media selection unchanged. Poll `desktop_render_status
 then call `desktop_render_verify` with `includeAudio: true`. The result includes
 verification metadata, an MCP WAV audio content block, and a resource link to
 the playable video. The audio data is not repeated in structured JSON.
+
+`desktop_render` exports the whole sequence or, with `range` (`start`,
+`end`), only that part at the preset's full quality: a corrected end card or
+one chapter without re-encoding the rest. Two renders may run at once
+(`RENDER_BUSY` names the running ones beyond that). `desktop_render_status`
+reports each job's `range`, `startedAt`, `progress`, `frame`, and while it
+runs `framesPerSecond` and `etaSeconds`, so a slow section is not mistaken for
+a stall. `desktop_render_cancel` stops a job through the renderer's own abort
+(the renderer removes its partial output), or by stopping the process tree
+when it has not connected yet, and reports it as `aborted`.
 
 MCP render records are saved atomically in `mcp-renders.json` under Kdenlive's
 application data directory. Completed jobs survive editor restarts. Jobs whose
@@ -188,6 +254,87 @@ incomplete MP4 or a shortened output fails verification. A timeout is reported
 as a verification failure, not proof that the file is corrupt. Successful
 verification confirms a recovered job as `finished`. This checks technical
 integrity; playback review remains necessary to judge cuts and pacing.
+
+## Projects and profiles
+
+`desktop_profile_list` returns Kdenlive's profile catalog (`path`,
+`description`, `width`, `height`, `fps`, `progressive`, `current`), filtered by
+`query` (`"1080p 25"`). `desktop_project_new` takes one of those `path`s or
+descriptions, a new `.kdenlive` `path` inside the allowed folders and optional
+`videoTracks`/`audioTracks`, runs Kdenlive's File > New without its dialog and
+saves the project there. The open project must be unmodified
+(`PROJECT_MODIFIED`: save or undo first); a stale autosave of an untitled
+project is reported as `BACKUP_PENDING` with the files, because Kdenlive would
+otherwise ask about it in a dialog. The call ends the editing session: the
+result has `sessionEnded: true`, the new `sessionId`, `revision`,
+`documentUrl` and `ready` instead of a `state`; read `desktop_state` before
+the next edit.
+
+`desktop_project_profile` changes the frame size immediately (`width`,
+`height`, not undoable). With `fps`, and a saved, unmodified project, it runs
+Kdenlive's frame-rate conversion: positions, guides and lengths are rescaled
+into a copy named after the rate (`fresh-2500.kdenlive` for 25 fps, reported
+as `convertedFile`; `FILE_EXISTS` when that file is already there) and the
+copy is opened, ending the session like `desktop_project_new`. Poll
+`desktop_state` until `documentUrl` names the converted file.
+
+## Titles
+
+`desktop_title_create` writes Kdenlive's native title XML, so the result is
+editable in the title editor and with `desktop_title_edit`. `items` are drawn
+in order:
+
+- text items: `text`, `x`, `y` (project pixels), `fontPixelSize` (default 54),
+  `fontFamily`, `bold`, `italic`, `color` (`#RRGGBB`, default white),
+  `opacity` (0 to 1), `alignment` (`left`, `center`, `right`; centred and
+  right-aligned text aligns inside `boxWidth`, default the rest of the frame
+  from `x`), `letterSpacing`, `outline` (`width`, `color`, `opacity`) and
+  `shadow` (`color`, `opacity`, `blur`, `xOffset`, `yOffset`);
+- `kind: "rect"` boxes: `x`, `y`, `width`, `height`, `color`, `opacity`,
+  `borderColor`, `borderWidth`. Put a translucent rect before its text for a
+  readable lower third.
+
+`background` (`color`, `opacity`) fills the whole frame; the default is
+transparent. `duration` is an exact frame count. Wait for the returned bin ID
+to become ready, then insert it (`sourceOut` can be left out). Imported
+`.kdenlivetitle` files (template titles) are read and edited the same way:
+`desktop_title_read` reports `template: true` and the item `color`;
+`desktop_title_edit` changes text, position, size, alignment, `color`,
+`bold` and `fontFamily`. Titles have no media file, so
+`desktop_media_replace` refuses them (`INCOMPATIBLE_MEDIA`): change the text
+instead, or swap one timeline instance with `desktop_clip_replace`.
+
+## Composition
+
+`desktop_clip_replace` swaps one timeline clip for bin clip `binId` in one
+Undo step (`Replace clip`): the new clip takes the same track, position and
+duration, starts at `sourceIn` (default: the old clip's), keeps the former
+group and, unless `keepEffects: false`, the user-added effects of the old clip
+(built-in effects belong to each clip). The linked A/V partner is replaced too
+when the replacement has that stream and `linked` is not false, keeping its
+offset to the main clip; a replaced pair is linked again. The replacement must
+be ready and cover the range (`MEDIA_TOO_SHORT` with `sourceIn`, `sourceOut`
+and `replacementDuration`); nothing is removed when the insertion fails. The
+result lists `replaced[]` (`clipId`, `newClipId`, `trackId`, `position`,
+`duration`, `sourceIn`, `effects`), the new `clipId`, `linkedClipId`,
+`groupId` and `effectsRestored`. This is the safe way to drop in a levelled
+or re-recorded stem: never remove the old audio before the new one is in.
+
+`desktop_clip_fade` adds Kdenlive's own fade effects (`fade_from_black` /
+`fade_to_black` on video tracks, `fadein` / `fadeout` on audio tracks) over
+`fadeIn` and/or `fadeOut` frames, on the clip and its linked partner unless
+`linked: false`; `0` removes that fade. The fades must leave at least one
+frame. One Undo step (`Fade clip`).
+
+`desktop_audio_duck` keyframes the volume of a music or ambience clip on an
+audio track: `levelDb` (default 0) outside and `duckDb` (default -18;
+`mute: true` uses -100) inside the given timeline `ranges`, or with
+`auto: true` under every clip on the other audio tracks (or `trackIds`).
+Ranges are clipped to the clip, merged when their gap cannot hold two ramps,
+and each edge ramps over `rampFrames` (default half a second). Keyframes are
+written in the clip's source frames (speed applied), as `desktop_effect_list`
+reports them, into the clip's existing volume effect or a new one
+(`replacedVolume`). `NO_RANGES` when nothing overlaps the clip.
 
 ## Timeline editing
 
@@ -543,14 +690,14 @@ and 2025-03-26 negotiation. It returns JSON responses, accepts notifications
 with HTTP 202, and returns HTTP 405 for GET. It supports 32 sessions with a
 30-minute idle expiry and enforces HTTP body/header limits through Qt.
 
-Save-as and render outputs follow the same folder policy as imports, and
-neither overwrites an existing file. Effect keyframes count frames from the
+Save-as, project-new, render and frame-capture outputs follow the same folder
+policy as imports, and none overwrites an existing file. Effect keyframes count frames from the
 `keyframeOrigin` that `desktop_effect_list` reports. A profile change rebuilds
 bin producers: filters that Kdenlive does not list as effects are dropped, so
 save a copy first.
 
-This version does not expose separate project creation, track creation, downloads or the
-companion's offline project tools. Open/create projects in the GUI. Native state
+This version does not expose track creation, downloads or the companion's
+offline project tools; `desktop_project_new` creates projects. Native state
 describes the active sequence, the project bin with its clip markers, and the
 list of sequences; keyframes and effect parameters are read with their own tools.
 
@@ -591,7 +738,7 @@ The SDK acceptance test in `tests/mcp/acceptance.mjs` launches a disposable edit
 and exercises native operations through HTTP. Node and the MCP SDK are test-only
 dependencies. See its header for invocation. It never edits your open project.
 
-**Acceptance checks.** The run calls all 48 tools. It checks the catalog against
+**Acceptance checks.** The run calls all 60 tools. It checks the catalog against
 the expected tool names and annotations, then reads the fixture's state:
 track type, lock and mute flags, a linked and grouped audio/video pair, a gap,
 a dissolve composition, two guides, two subtitles, bin folders and types, and
@@ -644,8 +791,13 @@ leaves the timeline, bin and history unchanged; saves a copy, with a path outsid
 the allowed folders refused; switches to 1080x1920 at the same frame rate; pans
 and fits a clip with `desktop_clip_reframe`; resizes the title canvas; and
 renders the 1080x1920 sequence, polling `desktop_render_status` until the file
-is finished, with bad paths, an unknown preset and a second render refused. It
-takes about 35 seconds.
+is finished, with bad paths and an unknown preset refused, a second ranged
+render started alongside and cancelled, a third refused, and a verified
+range render. It also covers track tags, `clamp` and the default `sourceOut`,
+`import` with `wait`, `desktop_media_wait`, the `binIds` filter, styled titles
+and an imported `.kdenlivetitle`, `desktop_clip_replace`, `desktop_clip_fade`,
+`desktop_audio_duck`, a saved frame capture, `desktop_profile_list`,
+`desktop_project_new` and a frame-rate conversion. It takes about a minute.
 
 Codex's HTTP configuration fields are documented in its
 [configuration reference](https://developers.openai.com/codex/config-reference).
