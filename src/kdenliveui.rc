@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!DOCTYPE kpartgui SYSTEM "kpartgui.dtd">
-<kpartgui name="kdenlive" version="257" translationDomain="kdenlive">
+<kpartgui name="kdenlive" version="258" translationDomain="kdenlive">
   <MenuBar>
     <Menu name="file">
       <Action name="file_new"/>
@@ -353,6 +353,7 @@
       <Action name="styles_menu"/>
     </Menu>
     <Menu name="help">
+      <Action name="design_review"/>
       <Action name="copy_debuginfo"/>
     </Menu>
   </MenuBar>

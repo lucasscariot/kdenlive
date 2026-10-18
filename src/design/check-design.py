@@ -39,7 +39,8 @@ def scan(path, rules):
     return findings
 
 
-def main():
+def collect():
+    """Every bypass as 'file:line: message', for the command line and review-design.py"""
     findings = []
     for directory in QML_DIRS:
         for path in sorted((SRC / directory).glob("*.qml")):
@@ -47,6 +48,11 @@ def main():
     for path in sorted(SRC.rglob("*.cpp")):
         if str(path.relative_to(SRC)) not in CPP_SKIP:
             findings += scan(path, CPP_RULES)
+    return findings
+
+
+def main():
+    findings = collect()
     print("\n".join(findings) if findings else "No design token bypasses found")
     if findings and "--strict" in sys.argv:
         sys.exit(1)

@@ -1,6 +1,8 @@
 <RCC>
     <qresource prefix="/">
         <file>design/tokens.json</file>
+        <file alias="design/color-schemes/KdenliveDark.colors">../data/color-schemes/KdenliveDark.colors</file>
+        <file alias="design/color-schemes/KdenliveLight.colors">../data/color-schemes/KdenliveLight.colors</file>
         <file>design/fonts/InterVariable.ttf</file>
         <file>design/fonts/JetBrainsMono-Variable.ttf</file>
         <file>design/icons/KdenlivePro-dark/index.theme</file>

@@ -3,8 +3,12 @@
     SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 */
 #include "mcptools.h"
+#include "core.h"
 #include "livebridge.h"
+#include "mainwindow.h"
 #include "mcpserver.h"
+#include "utils/designaudit.h"
+#include "widgets/designreviewwindow.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -530,6 +534,33 @@ QJsonArray McpTools::definitions()
                    "written there at the requested width instead of returned inline. Does not move the playhead.",
                    {{"position", frameSchema()}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 3840}}}, {"path", stringSchema()}},
                    readOnlyTool, {"width", "path"}));
+    result.append(definition("desktop_ui_capture",
+                             "Capture the editor's interface as a PNG image for design review: target window (the whole main window), panel (one "
+                             "dock by its name from desktop_design_audit panels; it must be open and is raised) or page (a design review page: "
+                             "colors, type, spacing, icons, components, inventory, rendered at least width logical pixels wide, default 1200). theme "
+                             "(dark or light) switches the application theme for the capture and restores it; scale 1 to 3 multiplies the pixel "
+                             "density.",
+                             {{"target", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"window", "panel", "page"}}}},
+                              {"panel", stringSchema()},
+                              {"page", QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(DesignReviewWindow::pageIds())}}},
+                              {"theme", QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(DesignAudit::themeIds())}}},
+                              {"scale", QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 3}}},
+                              {"width", QJsonObject{{"type", "integer"}, {"minimum", 480}, {"maximum", 3840}}}},
+                             readOnlyTool, {"panel", "page", "theme", "scale", "width"}));
+    result.append(
+        definition("desktop_design_audit",
+                   "Read the design system and measure the live interface against it: the tokens (spacing, radius, size, opacity), "
+                   "colors with both theme values, the contrast of every ink on every surface with the pairs that fail, the type "
+                   "styles, the icon theme and the icons the window uses outside it, and findings (fonts, margins, control heights, "
+                   "icon sizes, style sheets, custom palettes and text slips that bypass the tokens). include picks sections; inventory "
+                   "(the whole widget tree) is only returned when asked. panel restricts findings and inventory to one dock. Also "
+                   "returns panels (name, title, open, current) for desktop_ui_capture.",
+                   {{"include", QJsonObject{{"type", "array"},
+                                            {"minItems", 1},
+                                            {"uniqueItems", true},
+                                            {"items", QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(DesignAudit::reportSections())}}}}},
+                    {"panel", stringSchema()}},
+                   readOnlyTool, {"include", "panel"}));
     result.append(definition(
         "desktop_media_wait",
         "Wait until bin clips finish loading: binIds (default: every bin clip) for up to timeoutSeconds (default 30, max 120). "
@@ -668,6 +699,8 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
         capabilities.insert("project", QJsonObject{{"saved", saved}, {"firstSaveAvailable", firstSaveAvailable}, {"firstSaveFolder", folder}});
         return capabilities;
     }
+    if (name == QLatin1String("desktop_ui_capture")) return DesignReviewWindow::captureTool(pCore->window(), arguments);
+    if (name == QLatin1String("desktop_design_audit")) return DesignReviewWindow::auditTool(pCore->window(), arguments);
     if (name == QLatin1String("desktop_frame_capture")) {
         if (arguments.contains("path")) {
             // A saved frame follows the output folder policy of renders.

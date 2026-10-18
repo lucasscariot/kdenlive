@@ -43,6 +43,15 @@ the other, then rerun the two generators.
 bypass the tokens. Run it with `--strict` before sending changes; it exits non zero when it finds
 anything.
 
+## Reviewing
+
+**Help → Design Review…** opens the review window: every token as rendered, the contrast of every
+ink on every surface, the type styles next to the fonts the window really uses, the icon theme and
+the icons outside it, every component in its states, and a live inventory of the main window.
+`python3 src/design/review-design.py` produces the same as pictures and tables in one HTML report,
+and the MCP tools `desktop_design_audit` and `desktop_ui_capture` give it to an agent. See
+[Reviewing the design](design-review.md).
+
 ## Scope
 
 The Kdenlive style, fonts and icon themes apply when Qt falls back to its Fusion style, which is

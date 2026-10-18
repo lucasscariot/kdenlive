@@ -16,6 +16,7 @@
 #include "transitions/transitionsrepository.hpp"
 #include "utils/designpaint.h"
 #include "utils/uiutils.h"
+#include "widgets/designreviewwindow.h"
 
 #include <KActionCollection>
 #include <KActionMenu>
@@ -1190,6 +1191,15 @@ void MainWindow::setupActions()
     });
 
     addAction(QStringLiteral("copy_debuginfo"), i18n("Copy Debug Information"), this, SLOT(slotCopyDebugInfo()), QIcon::fromTheme(QStringLiteral("edit-copy")));
+    QAction *designReview = addAction(QStringLiteral("design_review"), i18n("Design Review…"), QIcon::fromTheme(QStringLiteral("color-management")));
+    designReview->setToolTip(i18n("Review the design tokens, components and the live interface against the design system"));
+    connect(designReview, &QAction::triggered, this, [this]() {
+        DesignReviewWindow *window = DesignReviewWindow::instance(this);
+        window->refreshLive();
+        window->show();
+        window->raise();
+        window->activateWindow();
+    });
 
     QAction *disableEffects = addAction(QStringLiteral("disable_timeline_effects"), i18n("Disable Timeline Effects"), pCore->projectManager(),
                                         SLOT(slotDisableTimelineEffects(bool)), QIcon::fromTheme(QStringLiteral("tools-wizard")));

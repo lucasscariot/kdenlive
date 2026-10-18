@@ -64,7 +64,7 @@ Kdenlive PRO serves the [Model Context Protocol](https://modelcontextprotocol.io
 - Tools cover the whole edit: reading state, importing and replacing media, inserting, moving and trimming clips, audio fades and gain, effects, titles, reframing for vertical video, changing the frame size, capturing a frame as an image, rendering, and batches of up to 200 edits as one Undo step.
 - Every edit is checked against the project revision and shares the editor's native Undo history, so manual and agent edits interleave safely.
 
-See the [native MCP guide](docs/native-mcp.md) for setup, security and the full tool list. A [legacy D-Bus bridge](docs/live-bridge.md) is also available as a build option.
+See the [native MCP guide](docs/native-mcp.md) for setup, security and the full tool list, and [Reviewing the design](docs/design-review.md) for the design review window, report and tools. A [legacy D-Bus bridge](docs/live-bridge.md) is also available as a build option.
 
 ## Branches
 
