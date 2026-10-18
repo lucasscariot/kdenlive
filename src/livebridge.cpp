@@ -17,7 +17,6 @@
 #include "dialogs/wizard.h"
 #include "doc/docundostack.hpp"
 #include "doc/kdenlivedoc.h"
-#include "doc/kthumb.h"
 #include "effects/effectsrepository.hpp"
 #include "effects/effectstack/model/effectitemmodel.hpp"
 #include "effects/effectstack/model/effectstackmodel.hpp"
@@ -38,7 +37,6 @@
 #include "timeline2/view/timelinewidget.h"
 
 #include <QApplication>
-#include <QBuffer>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDomDocument>
@@ -137,12 +135,14 @@ QString LiveBridge::capabilities() const
         {{"ok", true},
          {"protocolVersion", 1},
          {"transport", "native-editor"},
-         {"operations", QJsonArray{"import",       "remove_asset",  "remove_clip",   "replace_media", "audio_envelope", "rename_track",      "save",
-                                   "save_as",      "set_profile",   "insert",        "move",          "trim",           "reframe",           "effect_add",
-                                   "effect_set",   "effect_remove", "title_edit",    "marker_add",    "marker_edit",    "marker_remove",     "marker_import",
-                                   "render",       "batch",         "undo",          "redo",          "split",          "remove_range",      "remove_gap",
-                                   "insert_space", "group",         "ungroup",       "speed",         "enable",         "transcript_import", "range_cut",
-                                   "transcribe",   "title_create",  "preview_render"}},
+         {"operations", QJsonArray{"import",       "remove_asset",  "remove_clip",    "replace_media", "audio_envelope", "rename_track",      "save",
+                                   "save_as",      "set_profile",   "insert",         "move",          "trim",           "reframe",           "effect_add",
+                                   "effect_set",   "effect_remove", "title_edit",     "marker_add",    "marker_edit",    "marker_remove",     "marker_import",
+                                   "render",       "batch",         "undo",           "redo",          "split",          "remove_range",      "remove_gap",
+                                   "insert_space", "group",         "ungroup",        "speed",         "enable",         "transcript_import", "range_cut",
+                                   "transcribe",   "title_create",  "preview_render", "replace_clip",  "clip_fade",      "audio_duck",        "project_new"}},
+         {"maxConcurrentRenders", 2},
+         {"trackReferences", "trackId, audioTrackId and trackIds accept native ids or tags such as V1 and A2"},
          {"batchValidation", QJsonArray{"insert"}},
          {"firstSave", "desktop_project_save_as in the configured additional media folder"},
          {"previewMaxSeconds", 10},
@@ -289,6 +289,23 @@ bool overlaps(int position, int duration, int start, int end)
 {
     return position < end && position + qMax(duration, 1) > start;
 }
+
+/** Native titles and imported .kdenlivetitle templates are both editable titles. */
+bool isTitleClip(const std::shared_ptr<ProjectClip> &clip)
+{
+    return clip && (clip->clipType() == ClipType::Text || clip->clipType() == ClipType::TextTemplate);
+}
+
+/** The title XML of a title clip: its xmldata property, or for an imported template without one, the file it came from. */
+QString titleXmlData(const std::shared_ptr<ProjectClip> &clip)
+{
+    QString data = clip->getProducerProperty(QStringLiteral("xmldata"));
+    if (data.isEmpty() && clip->clipType() == ClipType::TextTemplate) {
+        QFile file(clip->url());
+        if (file.open(QIODevice::ReadOnly)) data = QString::fromUtf8(file.readAll());
+    }
+    return data;
+}
 } // namespace
 
 const QStringList &LiveBridge::stateSectionNames()
@@ -311,8 +328,16 @@ QJsonObject LiveBridge::stateFor(const QJsonObject &arguments)
         return error(QStringLiteral("INVALID_ARGUMENTS"),
                      QStringLiteral("Expected optional include (section names), trackId and range {start, end} with start < end."));
     };
-    if (!keys(arguments, {QStringLiteral("include"), QStringLiteral("trackId"), QStringLiteral("range")})) return invalid();
+    if (!keys(arguments, {QStringLiteral("include"), QStringLiteral("trackId"), QStringLiteral("range"), QStringLiteral("binIds")})) return invalid();
     StateScope scope = defaultScope();
+    if (arguments.contains(QStringLiteral("binIds"))) {
+        const auto list = arguments.value(QStringLiteral("binIds"));
+        if (!list.isArray() || list.toArray().isEmpty() || list.toArray().size() > 1000) return invalid();
+        for (const auto &value : list.toArray()) {
+            if (!value.isString() || !QRegularExpression(QStringLiteral("^[0-9]+$")).match(value.toString()).hasMatch()) return invalid();
+            scope.binIds.append(value.toString());
+        }
+    }
     if (arguments.contains(QStringLiteral("include"))) {
         if (!arguments.value(QStringLiteral("include")).isArray()) return invalid();
         scope.sections.clear();
@@ -324,9 +349,14 @@ QJsonObject LiveBridge::stateFor(const QJsonObject &arguments)
         }
     }
     if (arguments.contains(QStringLiteral("trackId"))) {
-        if (!integer(arguments, QStringLiteral("trackId"))) return invalid();
-        scope.trackId = arguments.value(QStringLiteral("trackId")).toInt();
-        if (!m_timeline->isTrack(scope.trackId)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
+        if (arguments.value(QStringLiteral("trackId")).isString()) {
+            scope.trackId = trackIdForTag(arguments.value(QStringLiteral("trackId")).toString());
+            if (scope.trackId < 0) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("No track has that tag; desktop_state lists tracks[].tag."));
+        } else {
+            if (!integer(arguments, QStringLiteral("trackId"))) return invalid();
+            scope.trackId = arguments.value(QStringLiteral("trackId")).toInt();
+            if (!m_timeline->isTrack(scope.trackId)) return error(QStringLiteral("UNKNOWN_TRACK"), QStringLiteral("Track does not exist."));
+        }
     }
     if (arguments.contains(QStringLiteral("range"))) {
         const auto range = arguments.value(QStringLiteral("range")).toObject();
@@ -503,10 +533,11 @@ QJsonObject LiveBridge::snapshot(const StateScope &requested) const
                                               {"markers", guides ? guides->rowCount() : 0},
                                               {"subtitles", subtitles ? subtitles->count() : 0},
                                               {"bin", int(binIds.size())}}}};
-    if (requested.trackId >= 0 || start > 0 || end < std::numeric_limits<int>::max()) {
+    if (requested.trackId >= 0 || start > 0 || end < std::numeric_limits<int>::max() || !requested.binIds.isEmpty()) {
         QJsonObject filter;
         if (requested.trackId >= 0) filter.insert(QStringLiteral("trackId"), requested.trackId);
         if (start > 0 || end < std::numeric_limits<int>::max()) filter.insert(QStringLiteral("range"), QJsonObject{{"start", start}, {"end", end}});
+        if (!requested.binIds.isEmpty()) filter.insert(QStringLiteral("binIds"), QJsonArray::fromStringList(requested.binIds));
         result.insert(QStringLiteral("filter"), filter);
     }
     // The newest MCP-made entry still on the stack, so an agent can confirm what its last call did.
@@ -566,6 +597,7 @@ QJsonObject LiveBridge::snapshot(const StateScope &requested) const
         };
         QJsonArray bin;
         for (const auto &id : binIds) {
+            if (!requested.binIds.isEmpty() && !requested.binIds.contains(id)) continue;
             auto clip = pCore->projectItemModel()->getClipByBinID(id);
             if (!clip) continue;
             const bool ready = clip->statusReady();
@@ -682,36 +714,50 @@ QString LiveBridge::applyAuthorized(const QString &request, const std::function<
         const auto rejection = authorize();
         if (!rejection.isEmpty()) return json(rejection);
     }
-    QScopedValueRollback<bool> executing(m_executing, true);
     const auto command = object.value(QStringLiteral("command")).toObject();
-    syncHistory();
-    Request context{requestId, command.value(QStringLiteral("type")).toString(), caller, m_revision, {}};
-    QScopedValueRollback<Request *> current(m_request, &context);
-    // Insert and overwrite are explicit per command; the GUI's edit mode toggle must not change what a command does.
-    const auto editMode = m_timeline->editMode();
-    m_timeline->setEditMode(TimelineMode::NormalEdit);
-    auto result = execute(command);
-    if (m_timeline) m_timeline->setEditMode(editMode);
-    const bool succeeded = result.value(QStringLiteral("ok")).toBool();
-    // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
-    if (succeeded) contentChanged();
-    finishRequest(command, result);
-    // historySummary is for the change log only.
-    result.remove(QStringLiteral("historySummary"));
-    if (result.value(QStringLiteral("results")).isArray()) {
-        QJsonArray results;
-        for (const auto &item : result.value(QStringLiteral("results")).toArray()) {
-            auto inner = item.toObject();
-            inner.remove(QStringLiteral("historySummary"));
-            results.append(inner);
+    QJsonObject result;
+    bool sessionEnded = false;
+    {
+        QScopedValueRollback<bool> executing(m_executing, true);
+        syncHistory();
+        Request context{requestId, command.value(QStringLiteral("type")).toString(), caller, m_revision, {}};
+        QScopedValueRollback<Request *> current(m_request, &context);
+        // Insert and overwrite are explicit per command; the GUI's edit mode toggle must not change what a command does.
+        const auto editMode = m_timeline->editMode();
+        m_timeline->setEditMode(TimelineMode::NormalEdit);
+        result = execute(command);
+        if (m_timeline) m_timeline->setEditMode(editMode);
+        const bool succeeded = result.value(QStringLiteral("ok")).toBool();
+        // project_new and a frame-rate change replace the document: the session they ran in is over.
+        sessionEnded = succeeded && result.value(QStringLiteral("sessionEnded")).toBool();
+        // Even a successful no-op gets a fresh revision, preventing replay after receipt eviction.
+        if (succeeded) contentChanged();
+        finishRequest(command, result);
+        // historySummary is for the change log only.
+        result.remove(QStringLiteral("historySummary"));
+        if (result.value(QStringLiteral("results")).isArray()) {
+            QJsonArray results;
+            for (const auto &item : result.value(QStringLiteral("results")).toArray()) {
+                auto inner = item.toObject();
+                inner.remove(QStringLiteral("historySummary"));
+                results.append(inner);
+            }
+            result.insert(QStringLiteral("results"), results);
         }
-        result.insert(QStringLiteral("results"), results);
-    }
-    if (succeeded) {
-        pCore->refreshProjectMonitorOnce();
-        result.insert(QStringLiteral("state"), snapshot(defaultScope()));
+        if (succeeded && !sessionEnded && m_timeline) {
+            pCore->refreshProjectMonitorOnce();
+            result.insert(QStringLiteral("state"), snapshot(defaultScope()));
+        }
     }
     result.insert(QStringLiteral("requestId"), requestId);
+    if (sessionEnded) {
+        // Bind the replacement document now so the caller learns the new session; a still-loading project binds on its next read.
+        bind();
+        result.insert(QStringLiteral("sessionId"), m_session);
+        result.insert(QStringLiteral("revision"), m_revision);
+        result.insert(QStringLiteral("ready"), !m_timeline.isNull());
+        if (m_document) result.insert(QStringLiteral("documentUrl"), m_document->url().toString());
+    }
     const QString response = json(result);
     m_receipts.insert(requestId, {fingerprint, response});
     m_receiptOrder.enqueue(requestId);
@@ -719,8 +765,10 @@ QString LiveBridge::applyAuthorized(const QString &request, const std::function<
     return response;
 }
 
-QJsonObject LiveBridge::execute(const QJsonObject &command)
+QJsonObject LiveBridge::execute(const QJsonObject &requested)
 {
+    QJsonObject command = requested;
+    if (auto rejected = resolveTrackReferences(command); !rejected.isEmpty()) return rejected;
     const QString type = command.value(QStringLiteral("type")).toString();
     const auto invalid = [] { return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("Invalid command fields or frame range.")); };
     auto stack = m_document->commandStack();
@@ -733,6 +781,8 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
     if (handled) return timeline;
     auto transcript = executeTranscript(command, handled);
     if (handled) return transcript;
+    auto composition = executeComposition(command, handled);
+    if (handled) return composition;
     if (type == QLatin1String("remove_asset")) {
         if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId")})) return invalid();
         const QString id = command.value(QStringLiteral("binId")).toString();
@@ -794,7 +844,19 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         return {{"ok", true}, {"clipId", id}};
     }
     if (type == QLatin1String("import")) {
-        if (!keys(command, {QStringLiteral("type"), QStringLiteral("path")})) return invalid();
+        const auto wait = command.value(QStringLiteral("wait"));
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("path"), QStringLiteral("wait")}) ||
+            (command.contains(QStringLiteral("wait")) && (!wait.isDouble() || !std::isfinite(wait.toDouble()) || wait.toDouble() < 0 || wait.toDouble() > 120)))
+            return invalid();
+        const auto awaited = [this, wait](QJsonObject result) {
+            // wait: seconds to spin the event loop until the clip is loaded, so the caller can insert it in the same batch.
+            if (wait.toDouble(0) <= 0) return result;
+            const QString id = result.value(QStringLiteral("binId")).toString();
+            result.insert(QStringLiteral("ready"), waitForBinClips({id}, qRound(wait.toDouble() * 1000)));
+            if (auto clip = pCore->projectItemModel()->getClipByBinID(id); clip && clip->statusReady())
+                result.insert(QStringLiteral("duration"), qint64(clip->frameDuration()));
+            return result;
+        };
         const QFileInfo file(command.value(QStringLiteral("path")).toString());
         if (!file.isAbsolute() || !file.isFile() || !file.isReadable())
             return error(QStringLiteral("INVALID_MEDIA"), QStringLiteral("Import requires a readable absolute local file path."));
@@ -803,13 +865,13 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
         if (path == QFileInfo(m_document->url().toLocalFile()).canonicalFilePath())
             return error(QStringLiteral("INVALID_MEDIA"), QStringLiteral("A project cannot import itself."));
         const auto existing = model->getClipByUrl(QFileInfo(path));
-        if (!existing.isEmpty()) return {{"ok", true}, {"binId", existing.first()}, {"existing", true}};
+        if (!existing.isEmpty()) return awaited({{"ok", true}, {"binId", existing.first()}, {"existing", true}});
         Fun undo = [] { return true; };
         Fun redo = [] { return true; };
         const QString id = ClipCreator::createClipFromFile(path, QStringLiteral("-1"), model, undo, redo);
         if (id == QLatin1String("-1")) return error(QStringLiteral("IMPORT_REJECTED"), QStringLiteral("Native media import rejected the file."));
         pCore->pushUndo(undo, redo, QStringLiteral("Import media"));
-        return {{"ok", true}, {"binId", id}, {"existing", false}};
+        return awaited({{"ok", true}, {"binId", id}, {"existing", false}});
     }
     if (type == QLatin1String("replace_media")) {
         if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("replacementBinId")})) return invalid();
@@ -820,7 +882,12 @@ QJsonObject LiveBridge::execute(const QJsonObject &command)
             return invalid();
         auto original = pCore->projectItemModel()->getClipByBinID(binId);
         auto replacement = pCore->projectItemModel()->getClipByBinID(replacementId);
-        if (!original || !replacement || !original->statusReady() || !replacement->statusReady())
+        if (!original || !replacement) return error(QStringLiteral("UNKNOWN_BIN"), QStringLiteral("binId or replacementBinId is not in the bin."));
+        if (isTitleClip(original) || isTitleClip(replacement))
+            return error(QStringLiteral("INCOMPATIBLE_MEDIA"),
+                         QStringLiteral("Titles have no media file to replace: change the text with desktop_title_edit, or swap a timeline instance "
+                                        "for another bin clip with desktop_clip_replace."));
+        if (!original->statusReady() || !replacement->statusReady())
             return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Both bin clips must be loaded before replacement."));
         const QFileInfo file(replacement->url());
         if (!file.isAbsolute() || !file.isFile() || !file.isReadable() || !original->hasLimitedDuration() || !replacement->hasLimitedDuration() ||
@@ -896,6 +963,8 @@ QJsonObject LiveBridge::editableClip(int clipId) const
 }
 
 namespace {
+constexpr int maxConcurrentRenders = 2;
+
 const QStringList batchable{QStringLiteral("import"),         QStringLiteral("remove_asset"),  QStringLiteral("remove_clip"),
                             QStringLiteral("audio_envelope"), QStringLiteral("rename_track"),  QStringLiteral("insert"),
                             QStringLiteral("move"),           QStringLiteral("trim"),          QStringLiteral("reframe"),
@@ -905,7 +974,8 @@ const QStringList batchable{QStringLiteral("import"),         QStringLiteral("re
                             QStringLiteral("split"),          QStringLiteral("remove_range"),  QStringLiteral("remove_gap"),
                             QStringLiteral("insert_space"),   QStringLiteral("group"),         QStringLiteral("ungroup"),
                             QStringLiteral("speed"),          QStringLiteral("enable"),        QStringLiteral("transcript_import"),
-                            QStringLiteral("range_cut")};
+                            QStringLiteral("range_cut"),      QStringLiteral("replace_clip"),  QStringLiteral("clip_fade"),
+                            QStringLiteral("audio_duck")};
 
 bool unitInterval(const QJsonObject &object, const QString &key)
 {
@@ -1041,14 +1111,21 @@ QJsonObject LiveBridge::executeProduction(const QJsonObject &command, bool &hand
         return {{"ok", true}, {"documentUrl", m_document->url().toString()}};
     }
     if (type == QLatin1String("set_profile")) {
-        if (!keys(command, {QStringLiteral("type"), QStringLiteral("width"), QStringLiteral("height")}) || !integer(command, QStringLiteral("width"), 16) ||
-            !integer(command, QStringLiteral("height"), 16))
+        auto &current = pCore->getProjectProfile();
+        const auto fpsValue = command.value(QStringLiteral("fps"));
+        if (!keys(command, {QStringLiteral("type"), QStringLiteral("width"), QStringLiteral("height"), QStringLiteral("fps")}) ||
+            (command.contains(QStringLiteral("width")) && !integer(command, QStringLiteral("width"), 16)) ||
+            (command.contains(QStringLiteral("height")) && !integer(command, QStringLiteral("height"), 16)) ||
+            command.contains(QStringLiteral("width")) != command.contains(QStringLiteral("height")) ||
+            (command.contains(QStringLiteral("fps")) && (!fpsValue.isDouble() || fpsValue.toDouble() < 1 || fpsValue.toDouble() > 240)) ||
+            (!command.contains(QStringLiteral("width")) && !command.contains(QStringLiteral("fps"))))
             return invalid();
-        const int width = command.value(QStringLiteral("width")).toInt();
-        const int height = command.value(QStringLiteral("height")).toInt();
+        const int width = command.value(QStringLiteral("width")).toInt(current.width());
+        const int height = command.value(QStringLiteral("height")).toInt(current.height());
         if (width > 8192 || height > 8192 || width % 2 || height % 2)
             return error(QStringLiteral("INVALID_PROFILE"), QStringLiteral("Width and height must be even and at most 8192."));
-        auto &current = pCore->getProjectProfile();
+        if (command.contains(QStringLiteral("fps")) && std::abs(fpsValue.toDouble() - current.fps()) > 0.001)
+            return changeFrameRate(command, width, height, fpsValue.toDouble());
         if (current.width() == width && current.height() == height) return {{"ok", true}, {"changed", false}};
         const int divisor = std::gcd(width, height);
         // Keep the frame rate: a different rate would need Kdenlive's save-and-reload conversion.
@@ -1165,22 +1242,26 @@ QJsonObject LiveBridge::executeProduction(const QJsonObject &command, bool &hand
             return invalid();
         const QString binId = command.value(QStringLiteral("binId")).toString();
         auto clip = pCore->projectItemModel()->getClipByBinID(binId);
-        if (!clip || !clip->statusReady() || clip->clipType() != ClipType::Text)
-            return error(QStringLiteral("NOT_A_TITLE"), QStringLiteral("binId must be a loaded title clip."));
+        if (!clip || !clip->statusReady() || !isTitleClip(clip))
+            return error(QStringLiteral("NOT_A_TITLE"), QStringLiteral("binId must be a loaded title clip (native or imported .kdenlivetitle)."));
         QDomDocument xml;
-        if (!xml.setContent(clip->getProducerProperty(QStringLiteral("xmldata"))))
-            return error(QStringLiteral("INVALID_TITLE"), QStringLiteral("Title XML cannot be parsed."));
+        if (!xml.setContent(titleXmlData(clip))) return error(QStringLiteral("INVALID_TITLE"), QStringLiteral("Title XML cannot be parsed."));
         auto root = xml.documentElement();
         if (command.contains(QStringLiteral("width"))) root.setAttribute(QStringLiteral("width"), command.value(QStringLiteral("width")).toInt());
         if (command.contains(QStringLiteral("height"))) root.setAttribute(QStringLiteral("height"), command.value(QStringLiteral("height")).toInt());
         const auto items = root.elementsByTagName(QStringLiteral("item"));
         for (const auto &value : command.value(QStringLiteral("items")).toArray()) {
             const auto edit = value.toObject();
+            const QString color = edit.value(QStringLiteral("color")).toString();
             if (!value.isObject() ||
                 !keys(edit, {QStringLiteral("index"), QStringLiteral("text"), QStringLiteral("x"), QStringLiteral("y"), QStringLiteral("fontPixelSize"),
-                             QStringLiteral("alignment")}) ||
+                             QStringLiteral("alignment"), QStringLiteral("color"), QStringLiteral("bold"), QStringLiteral("fontFamily")}) ||
                 !integer(edit, QStringLiteral("index")) || edit.value(QStringLiteral("index")).toInt() >= items.count() ||
                 (edit.contains(QStringLiteral("text")) && !edit.value(QStringLiteral("text")).isString()) ||
+                (edit.contains(QStringLiteral("color")) && !QRegularExpression(QStringLiteral("^#[0-9a-fA-F]{6}$")).match(color).hasMatch()) ||
+                (edit.contains(QStringLiteral("bold")) && !edit.value(QStringLiteral("bold")).isBool()) ||
+                (edit.contains(QStringLiteral("fontFamily")) &&
+                 (!edit.value(QStringLiteral("fontFamily")).isString() || edit.value(QStringLiteral("fontFamily")).toString().trimmed().isEmpty())) ||
                 (edit.contains(QStringLiteral("x")) && !edit.value(QStringLiteral("x")).isDouble()) ||
                 (edit.contains(QStringLiteral("y")) && !edit.value(QStringLiteral("y")).isDouble()) ||
                 (edit.contains(QStringLiteral("fontPixelSize")) && !integer(edit, QStringLiteral("fontPixelSize"), 1)) ||
@@ -1193,9 +1274,17 @@ QJsonObject LiveBridge::executeProduction(const QJsonObject &command, bool &hand
             if (edit.contains(QStringLiteral("y"))) position.setAttribute(QStringLiteral("y"), edit.value(QStringLiteral("y")).toDouble());
             auto content = item.firstChildElement(QStringLiteral("content"));
             const bool text = item.attribute(QStringLiteral("type")) == QLatin1String("QGraphicsTextItem");
-            if ((edit.contains(QStringLiteral("text")) || edit.contains(QStringLiteral("fontPixelSize")) || edit.contains(QStringLiteral("alignment"))) &&
+            if ((edit.contains(QStringLiteral("text")) || edit.contains(QStringLiteral("fontPixelSize")) || edit.contains(QStringLiteral("alignment")) ||
+                 edit.contains(QStringLiteral("color")) || edit.contains(QStringLiteral("bold")) || edit.contains(QStringLiteral("fontFamily"))) &&
                 !text)
                 return error(QStringLiteral("INVALID_TITLE"), QStringLiteral("Text fields apply only to text items."));
+            if (edit.contains(QStringLiteral("color"))) {
+                const QColor fill(color);
+                content.setAttribute(QStringLiteral("font-color"), QStringLiteral("%1,%2,%3,255").arg(fill.red()).arg(fill.green()).arg(fill.blue()));
+            }
+            if (edit.contains(QStringLiteral("bold")))
+                content.setAttribute(QStringLiteral("font-weight"), int(edit.value(QStringLiteral("bold")).toBool() ? QFont::Bold : QFont::Normal));
+            if (edit.contains(QStringLiteral("fontFamily"))) content.setAttribute(QStringLiteral("font"), edit.value(QStringLiteral("fontFamily")).toString());
             if (edit.contains(QStringLiteral("text"))) {
                 while (content.hasChildNodes())
                     content.removeChild(content.firstChild());
@@ -1344,9 +1433,9 @@ QJsonObject LiveBridge::insertionPlan(const QJsonObject &command) const
     const auto invalid = [] { return invalidTimeline(QStringLiteral("Invalid command fields or frame range.")); };
     if (!keys(command, {QStringLiteral("type"), QStringLiteral("binId"), QStringLiteral("trackId"), QStringLiteral("position"), QStringLiteral("sourceIn"),
                         QStringLiteral("sourceOut"), QStringLiteral("media"), QStringLiteral("mode"), QStringLiteral("linked"), QStringLiteral("audioTrackId"),
-                        QStringLiteral("allTracks")}) ||
+                        QStringLiteral("allTracks"), QStringLiteral("clamp")}) ||
         !integer(command, QStringLiteral("trackId")) || !integer(command, QStringLiteral("position")) || !integer(command, QStringLiteral("sourceIn")) ||
-        !integer(command, QStringLiteral("sourceOut"), 1) ||
+        (command.contains(QStringLiteral("sourceOut")) && !integer(command, QStringLiteral("sourceOut"), 1)) ||
         (command.contains(QStringLiteral("audioTrackId")) && !integer(command, QStringLiteral("audioTrackId"))))
         return invalid();
     const int trackId = command.value(QStringLiteral("trackId")).toInt();
@@ -1355,19 +1444,30 @@ QJsonObject LiveBridge::insertionPlan(const QJsonObject &command) const
     const auto media = command.value(QStringLiteral("media")).toString();
     const QString mode = command.value(QStringLiteral("mode")).toString(QStringLiteral("normal"));
     bool allTracks = false;
+    bool clamp = false;
     if (!QRegularExpression(QStringLiteral("^[0-9]+$")).match(binId).hasMatch() || (media != QLatin1String("video") && media != QLatin1String("audio")) ||
         !QStringList{QStringLiteral("normal"), QStringLiteral("overwrite"), QStringLiteral("insert")}.contains(mode) ||
-        !optionalBool(command, QStringLiteral("allTracks"), allTracks) || (allTracks && mode != QLatin1String("insert")))
+        !optionalBool(command, QStringLiteral("allTracks"), allTracks) || (allTracks && mode != QLatin1String("insert")) ||
+        !optionalBool(command, QStringLiteral("clamp"), clamp))
         return invalid();
     if (command.contains(QStringLiteral("linked")) && !command.value(QStringLiteral("linked")).isBool()) return invalid();
     auto clip = pCore->projectItemModel()->getClipByBinID(binId);
-    if (!clip || !clip->statusReady()) return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is missing or still loading."));
+    if (!clip) return error(QStringLiteral("UNKNOWN_BIN"), QStringLiteral("binId is not in the bin."));
+    if (!clip->statusReady())
+        return error(QStringLiteral("MEDIA_NOT_READY"), QStringLiteral("Bin clip is still loading; wait for it with desktop_media_wait."));
     const int start = command.value(QStringLiteral("sourceIn")).toInt();
-    const int end = command.value(QStringLiteral("sourceOut")).toInt();
+    const qint64 maxOut = qMin<qint64>(qint64(clip->frameDuration()), std::numeric_limits<int>::max());
+    // sourceOut defaults to the whole clip; clamp trims a range that overshoots the media by a few frames (audio stems rounded to frames).
+    int end = command.contains(QStringLiteral("sourceOut")) ? command.value(QStringLiteral("sourceOut")).toInt() : int(maxOut);
+    bool clamped = false;
+    if (clamp && end > maxOut && maxOut > start) {
+        end = int(maxOut);
+        clamped = true;
+    }
     const int position = command.value(QStringLiteral("position")).toInt();
-    if (end <= start || size_t(end) > clip->frameDuration() || qint64(position) + end - start > std::numeric_limits<int>::max()) {
+    if (end <= start || end > maxOut || qint64(position) + end - start > std::numeric_limits<int>::max()) {
         auto result = invalidTimeline(QStringLiteral("Expected 0 <= sourceIn < sourceOut <= %1 and a timeline position within integer frame limits. "
-                                                     "sourceOut is exclusive.")
+                                                     "sourceOut is exclusive; pass clamp: true to trim an overshooting range.")
                                           .arg(clip->frameDuration()));
         result.insert(
             QStringLiteral("details"),
@@ -1421,7 +1521,8 @@ QJsonObject LiveBridge::insertionPlan(const QJsonObject &command) const
             {"linked", linked},
             {"position", position},
             {"sourceIn", start},
-            {"sourceOut", end}};
+            {"sourceOut", end},
+            {"clamped", clamped}};
 }
 
 QJsonObject LiveBridge::insertClip(const QJsonObject &command)
@@ -1505,7 +1606,9 @@ QJsonObject LiveBridge::insertClip(const QJsonObject &command)
                     mode == QLatin1String("insert")      ? QStringLiteral("Insert clip (ripple)")
                     : mode == QLatin1String("overwrite") ? QStringLiteral("Overwrite clip")
                                                          : QStringLiteral("Insert Clip"));
-    QJsonObject result{{"ok", true}, {"clipId", id}, {"mode", mode}, {"linked", linked}};
+    QJsonObject result{{"ok", true},           {"clipId", id},         {"mode", mode},      {"linked", linked},
+                       {"position", position}, {"duration", duration}, {"sourceIn", start}, {"sourceOut", end}};
+    if (plan.value(QStringLiteral("clamped")).toBool()) result.insert(QStringLiteral("clamped"), true);
     if (linked) {
         result.insert(QStringLiteral("audioClipId"), audioId);
         result.insert(QStringLiteral("groupId"), m_timeline->getItemGroupId(id));
@@ -2435,13 +2538,26 @@ QJsonObject LiveBridge::startRender(const QJsonObject &command)
     const bool preview = command.value(QStringLiteral("type")) == QLatin1String("preview_render");
     const auto allowed =
         preview ? QStringList{QStringLiteral("type"), QStringLiteral("path"), QStringLiteral("start"), QStringLiteral("end"), QStringLiteral("width")}
-                : QStringList{QStringLiteral("type"), QStringLiteral("path"), QStringLiteral("preset")};
+                : QStringList{QStringLiteral("type"), QStringLiteral("path"), QStringLiteral("preset"), QStringLiteral("range")};
     if (!keys(command, allowed) || (command.contains(QStringLiteral("preset")) && !command.value(QStringLiteral("preset")).isString()))
-        return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("render takes path and an optional preset."));
+        return error(QStringLiteral("INVALID_COMMAND"), QStringLiteral("render takes path, an optional preset and an optional range {start, end}."));
     if (pCore->projectDuration() < 2) return error(QStringLiteral("EMPTY_TIMELINE"), QStringLiteral("Nothing to render."));
     auto &profile = pCore->getProjectProfile();
-    const int start = preview ? command.value(QStringLiteral("start")).toInt() : 0;
-    const int end = preview ? command.value(QStringLiteral("end")).toInt() : pCore->projectDuration();
+    int start = preview ? command.value(QStringLiteral("start")).toInt() : 0;
+    int end = preview ? command.value(QStringLiteral("end")).toInt() : pCore->projectDuration();
+    const bool ranged = !preview && command.contains(QStringLiteral("range"));
+    if (ranged) {
+        // A partial export at full quality: a changed credit or a chapter, without rendering the whole sequence again.
+        const auto range = command.value(QStringLiteral("range")).toObject();
+        if (!command.value(QStringLiteral("range")).isObject() || !keys(range, {QStringLiteral("start"), QStringLiteral("end")}) ||
+            !integer(range, QStringLiteral("start")) || !integer(range, QStringLiteral("end"), 1) ||
+            range.value(QStringLiteral("start")).toInt() >= range.value(QStringLiteral("end")).toInt() ||
+            range.value(QStringLiteral("end")).toInt() > pCore->projectDuration())
+            return error(QStringLiteral("INVALID_COMMAND"),
+                         QStringLiteral("range needs whole frames 0 <= start < end <= the sequence duration (end exclusive)."));
+        start = range.value(QStringLiteral("start")).toInt();
+        end = range.value(QStringLiteral("end")).toInt();
+    }
     int width = profile.width();
     int height = profile.height();
     if (preview) {
@@ -2469,10 +2585,15 @@ QJsonObject LiveBridge::startRender(const QJsonObject &command)
     if (!preset->extension().isEmpty() && output.suffix().compare(preset->extension(), Qt::CaseInsensitive) != 0)
         return error(QStringLiteral("INVALID_PATH"), QStringLiteral("Preset %1 writes .%2 files.").arg(presetName, preset->extension()));
     renderStatus();
+    QStringList active;
     for (auto it = m_renders.cbegin(); it != m_renders.cend(); ++it)
         if (it.value().status == QLatin1String("running") || it.value().status == QLatin1String("starting") ||
             it.value().status == QLatin1String("unconfirmed"))
-            return error(QStringLiteral("RENDER_BUSY"), QStringLiteral("Wait for %1 to finish rendering.").arg(it.key()));
+            active << it.key();
+    if (active.size() >= maxConcurrentRenders)
+        return error(QStringLiteral("RENDER_BUSY"), QStringLiteral("%1 renders are already running (%2). Wait for one, or stop it with desktop_render_cancel.")
+                                                        .arg(active.size())
+                                                        .arg(active.join(QStringLiteral(", "))));
     if (!m_renderTracking) {
         auto *server = pCore->window()->findChild<RenderServer *>();
         if (!server) return error(QStringLiteral("RENDERER_MISSING"), QStringLiteral("Render progress server is unavailable."));
@@ -2503,6 +2624,8 @@ QJsonObject LiveBridge::startRender(const QJsonObject &command)
             QStringLiteral("f=mp4 vcodec=libx264 acodec=aac preset=ultrafast crf=28 ab=128k threads=2 real_time=-2 s=%1x%2").arg(width).arg(height), true);
         request.setPresetParams(params);
         request.setBounds(start, end - 1);
+    } else if (ranged) {
+        request.setBounds(start, end - 1);
     }
     request.setDelayedRendering(false);
     request.setProxyRendering(false);
@@ -2526,6 +2649,7 @@ QJsonObject LiveBridge::startRender(const QJsonObject &command)
         state.started = QDateTime::currentSecsSinceEpoch();
         state.playlist = job.playlistPath;
         state.expectedFrames = end - start;
+        state.start = start;
         state.width = width;
         state.height = height;
         state.fps = profile.fps();
@@ -2538,8 +2662,13 @@ QJsonObject LiveBridge::startRender(const QJsonObject &command)
         outputs.append(job.outputPath);
     }
     const bool persisted = saveRenderJournal();
-    return {
-        {"ok", true}, {"outputs", outputs}, {"preset", presetName}, {"preview", preview}, {"expectedFrames", end - start}, {"trackingPersisted", persisted}};
+    return {{"ok", true},
+            {"outputs", outputs},
+            {"preset", presetName},
+            {"preview", preview},
+            {"range", QJsonObject{{"start", start}, {"end", end}}},
+            {"expectedFrames", end - start},
+            {"trackingPersisted", persisted}};
 }
 
 QJsonObject LiveBridge::renderStatus()
@@ -2556,10 +2685,19 @@ QJsonObject LiveBridge::renderStatus()
             }
         }
 #endif
+        const qint64 elapsed = QDateTime::currentSecsSinceEpoch() - it->started;
         QJsonObject job{{"path", it.key()},         {"preset", it->preset}, {"status", it->status},
-                        {"progress", it->progress}, {"frame", it->frame},   {"elapsedSeconds", QDateTime::currentSecsSinceEpoch() - it->started}};
+                        {"progress", it->progress}, {"frame", it->frame},   {"elapsedSeconds", elapsed}};
         job.insert(QStringLiteral("preview"), it->preview);
         job.insert(QStringLiteral("expectedFrames"), it->expectedFrames);
+        job.insert(QStringLiteral("range"), QJsonObject{{"start", it->start}, {"end", it->start + it->expectedFrames}});
+        job.insert(QStringLiteral("startedAt"), QDateTime::fromSecsSinceEpoch(it->started, QTimeZone::UTC).toString(Qt::ISODate));
+        // Encoding speed and a rough ETA, so a slow section is not mistaken for a stall.
+        if (it->status == QLatin1String("running") && it->frame > 0 && elapsed > 0) {
+            const double rate = double(it->frame) / double(elapsed);
+            job.insert(QStringLiteral("framesPerSecond"), std::round(rate * 100) / 100);
+            if (it->expectedFrames > it->frame) job.insert(QStringLiteral("etaSeconds"), qRound((it->expectedFrames - it->frame) / rate));
+        }
         if (it->status == QLatin1String("unconfirmed"))
             job.insert(QStringLiteral("hint"), QStringLiteral("Editor restarted; use desktop_render_verify to confirm the output."));
         if (!it->error.isEmpty()) job.insert(QStringLiteral("error"), it->error);
@@ -2568,39 +2706,6 @@ QJsonObject LiveBridge::renderStatus()
     }
     if (changed) saveRenderJournal();
     return {{"ok", true}, {"jobs", jobs}};
-}
-
-QJsonObject LiveBridge::frameCapture(const QJsonObject &arguments)
-{
-    if (!bind()) return error(QStringLiteral("NOT_READY"), QStringLiteral("No fully loaded active timeline."));
-    if (!keys(arguments, {QStringLiteral("position"), QStringLiteral("width")}) || !integer(arguments, QStringLiteral("position")) ||
-        (arguments.contains(QStringLiteral("width")) && !integer(arguments, QStringLiteral("width"), 64)))
-        return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Expected position and an optional width of at least 64."));
-    const int position = arguments.value(QStringLiteral("position")).toInt();
-    if (position >= pCore->projectDuration()) return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Position is past the end of the timeline."));
-    auto &profile = pCore->getProjectProfile();
-    int width = std::min(arguments.value(QStringLiteral("width")).toInt(540), profile.width());
-    width -= width % 2;
-    int height = qRound(width * double(profile.height()) / profile.width());
-    height += height % 2;
-    // Render a private copy of the sequence so the user's playhead and monitor are untouched.
-    const QString scene = pCore->projectManager()->projectSceneList(QString(), true).first;
-    QImage image;
-    {
-        QReadLocker lock(&pCore->xmlMutex);
-        Mlt::Producer producer(profile, "xml-string", scene.toUtf8().constData());
-        if (!producer.is_valid()) return error(QStringLiteral("CAPTURE_FAILED"), QStringLiteral("Cannot build the sequence for capture."));
-        image = KThumb::getFrame(&producer, position, width, height);
-    }
-    QByteArray png;
-    QBuffer buffer(&png);
-    buffer.open(QIODevice::WriteOnly);
-    if (image.isNull() || !image.save(&buffer, "PNG")) return error(QStringLiteral("CAPTURE_FAILED"), QStringLiteral("Cannot encode the frame."));
-    return {{"ok", true},
-            {"position", position},
-            {"width", image.width()},
-            {"height", image.height()},
-            {"image", QJsonObject{{"data", QString::fromLatin1(png.toBase64())}, {"mimeType", "image/png"}}}};
 }
 
 QJsonObject LiveBridge::effectList(const QJsonObject &arguments)
@@ -2649,11 +2754,10 @@ QJsonObject LiveBridge::titleRead(const QJsonObject &arguments)
     if (!keys(arguments, {QStringLiteral("binId")}) || !arguments.value(QStringLiteral("binId")).isString())
         return error(QStringLiteral("INVALID_ARGUMENTS"), QStringLiteral("Expected binId."));
     auto clip = pCore->projectItemModel()->getClipByBinID(arguments.value(QStringLiteral("binId")).toString());
-    if (!clip || !clip->statusReady() || clip->clipType() != ClipType::Text)
-        return error(QStringLiteral("NOT_A_TITLE"), QStringLiteral("binId must be a loaded title clip."));
+    if (!clip || !clip->statusReady() || !isTitleClip(clip))
+        return error(QStringLiteral("NOT_A_TITLE"), QStringLiteral("binId must be a loaded title clip (native or imported .kdenlivetitle)."));
     QDomDocument xml;
-    if (!xml.setContent(clip->getProducerProperty(QStringLiteral("xmldata"))))
-        return error(QStringLiteral("INVALID_TITLE"), QStringLiteral("Title XML cannot be parsed."));
+    if (!xml.setContent(titleXmlData(clip))) return error(QStringLiteral("INVALID_TITLE"), QStringLiteral("Title XML cannot be parsed."));
     const auto root = xml.documentElement();
     const auto items = root.elementsByTagName(QStringLiteral("item"));
     QJsonArray list;
@@ -2672,6 +2776,8 @@ QJsonObject LiveBridge::titleRead(const QJsonObject &arguments)
             entry.insert(QStringLiteral("fontPixelSize"), content.attribute(QStringLiteral("font-pixel-size")).toInt());
             entry.insert(QStringLiteral("fontFamily"), content.attribute(QStringLiteral("font")));
             entry.insert(QStringLiteral("bold"), content.attribute(QStringLiteral("font-weight")).toInt() >= int(QFont::Bold));
+            const auto rgba = content.attribute(QStringLiteral("font-color")).split(QLatin1Char(','));
+            if (rgba.size() >= 3) entry.insert(QStringLiteral("color"), QColor(rgba[0].toInt(), rgba[1].toInt(), rgba[2].toInt()).name());
             entry.insert(QStringLiteral("boxWidth"), content.attribute(QStringLiteral("box-width")).toDouble());
             entry.insert(QStringLiteral("boxHeight"), content.attribute(QStringLiteral("box-height")).toDouble());
             entry.insert(QStringLiteral("alignment"), (alignment & Qt::AlignRight)     ? QStringLiteral("right")
@@ -2682,6 +2788,8 @@ QJsonObject LiveBridge::titleRead(const QJsonObject &arguments)
     }
     return {{"ok", true},
             {"binId", arguments.value(QStringLiteral("binId")).toString()},
+            {"template", clip->clipType() == ClipType::TextTemplate},
+            {"duration", qint64(clip->frameDuration())},
             {"width", root.attribute(QStringLiteral("width")).toInt()},
             {"height", root.attribute(QStringLiteral("height")).toInt()},
             {"projectWidth", pCore->getCurrentFrameSize().width()},
