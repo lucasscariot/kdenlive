@@ -62,7 +62,8 @@ StatusBarMessageLabel::StatusBarMessageLabel(QWidget *parent)
     , m_queueSemaphore(1)
 {
     setMinimumHeight(KIconLoader::SizeSmall);
-    setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
+    // Let the text shrink and clip, so a long key hint or selection never pushes into the status toolbar
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_container = new FlashLabel(this);
     auto *lay = new QHBoxLayout(this);
     auto *lay2 = new QHBoxLayout(m_container);
@@ -78,6 +79,9 @@ StatusBarMessageLabel::StatusBarMessageLabel(QWidget *parent)
     m_keyMap = new QLabel(this);
     m_keyMap->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_keyMap->setFont(UiUtils::smallFont());
+    for (QLabel *label : {m_selectionLabel, m_label, m_keyMap}) {
+        label->setMinimumWidth(1);
+    }
     m_progress = new QProgressBar(this);
     m_progress->setFormat(i18nc("%p is the percent value, % is the percent sign", "%p%"));
     lay2->addWidget(m_selectionLabel);
