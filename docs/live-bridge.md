@@ -121,8 +121,9 @@ Supported commands:
 - `trim`: `clipId`, `duration`, `edge` equal to `left` or `right`.
 - `save_as`: new absolute `.kdenlive` `path` in a writable folder. Saves a copy,
   never overwrites, and keeps editing the copy. Returns `documentUrl`.
-- `set_profile`: even `width` and `height` up to 8192. Changes the frame size and
-  keeps the frame rate, creating a custom profile if none matches. Not undoable.
+- `set_profile`: even `width` and `height` up to 8192 and/or `fps`. Changes
+  the frame size (creating a custom profile if none matches; not undoable) or
+  converts a saved project to another frame rate and opens the converted copy.
   Returns `changed`.
 - `reframe`: video `clipId`, `mode` equal to `fill` or `fit`, optional `focusX`,
   `focusY`, `endFocusX`, `endFocusY` (0 to 1) and `zoom` (0.1 to 10). Writes a
@@ -145,15 +146,23 @@ Supported commands:
   or `category` and/or `range` (`start`, `end`). One Undo step. Returns `removed`.
 - `marker_import`: `format` (`json`, `csv` or `kdenlive`), `text` and optional
   `binId`. Validates every entry, then adds them in one Undo step.
-- `render`: new absolute output `path` and optional `preset` (default: the
-  configured render preset). Starts `kdenlive_render` for the whole active
-  sequence, one render at a time. Returns `outputs`.
+- `render`: new absolute output `path`, optional `preset` (default: the
+  configured render preset) and optional `range` (`start`, `end`). Starts
+  `kdenlive_render` for the whole active sequence or the range, up to two at a
+  time. Returns `outputs` and `range`.
+- `replace_clip`: `clipId`, `binId`, optional `sourceIn`, `linked` and
+  `keepEffects`. Swaps a timeline clip (and its linked partner) in place.
+- `clip_fade`: `clipId`, `fadeIn` and/or `fadeOut` frames, optional `linked`.
+- `audio_duck`: `clipId`, `ranges` or `auto: true` (optional `trackIds`),
+  optional `levelDb`, `duckDb`, `rampFrames`, `mute`. Keyframes the volume.
+- `project_new`: `profile`, new `.kdenlive` `path`, optional `videoTracks` and
+  `audioTracks`. Replaces the open project; the session ends.
 - `batch`: `commands`, 1 to 200 objects of the types `import`, `remove_asset`,
   `remove_clip`, `audio_envelope`, `rename_track`, `insert`, `move`, `trim`,
   `reframe`, `effect_add`, `effect_set`, `effect_remove`, `title_edit`, the
   four `marker_*` commands, `split`, `remove_range`, `remove_gap`,
-  `insert_space`, `group`, `ungroup`, `speed`, `enable`, `transcript_import`
-  and `range_cut`. Runs
+  `insert_space`, `group`, `ungroup`, `speed`, `enable`, `transcript_import`,
+  `range_cut`, `replace_clip`, `clip_fade`, `audio_duck` and `title_create`. Runs
   them as one Undo step and returns `results`. On the first failure it rolls
   everything back and returns that error with `failedIndex`.
 - `undo` and `redo`: optional `count` (steps) or `toIndex` (target Undo

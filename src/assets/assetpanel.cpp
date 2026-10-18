@@ -4,6 +4,7 @@
 */
 
 #include "assetpanel.hpp"
+#include "bin/projectitemmodel.h"
 #include "core.h"
 #include "definitions.h"
 #include "effects/effectsrepository.hpp"
@@ -257,6 +258,11 @@ void AssetPanel::showEffectStack(const QString &itemName, const std::shared_ptr<
         return;
     }
     ObjectId id = effectsModel->getOwnerId();
+    if (id.type == KdenliveObjectType::BinClip && !pCore->projectItemModel()->getClipByBinID(QString::number(id.itemId))) {
+        // The request was queued before the bin clip was removed (for example by undoing its creation).
+        clear();
+        return;
+    }
     if (m_effectStackWidget->stackOwner() == id) {
         // already on this effect stack, do nothing
         // Disable split effect in case clip was moved

@@ -291,21 +291,26 @@ QHttpServerResponse McpServer::respond(const QHttpServerRequest &request)
         return response(
             {{"jsonrpc", "2.0"},
              {"id", id},
-             {"result",
-              QJsonObject{{"protocolVersion", version},
-                          {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
-                          {"serverInfo", QJsonObject{{"name", "kdenlive-native"}, {"version", "1.0.0"}}},
-                          {"instructions",
-                           "This server edits the visible Kdenlive project. Read desktop_state first and preserve its session/revision. Use a "
-                           "new requestId for each edit and retry uncertain outcomes only with the identical payload. Import/replacement are "
-                           "asynchronous; wait for bin readiness. Edits share native Undo with the user. For an unsaved project, use desktop_project_save_as "
-                           "inside the configured additional media folder first. Create editable titles with desktop_title_create. Check "
-                           "desktop_transcription_readiness before choosing speech recognition. Preflight normal insertions with desktop_batch_validate. "
-                           "Media imports, save_as and render outputs are restricted to the project folder and configured additional media "
-                           "folder. Use desktop_batch to make many edits one Undo step. For a format change (e.g. vertical), save_as a copy, "
-                           "set the profile, reframe clips and resize titles, verifying with desktop_frame_capture, then desktop_render. For "
-                           "transcript or dead-air edits, read desktop_transcript or desktop_silence_detect, then cut with desktop_range_cut "
-                           "(dryRun first) as one Undo step."}}}},
+             {"result", QJsonObject{{"protocolVersion", version},
+                                    {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
+                                    {"serverInfo", QJsonObject{{"name", "kdenlive-native"}, {"version", "1.0.0"}}},
+                                    {"instructions",
+                                     "This server edits the visible Kdenlive project. Read desktop_state first and preserve its session/revision; every "
+                                     "edit result embeds the new state, so chain edits from it instead of re-reading. Use a new requestId for each edit "
+                                     "and retry uncertain outcomes only with the identical payload. Tracks accept tags such as V1 or A2 anywhere a trackId "
+                                     "is expected. Start a project with desktop_project_new (profile from desktop_profile_list) or, for an unsaved "
+                                     "project, desktop_project_save_as inside the configured additional media folder. Imports load asynchronously: import "
+                                     "with wait, or import many then desktop_media_wait once. Preflight insertions with desktop_batch_validate and apply "
+                                     "them with desktop_batch (one Undo step). Create styled titles with desktop_title_create (rect boxes, outlines, "
+                                     "shadows) and change them with desktop_title_edit. Keep music under speech with desktop_audio_duck, fade clips with "
+                                     "desktop_clip_fade, and swap a stem in place with desktop_clip_replace rather than remove-then-insert. Review with "
+                                     "desktop_frame_capture (rendered out of process) and desktop_preview_render; export with desktop_render (whole "
+                                     "sequence or a range, two at a time, cancel with desktop_render_cancel) and check with desktop_render_verify. Never "
+                                     "move or delete files a project or a running render references. For a format change (e.g. vertical), save_as a copy, "
+                                     "set the profile, reframe clips and resize titles. For transcript or dead-air edits, read desktop_transcript or "
+                                     "desktop_silence_detect, then cut with desktop_range_cut (dryRun first). Edits share native Undo with the user; "
+                                     "media imports, save_as and render outputs are restricted to the project folder and configured additional media "
+                                     "folder."}}}},
             Status::Ok, allocated);
     }
     if (sessionId.isEmpty()) return rpcError(notification ? nullId : id, -32600, "Mcp-Session-Id is required.", Status::BadRequest);

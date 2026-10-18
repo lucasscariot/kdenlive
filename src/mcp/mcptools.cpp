@@ -56,38 +56,94 @@ const QMap<QString, Command> &commands()
         const QJsonObject comment{{"type", "string"}, {"maxLength", 4096}};
         const QJsonObject flag{{"type", "boolean"}};
         const QJsonObject removeMode{{"type", "string"}, {"enum", QJsonArray{"lift", "extract"}}};
-        const QJsonObject trackList{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"uniqueItems", true}, {"items", frame}};
+        const QJsonObject trackRef{{"anyOf", QJsonArray{frame, QJsonObject{{"type", "string"}, {"pattern", "^[AVav][0-9]+$"}}}},
+                                   {"description", "A track id from desktop_state, or its tag such as V1 or A2"}};
+        const QJsonObject trackList{{"type", "array"}, {"minItems", 1}, {"maxItems", 64}, {"uniqueItems", true}, {"items", trackRef}};
+        const QJsonObject color{{"type", "string"}, {"pattern", "^#[0-9a-fA-F]{6}$"}};
+        const QJsonObject opacity{{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
+        const QJsonObject decibels{{"type", "number"}, {"minimum", -100}, {"maximum", 24}};
         const QJsonObject category{{"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "string"}, {"minLength", 1}}}},
                                    {"description", "Category index or name from desktop_capabilities markerCategories"}};
         const QJsonObject span = objectSchema({{"start", frame}, {"end", frameSchema(1)}});
-        const QJsonObject titleItem{
-            {"type", "object"},
-            {"properties", QJsonObject{{"index", frame},
-                                       {"text", QJsonObject{{"type", "string"}}},
-                                       {"x", QJsonObject{{"type", "number"}}},
-                                       {"y", QJsonObject{{"type", "number"}}},
-                                       {"fontPixelSize", frameSchema(1)},
-                                       {"alignment", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"left", "center", "right"}}}}}},
-            {"required", QJsonArray{"index"}},
-            {"additionalProperties", false}};
-        const auto titleText = objectSchema({{"text", QJsonObject{{"type", "string"}, {"maxLength", 4096}}},
+        const QJsonObject alignment{{"type", "string"}, {"enum", QJsonArray{"left", "center", "right"}}};
+        const QJsonObject titleItem{{"type", "object"},
+                                    {"properties", QJsonObject{{"index", frame},
+                                                               {"text", QJsonObject{{"type", "string"}}},
+                                                               {"x", QJsonObject{{"type", "number"}}},
+                                                               {"y", QJsonObject{{"type", "number"}}},
+                                                               {"fontPixelSize", frameSchema(1)},
+                                                               {"alignment", alignment},
+                                                               {"color", color},
+                                                               {"bold", flag},
+                                                               {"fontFamily", text}}},
+                                    {"required", QJsonArray{"index"}},
+                                    {"additionalProperties", false}};
+        const auto titleText = objectSchema(
+            {{"kind", QJsonObject{{"type", "string"}, {"const", "text"}}},
+             {"text", QJsonObject{{"type", "string"}, {"maxLength", 4096}}},
+             {"x", QJsonObject{{"type", "number"}}},
+             {"y", QJsonObject{{"type", "number"}}},
+             {"fontPixelSize", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 1024}}},
+             {"fontFamily", text},
+             {"bold", flag},
+             {"italic", flag},
+             {"color", color},
+             {"opacity", opacity},
+             {"alignment", alignment},
+             {"boxWidth", QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 16384}, {"description", "Text box width for center/right alignment"}}},
+             {"letterSpacing", QJsonObject{{"type", "number"}, {"minimum", -100}, {"maximum", 100}}},
+             {"outline", objectSchema({{"width", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 50}}}, {"color", color}, {"opacity", opacity}},
+                                      {"width", "color", "opacity"})},
+             {"shadow", objectSchema({{"color", color},
+                                      {"opacity", opacity},
+                                      {"blur", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 100}}},
+                                      {"xOffset", QJsonObject{{"type", "number"}, {"minimum", -200}, {"maximum", 200}}},
+                                      {"yOffset", QJsonObject{{"type", "number"}, {"minimum", -200}, {"maximum", 200}}}},
+                                     {"color", "opacity", "blur", "xOffset", "yOffset"})}},
+            {"kind", "fontPixelSize", "fontFamily", "bold", "italic", "color", "opacity", "alignment", "boxWidth", "letterSpacing", "outline", "shadow"});
+        const auto titleRect = objectSchema({{"kind", QJsonObject{{"type", "string"}, {"const", "rect"}}},
                                              {"x", QJsonObject{{"type", "number"}}},
                                              {"y", QJsonObject{{"type", "number"}}},
-                                             {"fontPixelSize", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 1024}}},
-                                             {"fontFamily", text},
-                                             {"bold", flag},
-                                             {"color", QJsonObject{{"type", "string"}, {"pattern", "^#[0-9a-fA-F]{6}$"}}}},
-                                            {"fontPixelSize", "fontFamily", "bold", "color"});
+                                             {"width", QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 16384}}},
+                                             {"height", QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 16384}}},
+                                             {"color", color},
+                                             {"opacity", opacity},
+                                             {"borderColor", color},
+                                             {"borderWidth", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 200}}}},
+                                            {"color", "opacity", "borderColor", "borderWidth"});
+        const QJsonObject titleItemCreate{{"oneOf", QJsonArray{titleText, titleRect}}};
         return QMap<QString, Command>{
             {"save_as", {{{"path", text}}}},
             {"title_create",
              {{{"name", text},
                {"duration", frameSchema(1)},
-               {"items", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 32}, {"items", titleText}}}}}},
+               {"items", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 32}, {"items", titleItemCreate}}},
+               {"background", objectSchema({{"color", color}, {"opacity", opacity}}, {"color", "opacity"})}},
+              {"background"}}},
+            {"project_new",
+             {{{"profile", QJsonObject{{"type", "string"}, {"minLength", 1}, {"description", "Profile path or description from desktop_profile_list"}}},
+               {"path", text},
+               {"videoTracks", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 32}}},
+               {"audioTracks", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 32}}}},
+              {"videoTracks", "audioTracks"}}},
+            {"replace_clip",
+             {{{"clipId", frame}, {"binId", bin}, {"sourceIn", frame}, {"linked", flag}, {"keepEffects", flag}}, {"sourceIn", "linked", "keepEffects"}}},
+            {"clip_fade", {{{"clipId", frame}, {"fadeIn", frame}, {"fadeOut", frame}, {"linked", flag}}, {"fadeIn", "fadeOut", "linked"}}},
+            {"audio_duck",
+             {{{"clipId", frame},
+               {"ranges", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 1000}, {"items", span}}},
+               {"auto", QJsonObject{{"type", "boolean"}, {"const", true}}},
+               {"trackIds", trackList},
+               {"levelDb", QJsonObject{{"type", "number"}, {"minimum", -60}, {"maximum", 24}}},
+               {"duckDb", decibels},
+               {"rampFrames", frame},
+               {"mute", flag}},
+              {"ranges", "auto", "trackIds", "levelDb", "duckDb", "rampFrames", "mute"}}},
             {"preview_render",
              {{{"path", text}, {"start", frame}, {"end", frameSchema(1)}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 1280}}}},
               {"width"}}},
-            {"set_profile", {{{"width", size}, {"height", size}}}},
+            {"set_profile",
+             {{{"width", size}, {"height", size}, {"fps", QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 240}}}}, {"width", "height", "fps"}}},
             {"reframe",
              {{{"clipId", frame},
                {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"fill", "fit"}}}},
@@ -117,8 +173,8 @@ const QMap<QString, Command> &commands()
                {"range", objectSchema({{"start", frame}, {"end", frameSchema(1)}})}},
               {"binId", "position", "all", "category", "range"}}},
             {"marker_import", {{{"format", markerFormat}, {"text", QJsonObject{{"type", "string"}, {"minLength", 1}}}, {"binId", bin}}, {"binId"}}},
-            {"render", {{{"path", text}, {"preset", text}}, {"preset"}}},
-            {"import", {{{"path", text}}}},
+            {"render", {{{"path", text}, {"preset", text}, {"range", span}}, {"preset", "range"}}},
+            {"import", {{{"path", text}, {"wait", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 120}}}}, {"wait"}}},
             {"remove_asset", {{{"binId", bin}}}},
             {"remove_clip",
              {{{"clipId", frame},
@@ -126,12 +182,12 @@ const QMap<QString, Command> &commands()
                {"group", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"whole", "single"}}}},
                {"allTracks", flag}},
               {"mode", "group", "allTracks"}}},
-            {"split", {{{"clipId", frame}, {"trackId", frame}, {"position", frame}, {"allTracks", flag}}, {"clipId", "trackId", "allTracks"}}},
+            {"split", {{{"clipId", frame}, {"trackId", trackRef}, {"position", frame}, {"allTracks", flag}}, {"clipId", "trackId", "allTracks"}}},
             {"remove_range",
              {{{"start", frame}, {"end", frameSchema(1)}, {"trackIds", trackList}, {"allTracks", flag}, {"mode", removeMode}},
               {"trackIds", "allTracks", "mode"}}},
-            {"remove_gap", {{{"position", frame}, {"trackId", frame}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
-            {"insert_space", {{{"position", frame}, {"duration", frameSchema(1)}, {"trackId", frame}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
+            {"remove_gap", {{{"position", frame}, {"trackId", trackRef}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
+            {"insert_space", {{{"position", frame}, {"duration", frameSchema(1)}, {"trackId", trackRef}, {"allTracks", flag}}, {"trackId", "allTracks"}}},
             {"group", {{{"clipIds", QJsonObject{{"type", "array"}, {"minItems", 2}, {"maxItems", 200}, {"uniqueItems", true}, {"items", frame}}}}}},
             {"ungroup", {{{"clipId", frame}, {"groupId", frame}}, {"clipId", "groupId"}}},
             {"speed",
@@ -183,21 +239,22 @@ const QMap<QString, Command> &commands()
             {"replace_media", {{{"binId", bin}, {"replacementBinId", bin}}}},
             {"insert",
              {{{"binId", bin},
-               {"trackId", frame},
+               {"trackId", trackRef},
                {"position", frame},
                {"sourceIn", frame},
                {"sourceOut", frameSchema(1)},
                {"media", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"video", "audio"}}}},
                {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"normal", "overwrite", "insert"}}}},
                {"linked", flag},
-               {"audioTrackId", frame},
-               {"allTracks", flag}},
-              {"mode", "linked", "audioTrackId", "allTracks"}}},
-            {"move", {{{"clipId", frame}, {"trackId", frame}, {"position", frame}}}},
+               {"audioTrackId", trackRef},
+               {"allTracks", flag},
+               {"clamp", flag}},
+              {"sourceOut", "mode", "linked", "audioTrackId", "allTracks", "clamp"}}},
+            {"move", {{{"clipId", frame}, {"trackId", trackRef}, {"position", frame}}}},
             {"trim", {{{"clipId", frame}, {"duration", frameSchema(1)}, {"edge", edge}}}},
             {"audio_envelope",
              {{{"clipId", frame}, {"fadeIn", frame}, {"fadeOut", frame}, {"gainDb", QJsonObject{{"type", "number"}, {"minimum", -60}, {"maximum", 0}}}}}},
-            {"rename_track", {{{"trackId", frame}, {"name", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}}}}},
+            {"rename_track", {{{"trackId", trackRef}, {"name", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}}}}},
             {"save", {}},
             {"undo",
              {{{"count", frameSchema(1)}, {"toIndex", frame}, {"revertSession", QJsonObject{{"type", "boolean"}, {"const", true}}}},
@@ -238,12 +295,15 @@ struct Tool
 const QList<Tool> &editingTools()
 {
     static const QList<Tool> result{
-        {"desktop_media_import", "Import a local file into the visible project bin. Returns binId; poll desktop_state until ready. Reuses existing paths.",
+        {"desktop_media_import",
+         "Import a local file into the visible project bin. Returns binId. Loading is asynchronous: pass wait (seconds) to block until the clip is "
+         "ready, or import many then call desktop_media_wait once. Reuses existing paths.",
          "import", additiveRepeatable},
         {"desktop_media_remove", "Remove an unused binId using native Undo. Rejects media used in any sequence. Keeps the source file on disk.", "remove_asset",
          overwritingRepeatable},
         {"desktop_clip_insert",
-         "Insert ready bin media [sourceIn, sourceOut) (exclusive, project frames) at position on trackId; media picks the stream placed there. With "
+         "Insert ready bin media [sourceIn, sourceOut) (exclusive, project frames; sourceOut defaults to the whole clip, clamp: true trims an "
+         "overshooting range) at position on trackId (an id or tag such as V1); media picks the stream placed there. With "
          "media video an A/V clip is linked by default: its audio goes to audioTrackId (default: the mirror or nearest unlocked audio track) and both "
          "halves are grouped and linked (linked: false inserts video only). mode normal (default) refuses an occupied range (OVERLAP), overwrite "
          "replaces what is there, insert cuts at position and pushes later clips right on the receiving tracks (allTracks: true on every unlocked "
@@ -290,8 +350,23 @@ const QList<Tool> &editingTools()
          overwritingRepeatable},
         {"desktop_media_replace",
          "Replace every use of binId with replacementBinId. Both must be ready with matching streams; replacement must cover the original "
-         "duration.",
+         "duration. Titles are not media: edit them with desktop_title_edit. For one timeline clip use desktop_clip_replace.",
          "replace_media", overwritingRepeatable},
+        {"desktop_clip_replace",
+         "Swap one timeline clip for bin clip binId in place, keeping its position, duration, group and (keepEffects, default) its effects, as one "
+         "Undo step. sourceIn (default: the clip's) chooses the replacement's start frame. The linked A/V partner is swapped too when the "
+         "replacement has that stream (linked, default true). The replacement must cover the range (MEDIA_TOO_SHORT otherwise). The safe way to "
+         "drop in a re-recorded or levelled stem: nothing is removed unless the insertion succeeds.",
+         "replace_clip", overwritingRepeatable},
+        {"desktop_clip_fade",
+         "Fade a timeline clip in and/or out over fadeIn/fadeOut frames with Kdenlive's fade effects (fade from/to black on video, audio fades on "
+         "audio), and its linked partner unless linked: false. 0 removes a fade. One Undo step.",
+         "clip_fade", overwritingRepeatable},
+        {"desktop_audio_duck",
+         "Lower a music or ambience clip under speech: keyframe its volume to levelDb (default 0) and to duckDb (default -18; mute: true silences it) "
+         "inside ranges [{start, end}] in timeline frames, or with auto: true under every clip on the other audio tracks (or trackIds). Ramps take "
+         "rampFrames (default half a second). Replaces the clip's volume effect if it has one. One Undo step.",
+         "audio_duck", overwritingRepeatable},
         {"desktop_clip_move", "Move a native clip to a track and frame position, respecting locks, groups and collisions.", "move", overwritingRepeatable},
         {"desktop_clip_trim", "Trim a clip edge to duration frames. Read actualDuration in the result.", "trim", overwritingRepeatable},
         {"desktop_audio_envelope",
@@ -306,16 +381,24 @@ const QList<Tool> &editingTools()
          "destructive format changes such as desktop_project_profile.",
          "save_as", additiveRepeatable},
         {"desktop_title_create",
-         "Create a native editable title in the bin. duration is an exact frame count; the canvas uses the project size. "
-         "items are positioned text with fontPixelSize, fontFamily, bold and #RRGGBB color. Wait for bin readiness before insertion.",
+         "Create a native editable title in the bin. duration is an exact frame count; the canvas uses the project size. items are text "
+         "(fontPixelSize, fontFamily, bold, italic, #RRGGBB color, opacity, alignment with boxWidth, outline {width, color}, shadow {color, blur, "
+         "xOffset, yOffset}) or kind rect boxes (width, height, color, opacity) drawn in order, so put a backing rect before its text. background "
+         "{color, opacity} fills the frame (default transparent). Wait for bin readiness before insertion; edit later with desktop_title_edit.",
          "title_create", additive},
+        {"desktop_project_new",
+         "Create a new project with profile (a path or description from desktop_profile_list, e.g. 1920x1080 25fps) and save it to a new .kdenlive "
+         "path, optionally with videoTracks/audioTracks. The open project must be saved or unmodified (PROJECT_MODIFIED). Ends the current editing "
+         "session: the result carries the new sessionId; read desktop_state before editing.",
+         "project_new", additive},
         {"desktop_preview_render",
          "Render [start,end) timeline frames, including audio, to a new .mp4. Maximum 10 seconds; width defaults to 640. "
          "Does not move the playhead or change the project profile. Poll desktop_render_status, then desktop_render_verify with includeAudio.",
          "preview_render", additive},
         {"desktop_project_profile",
-         "Change the project frame size, e.g. 1080x1920 for vertical video. Keeps the frame rate. Not undoable: save a copy first. Existing clips are "
-         "letterboxed until reframed.",
+         "Change the project frame size (width, height), e.g. 1080x1920 for vertical video, and/or its frame rate (fps). A size change is immediate "
+         "and not undoable: save a copy first; existing clips are letterboxed until reframed. A frame-rate change needs a saved, unmodified "
+         "project: Kdenlive converts it into a copy named with the new rate (convertedFile) and opens that copy, which ends the editing session.",
          "set_profile", overwritingRepeatable},
         {"desktop_clip_reframe",
          "Fill or fit a video clip in the project frame with a native Transform effect. focusX/focusY (0..1, default 0.5) choose the visible part: 0 "
@@ -332,8 +415,8 @@ const QList<Tool> &editingTools()
          "effect_set", overwritingRepeatable},
         {"desktop_effect_remove", "Remove the effect at index from a timeline clip (clipId) or bin clip (binId).", "effect_remove", overwriting},
         {"desktop_title_edit",
-         "Edit a title clip: canvas width/height (match the project frame after a profile change) and text items by index (text, x, y, "
-         "fontPixelSize, alignment). Read items with desktop_title_read first.",
+         "Edit a title clip, native or imported .kdenlivetitle: canvas width/height (match the project frame after a profile change) and text items "
+         "by index (text, x, y, fontPixelSize, alignment, color, bold, fontFamily). Read items with desktop_title_read first.",
          "title_edit", overwritingRepeatable},
         {"desktop_marker_add",
          "Add a guide to the active sequence, or with binId a marker to that bin clip (frames relative to the clip). duration > 0 makes a range "
@@ -373,8 +456,9 @@ const QList<Tool> &editingTools()
          "is missing: tell the user what to install; this tool never installs anything.",
          "transcribe", overwriting},
         {"desktop_render",
-         "Start rendering the active sequence to a new file in the project folder or additional media folder. preset defaults to the configured one "
-         "(usually MP4-H264/AAC). Poll desktop_render_status.",
+         "Start rendering the active sequence, or only range {start, end} (end exclusive) of it at full quality, to a new file in the project folder "
+         "or additional media folder. preset defaults to the configured one (usually MP4-H264/AAC; WAV for audio only). Up to two renders run at "
+         "once. Poll desktop_render_status (progress, framesPerSecond, etaSeconds); stop one with desktop_render_cancel.",
          "render", additive},
         {"desktop_undo",
          "Undo in shared Kdenlive history, including manual edits: the latest step, count steps, or down to toIndex (an undo index from "
@@ -383,8 +467,9 @@ const QList<Tool> &editingTools()
          "undo", overwriting},
         {"desktop_redo", "Redo in shared Kdenlive history: the next step, count steps, or up to toIndex. Returns redone entries.", "redo", overwriting},
         {"desktop_batch",
-         "Apply up to 200 editing commands (import, remove_asset, remove_clip, audio_envelope, rename_track, insert, move, trim, reframe, effect_*, "
-         "title_edit, marker_*, split, remove_range, remove_gap, insert_space, group, ungroup, speed, enable, transcript_import, range_cut) as one "
+         "Apply up to 200 editing commands (import, remove_asset, remove_clip, replace_clip, audio_envelope, audio_duck, clip_fade, rename_track, "
+         "insert, move, trim, reframe, effect_*, title_create, title_edit, marker_*, split, remove_range, remove_gap, insert_space, group, ungroup, "
+         "speed, enable, transcript_import, range_cut) as one "
          "Undo step. Position-addressed "
          "commands chain well: apply range removals from the last range to the first. Each command has the same fields as desktop_apply commands. Stops and "
          "rolls back everything on the first "
@@ -429,14 +514,38 @@ QJsonArray McpTools::definitions()
                    {{"include", QJsonObject{{"type", "array"},
                                             {"uniqueItems", true},
                                             {"items", QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(LiveBridge::stateSectionNames())}}}}},
-                    {"trackId", frameSchema()},
-                    {"range", objectSchema({{"start", frameSchema()}, {"end", frameSchema(1)}})}},
-                   readOnlyTool, {"include", "trackId", "range"}));
-    result.append(definition("desktop_frame_capture",
-                             "Render one frame of the active sequence at a timeline position as a PNG image (default 540 px wide). Does not move the "
-                             "playhead.",
-                             {{"position", frameSchema()}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 1920}}}}, readOnlyTool,
-                             {"width"}));
+                    {"trackId", QJsonObject{{"anyOf", QJsonArray{frameSchema(), QJsonObject{{"type", "string"}, {"pattern", "^[AVav][0-9]+$"}}}}}},
+                    {"range", objectSchema({{"start", frameSchema()}, {"end", frameSchema(1)}})},
+                    {"binIds", QJsonObject{{"type", "array"},
+                                           {"minItems", 1},
+                                           {"maxItems", 1000},
+                                           {"uniqueItems", true},
+                                           {"items", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}},
+                                           {"description", "Only these bin items, e.g. to poll readiness cheaply"}}}},
+                   readOnlyTool, {"include", "trackId", "range", "binIds"}));
+    result.append(
+        definition("desktop_frame_capture",
+                   "Render one frame of the active sequence at a timeline position as a PNG image (default 540 px wide), in a separate melt "
+                   "process so the editor keeps running. With path (a new .png in the project or additional media folder) the frame is "
+                   "written there at the requested width instead of returned inline. Does not move the playhead.",
+                   {{"position", frameSchema()}, {"width", QJsonObject{{"type", "integer"}, {"minimum", 64}, {"maximum", 3840}}}, {"path", stringSchema()}},
+                   readOnlyTool, {"width", "path"}));
+    result.append(definition(
+        "desktop_media_wait",
+        "Wait until bin clips finish loading: binIds (default: every bin clip) for up to timeoutSeconds (default 30, max 120). "
+        "Returns ready, timedOut and each item's readiness and duration. Call it once after importing many files instead of "
+        "polling desktop_state.",
+        {{"binIds", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 1000}, {"items", QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}}}}},
+         {"timeoutSeconds", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 120}}}},
+        readOnlyTool, {"binIds", "timeoutSeconds"}));
+    result.append(definition("desktop_profile_list",
+                             "List the project profiles Kdenlive knows (path, description, width, height, fps, progressive), optionally filtered by "
+                             "query, and which one the open project uses. Pass a path or description to desktop_project_new.",
+                             {{"query", stringSchema()}}, readOnlyTool, {"query"}));
+    result.append(definition("desktop_render_cancel",
+                             "Stop a render started with desktop_render or desktop_preview_render (path) and remove its partial output. The job is "
+                             "reported as aborted by desktop_render_status.",
+                             {{"path", stringSchema()}}, Hints{false, true, true}));
     result.append(definition("desktop_effect_list",
                              "List the effects on a timeline clip (clipId) or bin clip (binId, e.g. text effects on title-like color clips) with their "
                              "parameters and keyframeOrigin, and/or search the effect catalog by query.",
@@ -509,7 +618,7 @@ QJsonArray McpTools::definitions()
     auto fields = editFields();
     QJsonArray variants;
     QJsonArray batchVariants;
-    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "preview_render", "replace_media", "undo", "redo", "transcribe"};
+    const QStringList unbatchable{"save", "save_as", "set_profile", "render", "preview_render", "replace_media", "undo", "redo", "transcribe", "project_new"};
     for (auto it = commands().begin(); it != commands().end(); ++it) {
         auto properties = it.value().properties;
         properties.insert("type", QJsonObject{{"const", it.key()}, {"type", "string"}});
@@ -559,7 +668,23 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
         capabilities.insert("project", QJsonObject{{"saved", saved}, {"firstSaveAvailable", firstSaveAvailable}, {"firstSaveFolder", folder}});
         return capabilities;
     }
-    if (name == QLatin1String("desktop_frame_capture")) return engine.frameCapture(arguments);
+    if (name == QLatin1String("desktop_frame_capture")) {
+        if (arguments.contains("path")) {
+            // A saved frame follows the output folder policy of renders.
+            const auto state = QJsonDocument::fromJson(engine.state().toUtf8()).object();
+            const auto projectRoot = QFileInfo(QUrl(state.value("documentUrl").toString()).toLocalFile()).canonicalPath();
+            const QFileInfo target(arguments.value("path").toString());
+            const auto folder = QFileInfo(target.absolutePath()).canonicalFilePath();
+            const auto extraRoot = additionalMediaRoot.isEmpty() ? QString{} : QFileInfo(additionalMediaRoot).canonicalFilePath();
+            if (!target.isAbsolute() || folder.isEmpty()) return failure("INVALID_PATH", "path must be an absolute .png in an existing folder.");
+            if (!within(folder, projectRoot) && !within(folder, extraRoot))
+                return failure("PATH_NOT_ALLOWED", "Frames can only be written inside the project folder or the configured additional media folder.");
+        }
+        return engine.frameCapture(arguments);
+    }
+    if (name == QLatin1String("desktop_media_wait")) return engine.mediaWait(arguments);
+    if (name == QLatin1String("desktop_profile_list")) return engine.profileList(arguments);
+    if (name == QLatin1String("desktop_render_cancel")) return engine.renderCancel(arguments);
     if (name == QLatin1String("desktop_effect_list")) return engine.effectList(arguments);
     if (name == QLatin1String("desktop_title_read")) return engine.titleRead(arguments);
     if (name == QLatin1String("desktop_marker_export")) return engine.markerExport(arguments);
@@ -601,13 +726,14 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
         const QFileInfo project(projectUrl.toLocalFile());
         const auto command = request.value("command").toObject();
         const bool saved = projectUrl.isLocalFile() && project.isFile();
-        if (!saved && command.value("type") != QLatin1String("save_as"))
+        if (!saved && command.value("type") != QLatin1String("save_as") && command.value("type") != QLatin1String("project_new"))
             return failure("DESKTOP_SAVE_REQUIRED", "Save the active project to a local file before editing through MCP.");
         const QString projectRoot = saved ? QFileInfo(project.canonicalFilePath()).absolutePath() : QString{};
         const QString extraRoot = additionalMediaRoot.isEmpty() ? QString{} : QFileInfo(additionalMediaRoot).canonicalFilePath();
         const auto check = [&](const QJsonObject &command) -> QJsonObject {
             const auto type = command.value("type").toString();
-            if (type == QLatin1String("save_as") || type == QLatin1String("render") || type == QLatin1String("preview_render")) {
+            if (type == QLatin1String("save_as") || type == QLatin1String("project_new") || type == QLatin1String("render") ||
+                type == QLatin1String("preview_render")) {
                 // New files: check the folder they will be written to.
                 const QFileInfo target(command.value("path").toString());
                 const QString folder = QFileInfo(target.absolutePath()).canonicalFilePath();
@@ -623,9 +749,12 @@ QJsonObject McpTools::call(LiveBridge &engine, const QString &name, const QJsonO
             } else {
                 for (const auto &item : state.value("bin").toArray()) {
                     const auto clip = item.toObject();
-                    if (clip.value("id") == command.value("replacementBinId")) path = clip.value("url").toString();
+                    if (clip.value("id") != command.value("replacementBinId")) continue;
+                    // Titles have no file; the engine explains how to change them.
+                    if (clip.value("type") == QLatin1String("title")) return {};
+                    path = clip.value("url").toString();
                 }
-                if (path.isEmpty()) return failure("MEDIA_NOT_READY", "Replacement media is not available.");
+                if (path.isEmpty()) return failure("UNKNOWN_BIN", "replacementBinId is not a bin clip with a media file.");
             }
             const QFileInfo media(path);
             const QString canonical = media.canonicalFilePath();
