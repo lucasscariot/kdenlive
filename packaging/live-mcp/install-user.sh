@@ -45,6 +45,7 @@ if LD_LIBRARY_PATH="$live_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "
   exit 1
 fi
 install -m 755 "$script_dir/kdenlive-live" "$live_prefix/bin/kdenlive-live"
+install -m 755 "$script_dir/kdenlive-mcp-stdio.py" "$live_prefix/bin/kdenlive-mcp-stdio"
 ln -sfn "$live_prefix/bin/kdenlive-live" "$command_path"
 cat > "$desktop_file" <<DESKTOP
 [Desktop Entry]
@@ -67,4 +68,4 @@ fi
 if command -v update-desktop-database >/dev/null; then
   update-desktop-database "$desktop_dir"
 fi
-printf 'Installed %s\nLauncher: %s\n' "$live_prefix" "$desktop_file"
+printf 'Installed %s\nLauncher: %s\nMCP stdio shim: %s/bin/kdenlive-mcp-stdio\n' "$live_prefix" "$desktop_file" "$live_prefix"
